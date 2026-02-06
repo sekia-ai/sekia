@@ -10,6 +10,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/sekia-ai/sekia/internal/registry"
+	"github.com/sekia-ai/sekia/internal/workflow"
 	"github.com/sekia-ai/sekia/pkg/protocol"
 )
 
@@ -17,16 +18,18 @@ import (
 type Server struct {
 	socketPath string
 	registry   *registry.Registry
+	engine     *workflow.Engine
 	startedAt  time.Time
 	httpServer *http.Server
 	logger     zerolog.Logger
 }
 
-// New creates an API server.
-func New(socketPath string, reg *registry.Registry, startedAt time.Time, logger zerolog.Logger) *Server {
+// New creates an API server. The engine parameter may be nil if workflows are disabled.
+func New(socketPath string, reg *registry.Registry, engine *workflow.Engine, startedAt time.Time, logger zerolog.Logger) *Server {
 	s := &Server{
 		socketPath: socketPath,
 		registry:   reg,
+		engine:     engine,
 		startedAt:  startedAt,
 		logger:     logger.With().Str("component", "api").Logger(),
 	}
@@ -34,6 +37,8 @@ func New(socketPath string, reg *registry.Registry, startedAt time.Time, logger 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/status", s.handleStatus)
 	mux.HandleFunc("GET /api/v1/agents", s.handleAgents)
+	mux.HandleFunc("GET /api/v1/workflows", s.handleWorkflows)
+	mux.HandleFunc("POST /api/v1/workflows/reload", s.handleWorkflowReload)
 
 	s.httpServer = &http.Server{Handler: mux}
 	return s
@@ -66,6 +71,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		StartedAt:   s.startedAt,
 		AgentCount:  s.registry.Count(),
 	}
+	if s.engine != nil {
+		resp.WorkflowCount = s.engine.Count()
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }
@@ -76,4 +84,41 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) handleWorkflows(w http.ResponseWriter, r *http.Request) {
+	var workflows []protocol.WorkflowInfo
+	if s.engine != nil {
+		for _, wf := range s.engine.Workflows() {
+			workflows = append(workflows, protocol.WorkflowInfo{
+				Name:     wf.Name,
+				FilePath: wf.FilePath,
+				Handlers: wf.Handlers,
+				Patterns: wf.Patterns,
+				LoadedAt: wf.LoadedAt,
+				Events:   wf.Events,
+				Errors:   wf.Errors,
+			})
+		}
+	}
+	if workflows == nil {
+		workflows = []protocol.WorkflowInfo{}
+	}
+	resp := protocol.WorkflowsResponse{Workflows: workflows}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) handleWorkflowReload(w http.ResponseWriter, r *http.Request) {
+	if s.engine == nil {
+		http.Error(w, "workflow engine not enabled", http.StatusServiceUnavailable)
+		return
+	}
+	if err := s.engine.ReloadAll(); err != nil {
+		s.logger.Error().Err(err).Msg("workflow reload failed")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "reloaded"})
 }

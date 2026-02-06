@@ -15,6 +15,7 @@ func NewRootCmd() *cobra.Command {
 
 	rootCmd.AddCommand(newStatusCmd())
 	rootCmd.AddCommand(newAgentsCmd())
+	rootCmd.AddCommand(newWorkflowsCmd())
 
 	return rootCmd
 }

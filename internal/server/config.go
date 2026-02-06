@@ -9,8 +9,9 @@ import (
 
 // Config is the top-level daemon configuration.
 type Config struct {
-	Server ServerConfig `mapstructure:"server"`
-	NATS   NATSConfig   `mapstructure:"nats"`
+	Server    ServerConfig   `mapstructure:"server"`
+	NATS      NATSConfig     `mapstructure:"nats"`
+	Workflows WorkflowConfig `mapstructure:"workflows"`
 }
 
 // ServerConfig holds HTTP/socket settings.
@@ -25,6 +26,12 @@ type NATSConfig struct {
 	DataDir  string `mapstructure:"data_dir"`
 }
 
+// WorkflowConfig holds Lua workflow engine settings.
+type WorkflowConfig struct {
+	Dir       string `mapstructure:"dir"`
+	HotReload bool   `mapstructure:"hot_reload"`
+}
+
 // LoadConfig reads configuration from file, env, and flags.
 func LoadConfig(cfgFile string) (Config, error) {
 	v := viper.New()
@@ -35,6 +42,9 @@ func LoadConfig(cfgFile string) (Config, error) {
 
 	homeDir, _ := os.UserHomeDir()
 	v.SetDefault("nats.data_dir", filepath.Join(homeDir, ".local", "share", "sekia", "nats"))
+
+	v.SetDefault("workflows.dir", filepath.Join(homeDir, ".config", "sekia", "workflows"))
+	v.SetDefault("workflows.hot_reload", true)
 
 	v.SetConfigType("toml")
 

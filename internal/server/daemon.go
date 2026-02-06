@@ -13,6 +13,7 @@ import (
 	"github.com/sekia-ai/sekia/internal/api"
 	"github.com/sekia-ai/sekia/internal/natsserver"
 	"github.com/sekia-ai/sekia/internal/registry"
+	"github.com/sekia-ai/sekia/internal/workflow"
 )
 
 // Daemon is the sekiad process.
@@ -21,6 +22,7 @@ type Daemon struct {
 	logger    zerolog.Logger
 	nats      *natsserver.Server
 	registry  *registry.Registry
+	engine    *workflow.Engine
 	apiServer *api.Server
 	startedAt time.Time
 	stopCh    chan struct{}
@@ -56,8 +58,27 @@ func (d *Daemon) Run() error {
 	}
 	d.registry = reg
 
-	// 3. Start API server.
-	d.apiServer = api.New(d.cfg.Server.Socket, reg, d.startedAt, d.logger)
+	// 3. Start workflow engine.
+	if d.cfg.Workflows.Dir != "" {
+		eng := workflow.New(ns.Conn(), d.cfg.Workflows.Dir, d.logger)
+		if err := eng.Start(); err != nil {
+			reg.Close()
+			ns.Shutdown()
+			return fmt.Errorf("start workflow engine: %w", err)
+		}
+		if err := eng.LoadDir(); err != nil {
+			d.logger.Warn().Err(err).Msg("failed to load workflows")
+		}
+		if d.cfg.Workflows.HotReload {
+			if err := eng.StartWatcher(); err != nil {
+				d.logger.Warn().Err(err).Msg("failed to start workflow watcher")
+			}
+		}
+		d.engine = eng
+	}
+
+	// 4. Start API server.
+	d.apiServer = api.New(d.cfg.Server.Socket, reg, d.engine, d.startedAt, d.logger)
 	apiErrCh := make(chan error, 1)
 	go func() {
 		apiErrCh <- d.apiServer.Start()
@@ -112,6 +133,9 @@ func (d *Daemon) shutdown() error {
 
 	if d.apiServer != nil {
 		d.apiServer.Shutdown(ctx)
+	}
+	if d.engine != nil {
+		d.engine.Stop()
 	}
 	if d.registry != nil {
 		d.registry.Close()
