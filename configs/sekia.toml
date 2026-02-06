@@ -1,0 +1,7 @@
+[server]
+listen = "127.0.0.1:7600"
+socket = "/tmp/sekiad.sock"
+
+[nats]
+embedded = true
+data_dir = "~/.local/share/sekia/nats"
