@@ -5,8 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Test Commands
 
 ```bash
-# Build both binaries
-go build ./cmd/sekiad ./cmd/sekiactl
+# Build all binaries
+go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github
 
 # Run all tests
 go test ./...
@@ -22,25 +22,25 @@ No Makefile or custom scripts — standard Go toolchain only.
 
 ## Architecture
 
-Sekia is a multi-agent event bus. Two binaries (`sekiad` daemon, `sekiactl` CLI) communicate over a Unix socket. Agents connect via an embedded NATS server.
+Sekia is a multi-agent event bus. Three binaries (`sekiad` daemon, `sekiactl` CLI, `sekia-github` GitHub agent) communicate over NATS. The daemon and CLI also use a Unix socket.
 
 ### Dependency flow
 
 ```
-cmd/sekiad          cmd/sekiactl
-    │                    │
-    ▼                    ▼
-internal/server     cmd/sekiactl/cmd
-    │                    │
+cmd/sekiad          cmd/sekiactl        cmd/sekia-github
+    │                    │                    │
+    ▼                    ▼                    ▼
+internal/server     cmd/sekiactl/cmd    internal/github
+    │                    │                    │
     ├─► internal/natsserver   (embedded NATS + JetStream)
     ├─► internal/registry     (agent tracking via NATS subscriptions)
     ├─► internal/workflow     (Lua workflow engine — event→handler→command)
     ├─► internal/api          (HTTP-over-Unix-socket API)
-    │                    │
-    └────────┬───────────┘
-             ▼
-        pkg/protocol          (shared wire types — Event, Registration, Heartbeat, API responses)
-             ▲
+    │                    │                    │
+    └────────┬───────────┘                    │
+             ▼                                │
+        pkg/protocol  ◄───────────────────────┘
+             ▲         (shared wire types — Event, Registration, Heartbeat, API responses)
              │
         pkg/agent             (SDK for building agents — auto-register, auto-heartbeat)
 ```
@@ -92,6 +92,24 @@ Lua-based event→handler→command engine using [gopher-lua](https://github.com
 - `GET /api/v1/workflows` — list loaded workflows
 - `POST /api/v1/workflows/reload` — trigger full reload
 
+### GitHub agent (`internal/github/`)
+
+Standalone binary (`cmd/sekia-github/`) that bridges GitHub webhooks to the NATS event bus and executes GitHub API commands.
+
+**Flow**: `GitHub webhook → sekia-github → sekia.events.github → Lua workflow → sekia.commands.github-agent → sekia-github → GitHub API`
+
+**Event types**: `github.issue.{opened,closed,reopened,labeled,assigned}`, `github.pr.{opened,closed,merged,review_requested}`, `github.push`, `github.comment.created`
+
+**Commands**: `add_label`, `remove_label`, `create_comment`, `close_issue`, `reopen_issue`
+
+**Key design decisions:**
+- **GitHubClient interface** for testability — commands go through an interface that wraps `google/go-github`, easily mocked in tests.
+- **All events on `sekia.events.github`** — workflows filter by `event.type` field, not NATS subject.
+- **Webhook HMAC-SHA256 verification** via `X-Hub-Signature-256` header (optional, controlled by `webhook.secret` config).
+- **PAT auth** via `GITHUB_TOKEN` env var or config file.
+
+**Config file**: `sekia-github.toml` (same search paths as `sekia.toml`). Env vars: `GITHUB_TOKEN`, `GITHUB_WEBHOOK_SECRET`, `SEKIA_NATS_URL`.
+
 ## Project status
 
-Phases 1 (core infrastructure) and 2 (Lua workflow engine) are complete. Remaining phases: GitHub/Gmail/Slack/Linear agents, polish.
+Phases 1 (core infrastructure), 2 (Lua workflow engine), and 3 (GitHub agent) are complete. Remaining phases: Gmail/Slack/Linear agents, polish.

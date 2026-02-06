@@ -48,7 +48,7 @@ Two binaries — `sekiad` (daemon) and `sekiactl` (CLI) — communicate over a U
 ### Build
 
 ```bash
-go build ./cmd/sekiad ./cmd/sekiactl
+go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github
 ```
 
 ### Run the daemon
@@ -133,15 +133,17 @@ Workflows are Lua scripts that react to events and send commands to agents. Plac
 -- ~/.config/sekia/workflows/github_labeler.lua
 
 sekia.on("sekia.events.github", function(event)
-    if event.type ~= "issue.opened" then return end
+    if event.type ~= "github.issue.opened" then return end
 
     local title = string.lower(event.payload.title or "")
     local label = "triage"
     if string.find(title, "bug") then label = "bug" end
 
     sekia.command("github-agent", "add_label", {
-        issue = event.payload.number,
-        label = label,
+        owner  = event.payload.owner,
+        repo   = event.payload.repo,
+        number = event.payload.number,
+        label  = label,
     })
 
     sekia.log("info", "labeled issue #" .. event.payload.number)
@@ -162,6 +164,44 @@ Workflows run in a sandboxed Lua VM with only `base`, `table`, `string`, and `ma
 
 When `hot_reload` is enabled (default), editing or adding `.lua` files automatically reloads the affected workflows.
 
+## GitHub Agent
+
+The `sekia-github` binary is a standalone agent that ingests GitHub webhooks and executes GitHub API commands.
+
+### Run
+
+```bash
+export GITHUB_TOKEN=ghp_...
+./sekia-github
+```
+
+Point your GitHub repository's webhook settings to `http://<host>:8080/webhook`. Optionally set `GITHUB_WEBHOOK_SECRET` to verify signatures.
+
+### Configuration
+
+See [configs/sekia-github.toml](configs/sekia-github.toml) for all options. Environment variables: `GITHUB_TOKEN`, `GITHUB_WEBHOOK_SECRET`, `SEKIA_NATS_URL`.
+
+### Supported events
+
+| GitHub Event | Sekia Event Type |
+|---|---|
+| Issue opened/closed/reopened/labeled/assigned | `github.issue.<action>` |
+| PR opened/closed/merged/review_requested | `github.pr.<action>` |
+| Push | `github.push` |
+| Issue comment created | `github.comment.created` |
+
+### Supported commands
+
+| Command | Required Payload | Action |
+|---|---|---|
+| `add_label` | `owner`, `repo`, `number`, `label` | Add a label to an issue/PR |
+| `remove_label` | `owner`, `repo`, `number`, `label` | Remove a label |
+| `create_comment` | `owner`, `repo`, `number`, `body` | Post a comment |
+| `close_issue` | `owner`, `repo`, `number` | Close an issue |
+| `reopen_issue` | `owner`, `repo`, `number` | Reopen an issue |
+
+See [configs/workflows/github-auto-label.lua](configs/workflows/github-auto-label.lua) for an example workflow.
+
 ## Testing
 
 ```bash
@@ -174,7 +214,7 @@ The end-to-end tests in `internal/server` start the full daemon, connect test ag
 
 - [x] Phase 1: Core infrastructure (NATS, registry, API, CLI, agent SDK)
 - [x] Phase 2: Lua workflow engine
-- [ ] Phase 3: GitHub agent
+- [x] Phase 3: GitHub agent
 - [ ] Phase 4: Gmail, Slack, Linear agents
 - [ ] Phase 5: Polish (docs, Docker, Homebrew, web UI)
 
