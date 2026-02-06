@@ -5,3 +5,7 @@ socket = "/tmp/sekiad.sock"
 [nats]
 embedded = true
 data_dir = "~/.local/share/sekia/nats"
+
+[workflows]
+dir = "~/.config/sekia/workflows"
+hot_reload = true

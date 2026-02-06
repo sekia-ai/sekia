@@ -7,29 +7,32 @@ Two binaries — `sekiad` (daemon) and `sekiactl` (CLI) — communicate over a U
 ## Architecture
 
 ```
-┌───────────────────────────────────────────────────┐
-│                    sekiad                         │
-│                                                   │
-│  ┌───────────────┐  ┌──────────┐  ┌────────────┐  │
-│  │ Embedded NATS │  │ Registry │  │  HTTP API  │  │
-│  │ + JetStream   │  │          │  │ (Unix sock)│  │
-│  └───────────────┘  └──────────┘  └────────────┘  │
-│         ▲                              ▲          │
-└─────────┼──────────────────────────────┼──────────┘
-          │ NATS (in-process)            │ /tmp/sekiad.sock
-    ┌─────┴─────┐                  ┌─────┴──────┐
-    │  Agent A  │                  │  sekiactl  │
-    │  Agent B  │                  └────────────┘
-    └───────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                            sekiad                            │
+│                                                              │
+│  ┌───────────────┐  ┌──────────┐  ┌───────────┐  ┌────────┐  │
+│  │ Embedded NATS │  │ Registry │  │ Workflow  │  │  HTTP  │  │
+│  │ + JetStream   │  │          │  │  Engine   │  │  API   │  │
+│  └───────────────┘  └──────────┘  └───────────┘  └────────┘  │
+│         ▲                           ▲    │           ▲       │
+└─────────┼───────────────────────────┼────┼───────────┼───────┘
+          │ NATS (in-process)         │    │           │ /tmp/sekiad.sock
+    ┌─────┴─────┐              ┌──────┴──┐ │     ┌─────┴──────┐
+    │  Agent A  │◄─────────────│ *.lua   │ │     │  sekiactl  │
+    │  Agent B  │   commands   │ scripts │◄┘     └────────────┘
+    └───────────┘              └─────────┘
+          │                  events ↑
+          └─────────────────────────┘
 ```
 
 ### Startup sequence
 
 1. Start embedded NATS with JetStream
 2. Create registry (subscribes to `sekia.registry` and `sekia.heartbeat.>`)
-3. Start HTTP API on Unix socket
-4. Block on OS signal or stop channel
-5. Shutdown in reverse order
+3. Start workflow engine, load `.lua` files, optionally start file watcher
+4. Start HTTP API on Unix socket
+5. Block on OS signal or stop channel
+6. Shutdown in reverse order
 
 ### NATS subjects
 
@@ -59,6 +62,7 @@ go build ./cmd/sekiad ./cmd/sekiactl
 ```bash
 ./sekiactl status
 ./sekiactl agents
+./sekiactl workflows
 ```
 
 ## Configuration
@@ -73,6 +77,8 @@ Defaults:
 | `server.listen` | `127.0.0.1:7600` |
 | `nats.embedded` | `true` |
 | `nats.data_dir` | `~/.local/share/sekia/nats` |
+| `workflows.dir` | `~/.config/sekia/workflows` |
+| `workflows.hot_reload` | `true` |
 
 See [configs/sekia.toml](configs/sekia.toml) for an example.
 
@@ -82,8 +88,10 @@ The daemon exposes an HTTP API over its Unix socket.
 
 | Endpoint | Description |
 |---|---|
-| `GET /api/v1/status` | Daemon status, uptime, agent count |
+| `GET /api/v1/status` | Daemon status, uptime, agent count, workflow count |
 | `GET /api/v1/agents` | List registered agents with capabilities and stats |
+| `GET /api/v1/workflows` | List loaded workflows with handler patterns and stats |
+| `POST /api/v1/workflows/reload` | Reload all workflows from disk |
 
 ## Agent SDK
 
@@ -117,18 +125,55 @@ func main() {
 }
 ```
 
+## Workflows
+
+Workflows are Lua scripts that react to events and send commands to agents. Place `.lua` files in the workflow directory (default `~/.config/sekia/workflows/`).
+
+```lua
+-- ~/.config/sekia/workflows/github_labeler.lua
+
+sekia.on("sekia.events.github", function(event)
+    if event.type ~= "issue.opened" then return end
+
+    local title = string.lower(event.payload.title or "")
+    local label = "triage"
+    if string.find(title, "bug") then label = "bug" end
+
+    sekia.command("github-agent", "add_label", {
+        issue = event.payload.number,
+        label = label,
+    })
+
+    sekia.log("info", "labeled issue #" .. event.payload.number)
+end)
+```
+
+### Lua API
+
+| Function | Description |
+|---|---|
+| `sekia.on(pattern, handler)` | Register handler for NATS subject pattern (`*` and `>` wildcards) |
+| `sekia.publish(subject, type, payload)` | Emit a new event |
+| `sekia.command(agent, command, payload)` | Send command to an agent |
+| `sekia.log(level, message)` | Log a message (`debug`, `info`, `warn`, `error`) |
+| `sekia.name` | The workflow's name (derived from filename) |
+
+Workflows run in a sandboxed Lua VM with only `base`, `table`, `string`, and `math` libraries available. Dangerous functions (`os`, `io`, `debug`, `dofile`, `load`) are removed.
+
+When `hot_reload` is enabled (default), editing or adding `.lua` files automatically reloads the affected workflows.
+
 ## Testing
 
 ```bash
 go test ./...
 ```
 
-The end-to-end test in `internal/server` starts the full daemon, connects a test agent in-process, and verifies registration, heartbeats, and API responses.
+The end-to-end tests in `internal/server` start the full daemon, connect test agents in-process, and verify registration, heartbeats, API responses, and workflow event-to-command flow.
 
 ## Roadmap
 
 - [x] Phase 1: Core infrastructure (NATS, registry, API, CLI, agent SDK)
-- [ ] Phase 2: Lua workflow engine
+- [x] Phase 2: Lua workflow engine
 - [ ] Phase 3: GitHub agent
 - [ ] Phase 4: Gmail, Slack, Linear agents
 - [ ] Phase 5: Polish (docs, Docker, Homebrew, web UI)

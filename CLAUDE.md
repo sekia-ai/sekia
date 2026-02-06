@@ -34,6 +34,7 @@ internal/server     cmd/sekiactl/cmd
     │                    │
     ├─► internal/natsserver   (embedded NATS + JetStream)
     ├─► internal/registry     (agent tracking via NATS subscriptions)
+    ├─► internal/workflow     (Lua workflow engine — event→handler→command)
     ├─► internal/api          (HTTP-over-Unix-socket API)
     │                    │
     └────────┬───────────┘
@@ -48,9 +49,10 @@ internal/server     cmd/sekiactl/cmd
 
 1. Start embedded NATS with JetStream (`internal/natsserver`)
 2. Create registry, which subscribes to `sekia.registry` and `sekia.heartbeat.>` (`internal/registry`)
-3. Start HTTP API on Unix socket (`internal/api`)
-4. Block on OS signal or `Stop()` channel
-5. Shutdown in reverse order (API → registry → NATS)
+3. Start workflow engine, load `.lua` files, optionally start fsnotify watcher (`internal/workflow`)
+4. Start HTTP API on Unix socket (`internal/api`)
+5. Block on OS signal or `Stop()` channel
+6. Shutdown in reverse order (API → workflow engine → registry → NATS)
 
 ### NATS subjects
 
@@ -69,6 +71,27 @@ internal/server     cmd/sekiactl/cmd
 - **Go 1.22+ ServeMux routing** (`"GET /api/v1/status"`) — no external HTTP framework.
 - **Config via Viper**: TOML files searched in `/etc/sekia`, `~/.config/sekia`, `.`; env vars with `SEKIA_` prefix; code defaults.
 
+### Workflow engine (`internal/workflow/`)
+
+Lua-based event→handler→command engine using [gopher-lua](https://github.com/yuin/gopher-lua). Workflows are `.lua` files in a configurable directory (default `~/.config/sekia/workflows/`).
+
+**Lua API** available as global `sekia` table:
+- `sekia.on(pattern, handler)` — register handler for NATS subject pattern (supports `*` and `>` wildcards)
+- `sekia.publish(subject, event_type, payload)` — emit a new event
+- `sekia.command(agent, command, payload)` — send command to an agent
+- `sekia.log(level, message)` — log via zerolog
+- `sekia.name` — the workflow's name
+
+**Key design decisions:**
+- **Sandboxed**: only `base` (minus `dofile`/`loadfile`/`load`), `table`, `string`, `math` loaded. No `os`/`io`/`debug`.
+- **Per-workflow goroutine**: each workflow gets its own `*lua.LState` and event channel for thread safety.
+- **Self-event guard**: events from `workflow:<name>` skip handlers in the same workflow to prevent infinite loops.
+- **Hot-reload**: fsnotify watches the workflow directory; file changes trigger reload with 500ms debounce.
+
+**API endpoints:**
+- `GET /api/v1/workflows` — list loaded workflows
+- `POST /api/v1/workflows/reload` — trigger full reload
+
 ## Project status
 
-Phase 1 (core infrastructure) is complete. Remaining phases: Lua workflow engine, GitHub/Gmail/Slack/Linear agents, polish.
+Phases 1 (core infrastructure) and 2 (Lua workflow engine) are complete. Remaining phases: GitHub/Gmail/Slack/Linear agents, polish.
