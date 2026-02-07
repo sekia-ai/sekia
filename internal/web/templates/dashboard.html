@@ -1,0 +1,27 @@
+{{define "content"}}
+<div class="dashboard">
+  <div class="card" hx-get="/web/partials/status" hx-trigger="every 5s" hx-swap="innerHTML">
+    {{template "status" .Status}}
+  </div>
+
+  <div class="card" hx-get="/web/partials/agents" hx-trigger="every 5s" hx-swap="innerHTML">
+    {{template "agents" .Agents}}
+  </div>
+
+  <div class="card" hx-get="/web/partials/workflows" hx-trigger="every 10s" hx-swap="innerHTML">
+    {{template "workflows" .Workflows}}
+  </div>
+
+  <div class="card" hx-ext="sse" sse-connect="/web/events/stream">
+    <h2>Live Events</h2>
+    <div class="event-list" id="event-list" sse-swap="event" hx-swap="afterbegin" hx-target="#event-list">
+      {{range .Events}}
+        {{template "event_row" .}}
+      {{end}}
+      {{if not .Events}}
+        <div class="empty-state">Waiting for events...</div>
+      {{end}}
+    </div>
+  </div>
+</div>
+{{end}}

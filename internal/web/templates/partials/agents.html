@@ -1,0 +1,36 @@
+{{define "agents"}}
+<h2>Connected Agents</h2>
+{{if .}}
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Status</th>
+      <th>Version</th>
+      <th>Events</th>
+      <th>Errors</th>
+      <th>Last Heartbeat</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .}}
+    <tr>
+      <td class="mono">{{.Name}}</td>
+      <td>
+        {{if eq .Status "healthy"}}<span class="status-badge ok">{{.Status}}</span>
+        {{else if eq .Status "unknown"}}<span class="status-badge unknown">{{.Status}}</span>
+        {{else}}<span class="status-badge">{{.Status}}</span>
+        {{end}}
+      </td>
+      <td class="mono">{{.Version}}</td>
+      <td>{{.EventsProcessed}}</td>
+      <td>{{.Errors}}</td>
+      <td class="mono">{{if .LastHeartbeat.IsZero}}-{{else}}{{.LastHeartbeat.Format "15:04:05"}}{{end}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty-state">No agents connected</div>
+{{end}}
+{{end}}

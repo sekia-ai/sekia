@@ -36,6 +36,7 @@ internal/server     cmd/sekiactl/cmd    internal/github    internal/slack   inte
     ├─► internal/registry     (agent tracking)                  │                 │                 │
     ├─► internal/workflow     (Lua workflow engine)              │                 │                 │
     ├─► internal/api          (HTTP-over-Unix-socket API)       │                 │                 │
+    ├─► internal/web          (embedded web dashboard)          │                 │                 │
     │                    │                    │                  │                 │                 │
     └────────┬───────────┘                    └──────────────────┴─────────────────┴─────────────────┘
              ▼                                                  │
@@ -51,8 +52,9 @@ internal/server     cmd/sekiactl/cmd    internal/github    internal/slack   inte
 2. Create registry, which subscribes to `sekia.registry` and `sekia.heartbeat.>` (`internal/registry`)
 3. Start workflow engine, load `.lua` files, optionally start fsnotify watcher (`internal/workflow`)
 4. Start HTTP API on Unix socket (`internal/api`)
-5. Block on OS signal or `Stop()` channel
-6. Shutdown in reverse order (API → workflow engine → registry → NATS)
+5. Start web UI on TCP port if configured (`internal/web`)
+6. Block on OS signal or `Stop()` channel
+7. Shutdown in reverse order (web → API → workflow engine → registry → NATS)
 
 ### NATS subjects
 
@@ -164,6 +166,27 @@ Standalone binary (`cmd/sekia-gmail/`) that polls Gmail via IMAP and sends email
 
 **Config file**: `sekia-gmail.toml`. Env vars: `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`, `SEKIA_NATS_URL`.
 
+### Web dashboard (`internal/web/`)
+
+Embedded web UI served on a configurable TCP port. Uses server-side HTML templates with htmx for dynamic updates and Alpine.js for minor interactivity.
+
+**Key design decisions:**
+- **Separate TCP listener** — does NOT touch the Unix socket API. Both read from the same `*registry.Registry` and `*workflow.Engine`.
+- **`go:embed`** — all static assets (htmx, Alpine.js, SSE extension, CSS) and templates are embedded in the binary. No CDN dependency.
+- **htmx polling** — status/agents/workflows cards use `hx-get` + `hx-trigger="every 5s"` for partial HTML updates.
+- **SSE live events** — `EventBus` subscribes to `sekia.events.>` on NATS and fans out to browser clients via Server-Sent Events. Ring buffer (50 events) for initial page load.
+- **Disabled by default** — `web.listen` defaults to empty string. Set to e.g. `:8080` to enable.
+
+**Config**: `[web]` section in `sekia.toml`. Env var: `SEKIA_WEB_LISTEN`.
+
+**Routes**:
+- `GET /web` — full dashboard page
+- `GET /web/partials/status` — status card fragment
+- `GET /web/partials/agents` — agents table fragment
+- `GET /web/partials/workflows` — workflows table fragment
+- `GET /web/events/stream` — SSE endpoint for live events
+- `GET /web/static/*` — vendored JS/CSS assets
+
 ## Project status
 
-Phases 1 (core infrastructure), 2 (Lua workflow engine), 3 (GitHub agent), and 4 (Slack/Linear/Gmail agents) are complete. Remaining: Phase 5 (polish — docs, Docker, Homebrew, web UI).
+All phases complete. Docker, goreleaser, GitHub Actions CI/CD, and web dashboard are in place.

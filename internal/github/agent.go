@@ -36,6 +36,7 @@ type GitHubAgent struct {
 
 	// Overridable for testing.
 	natsOpts []nats.Option
+	readyCh  chan struct{}
 }
 
 // NewAgent creates a GitHubAgent. Call Run() to start.
@@ -49,6 +50,7 @@ func NewAgent(cfg Config, logger zerolog.Logger) *GitHubAgent {
 		ghClient: &realGitHubClient{client: ghc},
 		logger:   logger.With().Str("component", "github-agent").Logger(),
 		stopCh:   make(chan struct{}),
+		readyCh:  make(chan struct{}),
 	}
 }
 
@@ -80,9 +82,13 @@ func (ga *GitHubAgent) Run() error {
 
 	// 3. Start webhook server.
 	ga.webhook = NewWebhookServer(ga.cfg.Webhook, ga.publishEvent, ga.logger)
+	if err := ga.webhook.Listen(); err != nil {
+		a.Close()
+		return fmt.Errorf("listen webhook: %w", err)
+	}
 	webhookErrCh := make(chan error, 1)
 	go func() {
-		if err := ga.webhook.Start(); err != nil && err != http.ErrServerClosed {
+		if err := ga.webhook.Serve(); err != nil && err != http.ErrServerClosed {
 			webhookErrCh <- err
 		}
 	}()
@@ -91,6 +97,8 @@ func (ga *GitHubAgent) Run() error {
 		Str("nats", ga.cfg.NATS.URL).
 		Str("webhook", ga.cfg.Webhook.Listen).
 		Msg("github agent started")
+
+	close(ga.readyCh)
 
 	// 4. Block on signal or stop.
 	sigCh := make(chan os.Signal, 1)
@@ -113,6 +121,11 @@ func (ga *GitHubAgent) Run() error {
 // Stop signals the agent to shut down. Safe to call from another goroutine.
 func (ga *GitHubAgent) Stop() {
 	close(ga.stopCh)
+}
+
+// Ready returns a channel that is closed when the agent has finished starting.
+func (ga *GitHubAgent) Ready() <-chan struct{} {
+	return ga.readyCh
 }
 
 // WebhookAddr returns the webhook server's listen address, or "" if not yet started.
@@ -138,6 +151,7 @@ func NewTestAgent(natsURL string, natsOpts []nats.Option, ghBaseURL, webhookList
 		natsOpts: natsOpts,
 		logger:   logger.With().Str("component", "github-agent").Logger(),
 		stopCh:   make(chan struct{}),
+		readyCh:  make(chan struct{}),
 	}
 }
 

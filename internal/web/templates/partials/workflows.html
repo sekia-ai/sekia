@@ -1,0 +1,29 @@
+{{define "workflows"}}
+<h2>Loaded Workflows</h2>
+{{if .}}
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Handlers</th>
+      <th>Events</th>
+      <th>Errors</th>
+      <th>Patterns</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .}}
+    <tr>
+      <td class="mono">{{.Name}}</td>
+      <td>{{.Handlers}}</td>
+      <td>{{.Events}}</td>
+      <td>{{.Errors}}</td>
+      <td class="mono">{{join .Patterns ", "}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty-state">No workflows loaded</div>
+{{end}}
+{{end}}

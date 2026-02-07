@@ -1,0 +1,97 @@
+version: 2
+
+builds:
+  - id: sekiad
+    main: ./cmd/sekiad
+    binary: sekiad
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=0]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+  - id: sekiactl
+    main: ./cmd/sekiactl
+    binary: sekiactl
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=0]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+  - id: sekia-github
+    main: ./cmd/sekia-github
+    binary: sekia-github
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=0]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+  - id: sekia-slack
+    main: ./cmd/sekia-slack
+    binary: sekia-slack
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=0]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+  - id: sekia-linear
+    main: ./cmd/sekia-linear
+    binary: sekia-linear
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=0]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+  - id: sekia-gmail
+    main: ./cmd/sekia-gmail
+    binary: sekia-gmail
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=0]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - id: default
+    builds: [sekiad, sekiactl, sekia-github, sekia-slack, sekia-linear, sekia-gmail]
+    name_template: "sekia_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+
+brews:
+  - name: sekia
+    ids: [sekiad, sekiactl, sekia-github, sekia-slack, sekia-linear, sekia-gmail]
+    repository:
+      owner: sekia-ai
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/sekia-ai/sekia"
+    description: "Multi-agent event bus for workflow automation"
+    license: "Apache-2.0"
+    install: |
+      bin.install "sekiad"
+      bin.install "sekiactl"
+      bin.install "sekia-github"
+      bin.install "sekia-slack"
+      bin.install "sekia-linear"
+      bin.install "sekia-gmail"
+    test: |
+      system bin/"sekiad", "--help"
+      system bin/"sekiactl", "--help"

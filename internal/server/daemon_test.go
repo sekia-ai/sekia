@@ -40,16 +40,11 @@ func TestEndToEnd(t *testing.T) {
 	errCh := make(chan error, 1)
 	go func() { errCh <- d.Run() }()
 
-	// Wait for socket to appear.
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(socketPath); err == nil {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if _, err := os.Stat(socketPath); err != nil {
-		t.Fatal("socket did not appear in time")
+	// Wait for daemon to be ready.
+	select {
+	case <-d.Ready():
+	case <-time.After(10 * time.Second):
+		t.Fatal("daemon did not start in time")
 	}
 
 	client := &http.Client{
@@ -148,15 +143,10 @@ func newTestDaemon(t *testing.T, wfDir string) (*server.Daemon, *http.Client) {
 	errCh := make(chan error, 1)
 	go func() { errCh <- d.Run() }()
 
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(socketPath); err == nil {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if _, err := os.Stat(socketPath); err != nil {
-		t.Fatal("socket did not appear in time")
+	select {
+	case <-d.Ready():
+	case <-time.After(10 * time.Second):
+		t.Fatal("daemon did not start in time")
 	}
 
 	client := &http.Client{

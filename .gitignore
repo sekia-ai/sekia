@@ -31,5 +31,12 @@ go.work.sum
 # .idea/
 # .vscode/
 
-sekiactl
-sekiad
+/sekiactl
+/sekiad
+/sekia-github
+/sekia-gmail
+/sekia-linear
+/sekia-slack
+
+# goreleaser output
+dist/
