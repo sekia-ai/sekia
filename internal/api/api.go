@@ -44,17 +44,23 @@ func New(socketPath string, reg *registry.Registry, engine *workflow.Engine, sta
 	return s
 }
 
-// Start begins listening on the Unix socket. Blocks until Shutdown.
-func (s *Server) Start() error {
+// Listen creates the Unix socket listener without serving.
+// Call Serve after to begin accepting connections.
+func (s *Server) Listen() (net.Listener, error) {
 	os.Remove(s.socketPath)
 
 	ln, err := net.Listen("unix", s.socketPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	os.Chmod(s.socketPath, 0600)
 
 	s.logger.Info().Str("socket", s.socketPath).Msg("API server listening")
+	return ln, nil
+}
+
+// Serve accepts connections on the given listener. Blocks until Shutdown.
+func (s *Server) Serve(ln net.Listener) error {
 	return s.httpServer.Serve(ln)
 }
 
