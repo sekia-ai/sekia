@@ -2,7 +2,7 @@
 
 A multi-agent event bus for automating workflows across GitHub, Gmail, Linear, and Slack. Built on embedded NATS with JetStream.
 
-Two binaries — `sekiad` (daemon) and `sekiactl` (CLI) — communicate over a Unix socket. Agents connect via an in-process NATS server and exchange events through typed subjects.
+Six binaries — `sekiad` (daemon), `sekiactl` (CLI), and four agents (`sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-gmail`) — communicate over NATS. The daemon and CLI also use a Unix socket.
 
 ## Architecture
 
@@ -48,7 +48,7 @@ Two binaries — `sekiad` (daemon) and `sekiactl` (CLI) — communicate over a U
 ### Build
 
 ```bash
-go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github
+go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github ./cmd/sekia-slack ./cmd/sekia-linear ./cmd/sekia-gmail
 ```
 
 ### Run the daemon
@@ -164,11 +164,13 @@ Workflows run in a sandboxed Lua VM with only `base`, `table`, `string`, and `ma
 
 When `hot_reload` is enabled (default), editing or adding `.lua` files automatically reloads the affected workflows.
 
-## GitHub Agent
+## Agents
 
-The `sekia-github` binary is a standalone agent that ingests GitHub webhooks and executes GitHub API commands.
+Each agent is a standalone binary that connects to the daemon's NATS bus, publishes events from an external service, and executes commands dispatched by Lua workflows.
 
-### Run
+### GitHub Agent
+
+Ingests GitHub webhooks and executes GitHub API commands.
 
 ```bash
 export GITHUB_TOKEN=ghp_...
@@ -177,11 +179,9 @@ export GITHUB_TOKEN=ghp_...
 
 Point your GitHub repository's webhook settings to `http://<host>:8080/webhook`. Optionally set `GITHUB_WEBHOOK_SECRET` to verify signatures.
 
-### Configuration
+**Config**: [configs/sekia-github.toml](configs/sekia-github.toml). Env vars: `GITHUB_TOKEN`, `GITHUB_WEBHOOK_SECRET`, `SEKIA_NATS_URL`.
 
-See [configs/sekia-github.toml](configs/sekia-github.toml) for all options. Environment variables: `GITHUB_TOKEN`, `GITHUB_WEBHOOK_SECRET`, `SEKIA_NATS_URL`.
-
-### Supported events
+**Events**:
 
 | GitHub Event | Sekia Event Type |
 |---|---|
@@ -190,7 +190,7 @@ See [configs/sekia-github.toml](configs/sekia-github.toml) for all options. Envi
 | Push | `github.push` |
 | Issue comment created | `github.comment.created` |
 
-### Supported commands
+**Commands**:
 
 | Command | Required Payload | Action |
 |---|---|---|
@@ -200,7 +200,190 @@ See [configs/sekia-github.toml](configs/sekia-github.toml) for all options. Envi
 | `close_issue` | `owner`, `repo`, `number` | Close an issue |
 | `reopen_issue` | `owner`, `repo`, `number` | Reopen an issue |
 
-See [configs/workflows/github-auto-label.lua](configs/workflows/github-auto-label.lua) for an example workflow.
+**Example workflow**: [configs/workflows/github-auto-label.lua](configs/workflows/github-auto-label.lua)
+
+---
+
+### Slack Agent
+
+Connects to Slack via [Socket Mode](https://api.slack.com/apis/socket-mode) (WebSocket). No public URL required.
+
+```bash
+export SLACK_BOT_TOKEN=xoxb-...
+export SLACK_APP_TOKEN=xapp-...
+./sekia-slack
+```
+
+**Setup**: Create a Slack app at [api.slack.com/apps](https://api.slack.com/apps) with Socket Mode enabled. Required bot token scopes: `chat:write`, `reactions:write`, `channels:history`, `groups:history`, `im:history`. Generate an app-level token with `connections:write` scope.
+
+**Config**: [configs/sekia-slack.toml](configs/sekia-slack.toml). Env vars: `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SEKIA_NATS_URL`.
+
+**Events**:
+
+| Slack Event | Sekia Event Type | Payload Fields |
+|---|---|---|
+| New message (not from bot) | `slack.message.received` | `channel`, `user`, `text`, `timestamp`, `thread_ts` (if threaded) |
+| Reaction added | `slack.reaction.added` | `user`, `reaction`, `channel`, `timestamp` |
+| Channel created | `slack.channel.created` | `channel_id`, `channel_name`, `creator` |
+| Message mentioning the bot | `slack.mention` | `channel`, `user`, `text`, `timestamp` |
+
+**Commands**:
+
+| Command | Required Payload | Action |
+|---|---|---|
+| `send_message` | `channel`, `text` | Post a message to a channel |
+| `add_reaction` | `channel`, `timestamp`, `emoji` | Add a reaction to a message |
+| `send_reply` | `channel`, `thread_ts`, `text` | Reply in a thread |
+
+**Example workflow**: [configs/workflows/slack-auto-reply.lua](configs/workflows/slack-auto-reply.lua)
+
+```lua
+sekia.on("sekia.events.slack", function(event)
+    if event.type ~= "slack.mention" then return end
+
+    sekia.command("slack-agent", "send_reply", {
+        channel   = event.payload.channel,
+        thread_ts = event.payload.timestamp,
+        text      = "Hi <@" .. event.payload.user .. ">, thanks for reaching out!",
+    })
+end)
+```
+
+---
+
+### Linear Agent
+
+Polls the [Linear GraphQL API](https://developers.linear.app/docs/graphql/working-with-the-graphql-api) for updated issues and comments. No webhooks or public URL required.
+
+```bash
+export LINEAR_API_KEY=lin_api_...
+./sekia-linear
+```
+
+**Setup**: Create a personal API key at [linear.app/settings/api](https://linear.app/settings/api).
+
+**Config**: [configs/sekia-linear.toml](configs/sekia-linear.toml). Env vars: `LINEAR_API_KEY`, `SEKIA_NATS_URL`.
+
+| Setting | Default | Description |
+|---|---|---|
+| `poll.interval` | `30s` | How often to poll Linear |
+| `poll.team_filter` | (empty) | Limit to a team key (e.g., `ENG`) |
+
+**Events**:
+
+| Trigger | Sekia Event Type | Payload Fields |
+|---|---|---|
+| New issue (created since last poll) | `linear.issue.created` | `id`, `identifier`, `title`, `state`, `priority`, `team`, `url`, `assignee`, `labels` |
+| Issue updated | `linear.issue.updated` | (same as above) |
+| Issue moved to Done/Completed/Canceled | `linear.issue.completed` | (same as above) |
+| New comment | `linear.comment.created` | `id`, `body`, `author`, `issue_id`, `issue_identifier` |
+
+**Commands**:
+
+| Command | Required Payload | Action |
+|---|---|---|
+| `create_issue` | `team_id`, `title`, `description` (optional) | Create a new issue |
+| `update_issue` | `issue_id`, plus `state_id`/`assignee_id`/`priority` | Update an issue |
+| `create_comment` | `issue_id`, `body` | Add a comment to an issue |
+| `add_label` | `issue_id`, `label_id` | Add a label to an issue |
+
+**Example workflow**: [configs/workflows/linear-auto-triage.lua](configs/workflows/linear-auto-triage.lua)
+
+```lua
+sekia.on("sekia.events.linear", function(event)
+    if event.type ~= "linear.issue.created" then return end
+
+    sekia.command("linear-agent", "create_comment", {
+        issue_id = event.payload.id,
+        body     = "Auto-triaged. Team: " .. (event.payload.team or "unknown"),
+    })
+end)
+```
+
+---
+
+### Gmail Agent
+
+Polls Gmail via IMAP for new messages and sends emails via SMTP. No Google Cloud setup required.
+
+```bash
+export GMAIL_ADDRESS=you@gmail.com
+export GMAIL_APP_PASSWORD=abcd-efgh-ijkl-mnop
+./sekia-gmail
+```
+
+**Setup**: Generate an App Password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) (requires 2FA enabled). The app password is used for both IMAP reads and SMTP sends.
+
+**Config**: [configs/sekia-gmail.toml](configs/sekia-gmail.toml). Env vars: `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`, `SEKIA_NATS_URL`.
+
+| Setting | Default | Description |
+|---|---|---|
+| `poll.interval` | `60s` | How often to check for new emails |
+| `poll.folder` | `INBOX` | IMAP folder to poll |
+| `imap.server` | `imap.gmail.com:993` | IMAP server address |
+| `smtp.server` | `smtp.gmail.com:587` | SMTP server address |
+
+**Events**:
+
+| Trigger | Sekia Event Type | Payload Fields |
+|---|---|---|
+| New unseen message | `gmail.message.received` | `uid`, `message_id`, `from`, `to`, `subject`, `body`, `date` |
+
+**Commands**:
+
+| Command | Required Payload | Action |
+|---|---|---|
+| `send_email` | `to`, `subject`, `body` | Send a new email |
+| `reply_email` | `message_id`, `body` | Reply to an email (sets In-Reply-To header) |
+| `add_label` | `message_uid`, `label` | Copy message to a Gmail label folder |
+| `archive` | `message_uid` | Move message out of inbox to All Mail |
+
+**Example workflow**: [configs/workflows/gmail-auto-reply.lua](configs/workflows/gmail-auto-reply.lua)
+
+```lua
+sekia.on("sekia.events.gmail", function(event)
+    if event.type ~= "gmail.message.received" then return end
+
+    local subject = string.lower(event.payload.subject or "")
+    if string.find(subject, "urgent") then
+        sekia.command("gmail-agent", "reply_email", {
+            message_id = event.payload.message_id,
+            body       = "Acknowledged. This has been flagged as urgent.",
+        })
+    end
+end)
+```
+
+---
+
+## Cross-Agent Workflows
+
+The real power of Sekia is connecting agents together. Here's a workflow that posts to Slack when a GitHub issue is opened, and creates a Linear tracking issue:
+
+```lua
+-- ~/.config/sekia/workflows/issue-tracker.lua
+
+sekia.on("sekia.events.github", function(event)
+    if event.type ~= "github.issue.opened" then return end
+
+    local title = event.payload.title
+    local url   = event.payload.url
+    local repo  = event.payload.repo
+
+    -- Notify the team in Slack
+    sekia.command("slack-agent", "send_message", {
+        channel = "C_ENGINEERING",
+        text    = "New issue in " .. repo .. ": " .. title .. "\n" .. url,
+    })
+
+    -- Create a tracking issue in Linear
+    sekia.command("linear-agent", "create_issue", {
+        team_id     = "TEAM_ID_HERE",
+        title       = "[" .. repo .. "] " .. title,
+        description = "GitHub issue: " .. url,
+    })
+end)
+```
 
 ## Testing
 
@@ -208,15 +391,15 @@ See [configs/workflows/github-auto-label.lua](configs/workflows/github-auto-labe
 go test ./...
 ```
 
-The end-to-end tests in `internal/server` start the full daemon, connect test agents in-process, and verify registration, heartbeats, API responses, and workflow event-to-command flow.
+Each agent has end-to-end integration tests that start the full daemon with embedded NATS, connect the agent in-process, and verify the complete event-to-command flow through Lua workflows.
 
 ## Roadmap
 
 - [x] Phase 1: Core infrastructure (NATS, registry, API, CLI, agent SDK)
 - [x] Phase 2: Lua workflow engine
 - [x] Phase 3: GitHub agent
-- [ ] Phase 4: Gmail, Slack, Linear agents
-- [ ] Phase 5: Polish (docs, Docker, Homebrew, web UI)
+- [x] Phase 4: Slack, Linear, Gmail agents
+- [ ] Phase 5: Polish (Docker, Homebrew, web UI)
 
 ## License
 

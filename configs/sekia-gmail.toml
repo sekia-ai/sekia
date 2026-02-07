@@ -1,0 +1,19 @@
+[nats]
+url = "nats://127.0.0.1:4222"
+
+[imap]
+server = "imap.gmail.com:993"
+# Can also be set via GMAIL_ADDRESS env var.
+username = ""
+# Can also be set via GMAIL_APP_PASSWORD env var.
+password = ""
+
+[smtp]
+server = "smtp.gmail.com:587"
+# Defaults to IMAP credentials if not set.
+username = ""
+password = ""
+
+[poll]
+interval = "60s"
+folder = "INBOX"
