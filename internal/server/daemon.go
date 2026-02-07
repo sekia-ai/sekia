@@ -91,9 +91,18 @@ func (d *Daemon) Run() error {
 
 	// 4. Start API server.
 	d.apiServer = api.New(d.cfg.Server.Socket, reg, d.engine, d.startedAt, d.logger)
+	apiLn, err := d.apiServer.Listen()
+	if err != nil {
+		if d.engine != nil {
+			d.engine.Stop()
+		}
+		reg.Close()
+		ns.Shutdown()
+		return fmt.Errorf("api listen: %w", err)
+	}
 	apiErrCh := make(chan error, 1)
 	go func() {
-		apiErrCh <- d.apiServer.Start()
+		apiErrCh <- d.apiServer.Serve(apiLn)
 	}()
 
 	// 5. Start web UI (if configured).

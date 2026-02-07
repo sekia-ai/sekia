@@ -456,14 +456,6 @@ go test ./...
 
 Each agent has end-to-end integration tests that start the full daemon with embedded NATS, connect the agent in-process, and verify the complete event-to-command flow through Lua workflows.
 
-## Roadmap
-
-- [x] Phase 1: Core infrastructure (NATS, registry, API, CLI, agent SDK)
-- [x] Phase 2: Lua workflow engine
-- [x] Phase 3: GitHub agent
-- [x] Phase 4: Slack, Linear, Gmail agents
-- [x] Phase 5: Polish (Docker, Homebrew, CI/CD, web dashboard)
-
 ## License
 
 Apache 2.0
