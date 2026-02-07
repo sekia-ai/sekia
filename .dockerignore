@@ -1,0 +1,13 @@
+.git
+*.exe
+*.dll
+*.so
+*.dylib
+sekiad
+sekiactl
+sekia-github
+sekia-slack
+sekia-linear
+sekia-gmail
+.env
+dist/

@@ -11,6 +11,8 @@ import (
 	slackagent "github.com/sekia-ai/sekia/internal/slack"
 )
 
+var version = "dev"
+
 func main() {
 	var cfgFile string
 
@@ -32,6 +34,7 @@ func main() {
 		},
 	}
 
+	rootCmd.Version = version
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file path")
 
 	if err := rootCmd.Execute(); err != nil {

@@ -1,0 +1,29 @@
+{{define "status"}}
+<h2>System Status</h2>
+<div class="status-grid">
+  <div class="stat">
+    <div class="value"><span class="status-badge ok">{{.Status}}</span></div>
+    <div class="label">Status</div>
+  </div>
+  <div class="stat">
+    <div class="value">{{.Uptime}}</div>
+    <div class="label">Uptime</div>
+  </div>
+  <div class="stat">
+    <div class="value">{{.AgentCount}}</div>
+    <div class="label">Agents</div>
+  </div>
+  <div class="stat">
+    <div class="value">{{.WorkflowCount}}</div>
+    <div class="label">Workflows</div>
+  </div>
+  <div class="stat">
+    <div class="value"><span class="status-badge ok">running</span></div>
+    <div class="label">NATS</div>
+  </div>
+  <div class="stat">
+    <div class="value">{{.StartedAt.Format "15:04:05"}}</div>
+    <div class="label">Started</div>
+  </div>
+</div>
+{{end}}

@@ -43,6 +43,50 @@ Six binaries — `sekiad` (daemon), `sekiactl` (CLI), and four agents (`sekia-gi
 | `sekia.events.<source>` | Event publishing |
 | `sekia.commands.<name>` | Command delivery to agents |
 
+## Install
+
+### Homebrew (macOS/Linux)
+
+```bash
+brew install sekia-ai/tap/sekia
+```
+
+### From source
+
+```bash
+go install github.com/sekia-ai/sekia/cmd/sekiad@latest
+go install github.com/sekia-ai/sekia/cmd/sekiactl@latest
+go install github.com/sekia-ai/sekia/cmd/sekia-github@latest
+go install github.com/sekia-ai/sekia/cmd/sekia-slack@latest
+go install github.com/sekia-ai/sekia/cmd/sekia-linear@latest
+go install github.com/sekia-ai/sekia/cmd/sekia-gmail@latest
+```
+
+### Docker
+
+```bash
+# Run the full stack
+docker compose up
+
+# Or just the daemon
+docker compose up sekiad
+```
+
+Agent credentials are read from environment variables. Copy `.env.example` to `.env` and fill in your tokens:
+
+```bash
+cp .env.example .env
+# Edit .env with your GITHUB_TOKEN, SLACK_BOT_TOKEN, etc.
+docker compose up
+```
+
+Individual images can be built with targets:
+
+```bash
+docker build --target sekiad -t sekia/sekiad .
+docker build --target sekia-github -t sekia/sekia-github .
+```
+
 ## Getting started
 
 ### Build
@@ -79,8 +123,27 @@ Defaults:
 | `nats.data_dir` | `~/.local/share/sekia/nats` |
 | `workflows.dir` | `~/.config/sekia/workflows` |
 | `workflows.hot_reload` | `true` |
+| `web.listen` | (empty — disabled) |
 
 See [configs/sekia.toml](configs/sekia.toml) for an example.
+
+## Web Dashboard
+
+Sekia includes an embedded web dashboard for monitoring agents, workflows, and live events. Enable it by setting `web.listen`:
+
+```toml
+[web]
+listen = ":8080"
+```
+
+Then open `http://localhost:8080/web` in your browser. The dashboard shows:
+
+- **System status** — uptime, NATS status, agent/workflow counts
+- **Connected agents** — name, status, version, event/error counters, last heartbeat
+- **Loaded workflows** — name, handler count, event/error counters, patterns
+- **Live events** — real-time event stream via Server-Sent Events (SSE)
+
+Status and agent/workflow panels auto-refresh every 5–10 seconds via htmx. The event stream updates in real-time. No external dependencies — htmx and Alpine.js are vendored and embedded in the binary.
 
 ## API
 
@@ -399,7 +462,7 @@ Each agent has end-to-end integration tests that start the full daemon with embe
 - [x] Phase 2: Lua workflow engine
 - [x] Phase 3: GitHub agent
 - [x] Phase 4: Slack, Linear, Gmail agents
-- [ ] Phase 5: Polish (Docker, Homebrew, web UI)
+- [x] Phase 5: Polish (Docker, Homebrew, CI/CD, web dashboard)
 
 ## License
 

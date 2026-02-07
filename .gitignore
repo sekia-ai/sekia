@@ -33,3 +33,9 @@ go.work.sum
 
 sekiactl
 sekiad
+sekia-gmail
+sekia-linear
+sekia-slack
+
+# goreleaser output
+dist/

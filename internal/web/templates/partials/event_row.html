@@ -1,0 +1,7 @@
+{{define "event_row"}}
+<div class="event-row" x-data="{ expanded: false }">
+  <span class="event-time">{{.Time}}</span>
+  <span class="event-type">{{.Type}}</span>
+  <span class="event-payload" :class="{ expanded: expanded }" @click="expanded = !expanded">{{.Payload}}</span>
+</div>
+{{end}}

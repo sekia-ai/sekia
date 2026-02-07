@@ -1,0 +1,62 @@
+services:
+  sekiad:
+    build:
+      context: .
+      target: sekiad
+    volumes:
+      - sekia-nats:/var/lib/sekia/nats
+      - ./configs/workflows:/etc/sekia/workflows:ro
+    environment:
+      - SEKIA_NATS_HOST=0.0.0.0
+      - SEKIA_NATS_PORT=4222
+      - SEKIA_NATS_DATA_DIR=/var/lib/sekia/nats
+      - SEKIA_SERVER_SOCKET=/tmp/sekiad.sock
+      - SEKIA_WORKFLOWS_DIR=/etc/sekia/workflows
+      - SEKIA_WEB_LISTEN=0.0.0.0:8080
+    ports:
+      - "4222:4222"
+      - "8080:8080"
+
+  sekia-github:
+    build:
+      context: .
+      target: sekia-github
+    depends_on: [sekiad]
+    environment:
+      - SEKIA_NATS_URL=nats://sekiad:4222
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-}
+    ports:
+      - "8081:8080"
+
+  sekia-slack:
+    build:
+      context: .
+      target: sekia-slack
+    depends_on: [sekiad]
+    environment:
+      - SEKIA_NATS_URL=nats://sekiad:4222
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
+      - SLACK_APP_TOKEN=${SLACK_APP_TOKEN:-}
+
+  sekia-linear:
+    build:
+      context: .
+      target: sekia-linear
+    depends_on: [sekiad]
+    environment:
+      - SEKIA_NATS_URL=nats://sekiad:4222
+      - LINEAR_API_KEY=${LINEAR_API_KEY:-}
+
+  sekia-gmail:
+    build:
+      context: .
+      target: sekia-gmail
+    depends_on: [sekiad]
+    environment:
+      - SEKIA_NATS_URL=nats://sekiad:4222
+      - GMAIL_ADDRESS=${GMAIL_ADDRESS:-}
+      - GMAIL_APP_PASSWORD=${GMAIL_APP_PASSWORD:-}
+
+volumes:
+  sekia-nats:

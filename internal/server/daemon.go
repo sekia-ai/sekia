@@ -13,6 +13,7 @@ import (
 	"github.com/sekia-ai/sekia/internal/api"
 	"github.com/sekia-ai/sekia/internal/natsserver"
 	"github.com/sekia-ai/sekia/internal/registry"
+	"github.com/sekia-ai/sekia/internal/web"
 	"github.com/sekia-ai/sekia/internal/workflow"
 )
 
@@ -24,6 +25,7 @@ type Daemon struct {
 	registry  *registry.Registry
 	engine    *workflow.Engine
 	apiServer *api.Server
+	webServer *web.Server
 	startedAt time.Time
 	stopCh    chan struct{}
 }
@@ -44,6 +46,8 @@ func (d *Daemon) Run() error {
 	// 1. Start embedded NATS.
 	ns, err := natsserver.New(natsserver.Config{
 		StoreDir: d.cfg.NATS.DataDir,
+		Host:     d.cfg.NATS.Host,
+		Port:     d.cfg.NATS.Port,
 	}, d.logger)
 	if err != nil {
 		return fmt.Errorf("start nats: %w", err)
@@ -84,11 +88,22 @@ func (d *Daemon) Run() error {
 		apiErrCh <- d.apiServer.Start()
 	}()
 
+	// 5. Start web UI (if configured).
+	var webErrCh chan error
+	if d.cfg.Web.Listen != "" {
+		d.webServer = web.New(d.cfg.Web.Listen, reg, d.engine, ns.Conn(), d.startedAt, d.logger)
+		webErrCh = make(chan error, 1)
+		go func() {
+			webErrCh <- d.webServer.Start()
+		}()
+	}
+
 	d.logger.Info().
 		Str("socket", d.cfg.Server.Socket).
+		Str("web", d.cfg.Web.Listen).
 		Msg("sekiad started")
 
-	// 4. Wait for signal, stop call, or API error.
+	// 6. Wait for signal, stop call, or server error.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
@@ -100,6 +115,10 @@ func (d *Daemon) Run() error {
 	case err := <-apiErrCh:
 		if err != nil {
 			d.logger.Error().Err(err).Msg("API server error")
+		}
+	case err := <-webErrCh:
+		if err != nil {
+			d.logger.Error().Err(err).Msg("web server error")
 		}
 	}
 
@@ -131,6 +150,9 @@ func (d *Daemon) shutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	if d.webServer != nil {
+		d.webServer.Shutdown(ctx)
+	}
 	if d.apiServer != nil {
 		d.apiServer.Shutdown(ctx)
 	}

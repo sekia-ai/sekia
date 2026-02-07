@@ -12,6 +12,12 @@ type Config struct {
 	Server    ServerConfig   `mapstructure:"server"`
 	NATS      NATSConfig     `mapstructure:"nats"`
 	Workflows WorkflowConfig `mapstructure:"workflows"`
+	Web       WebConfig      `mapstructure:"web"`
+}
+
+// WebConfig holds web dashboard settings.
+type WebConfig struct {
+	Listen string `mapstructure:"listen"`
 }
 
 // ServerConfig holds HTTP/socket settings.
@@ -24,6 +30,8 @@ type ServerConfig struct {
 type NATSConfig struct {
 	Embedded bool   `mapstructure:"embedded"`
 	DataDir  string `mapstructure:"data_dir"`
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
 }
 
 // WorkflowConfig holds Lua workflow engine settings.

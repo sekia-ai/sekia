@@ -1,0 +1,44 @@
+# --- Builder ---
+FROM golang:1.25-alpine AS builder
+RUN apk add --no-cache git
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/sekiad          ./cmd/sekiad \
+ && CGO_ENABLED=0 go build -o /out/sekiactl         ./cmd/sekiactl \
+ && CGO_ENABLED=0 go build -o /out/sekia-github     ./cmd/sekia-github \
+ && CGO_ENABLED=0 go build -o /out/sekia-slack      ./cmd/sekia-slack \
+ && CGO_ENABLED=0 go build -o /out/sekia-linear     ./cmd/sekia-linear \
+ && CGO_ENABLED=0 go build -o /out/sekia-gmail      ./cmd/sekia-gmail
+
+# --- sekiad (daemon + CLI) ---
+FROM alpine:3.21 AS sekiad
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /out/sekiad /usr/local/bin/sekiad
+COPY --from=builder /out/sekiactl /usr/local/bin/sekiactl
+ENTRYPOINT ["sekiad"]
+
+# --- sekia-github ---
+FROM alpine:3.21 AS sekia-github
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /out/sekia-github /usr/local/bin/sekia-github
+ENTRYPOINT ["sekia-github"]
+
+# --- sekia-slack ---
+FROM alpine:3.21 AS sekia-slack
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /out/sekia-slack /usr/local/bin/sekia-slack
+ENTRYPOINT ["sekia-slack"]
+
+# --- sekia-linear ---
+FROM alpine:3.21 AS sekia-linear
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /out/sekia-linear /usr/local/bin/sekia-linear
+ENTRYPOINT ["sekia-linear"]
+
+# --- sekia-gmail ---
+FROM alpine:3.21 AS sekia-gmail
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /out/sekia-gmail /usr/local/bin/sekia-gmail
+ENTRYPOINT ["sekia-gmail"]
