@@ -253,15 +253,10 @@ func newTestDaemon(t *testing.T, wfDir string) (*server.Daemon, *http.Client) {
 	errCh := make(chan error, 1)
 	go func() { errCh <- d.Run() }()
 
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(socketPath); err == nil {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if _, err := os.Stat(socketPath); err != nil {
-		t.Fatal("socket did not appear in time")
+	select {
+	case <-d.Ready():
+	case <-time.After(10 * time.Second):
+		t.Fatal("daemon did not start in time")
 	}
 
 	t.Cleanup(func() {
@@ -293,23 +288,20 @@ func newTestGitHubAgent(t *testing.T, d *server.Daemon, mockGHURL string) *testG
 	errCh := make(chan error, 1)
 	go func() { errCh <- ga.Run() }()
 
-	// Wait for the webhook server to start.
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if addr := ga.WebhookAddr(); addr != "" {
-			t.Cleanup(func() {
-				ga.Stop()
-				select {
-				case <-errCh:
-				case <-time.After(5 * time.Second):
-					t.Error("github agent did not shut down in time")
-				}
-			})
-			return &testGitHubAgent{GitHubAgent: ga, WebhookAddr: addr}
-		}
-		time.Sleep(50 * time.Millisecond)
+	select {
+	case <-ga.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("github agent did not start in time")
 	}
 
-	t.Fatal("github agent webhook server did not start in time")
-	return nil
+	t.Cleanup(func() {
+		ga.Stop()
+		select {
+		case <-errCh:
+		case <-time.After(5 * time.Second):
+			t.Error("github agent did not shut down in time")
+		}
+	})
+
+	return &testGitHubAgent{GitHubAgent: ga, WebhookAddr: ga.WebhookAddr()}
 }

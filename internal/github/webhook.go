@@ -39,21 +39,31 @@ func NewWebhookServer(cfg WebhookConfig, onEvent func(protocol.Event), logger ze
 	}
 }
 
-// Start begins listening. It blocks until the server is shut down.
-func (ws *WebhookServer) Start() error {
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST "+ws.path, ws.handleWebhook)
-
-	ws.httpServer = &http.Server{Handler: mux}
-
+// Listen binds the TCP socket. Call Serve() afterwards to accept connections.
+func (ws *WebhookServer) Listen() error {
 	ln, err := net.Listen("tcp", ws.listenAddr)
 	if err != nil {
 		return err
 	}
 	ws.listener = ln
+	return nil
+}
 
-	ws.logger.Info().Str("addr", ln.Addr().String()).Msg("webhook server listening")
-	return ws.httpServer.Serve(ln)
+// Serve accepts connections on the listener created by Listen. Blocks until shut down.
+func (ws *WebhookServer) Serve() error {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST "+ws.path, ws.handleWebhook)
+	ws.httpServer = &http.Server{Handler: mux}
+	ws.logger.Info().Str("addr", ws.listener.Addr().String()).Msg("webhook server listening")
+	return ws.httpServer.Serve(ws.listener)
+}
+
+// Start binds and serves. It blocks until the server is shut down.
+func (ws *WebhookServer) Start() error {
+	if err := ws.Listen(); err != nil {
+		return err
+	}
+	return ws.Serve()
 }
 
 // Addr returns the listener address. Only valid after Start is called.

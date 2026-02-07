@@ -245,15 +245,10 @@ func newTestDaemon(t *testing.T, wfDir string) (*server.Daemon, any) {
 	errCh := make(chan error, 1)
 	go func() { errCh <- d.Run() }()
 
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(socketPath); err == nil {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if _, err := os.Stat(socketPath); err != nil {
-		t.Fatal("socket did not appear in time")
+	select {
+	case <-d.Ready():
+	case <-time.After(10 * time.Second):
+		t.Fatal("daemon did not start in time")
 	}
 
 	t.Cleanup(func() {

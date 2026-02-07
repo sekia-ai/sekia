@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -32,8 +33,8 @@ type workflowState struct {
 	L        *lua.LState
 	modCtx   *moduleContext
 	loadedAt time.Time
-	events   int64
-	errors   int64
+	events   atomic.Int64
+	errors   atomic.Int64
 
 	eventCh chan *nats.Msg
 	done    chan struct{}
@@ -105,8 +106,8 @@ func (e *Engine) Workflows() []WorkflowInfo {
 			Handlers: len(ws.modCtx.handlers),
 			Patterns: patterns,
 			LoadedAt: ws.loadedAt,
-			Events:   ws.events,
-			Errors:   ws.errors,
+			Events:   ws.events.Load(),
+			Errors:   ws.errors.Load(),
 		})
 	}
 	return infos
@@ -203,7 +204,7 @@ func (e *Engine) handleEvent(msg *nats.Msg) {
 		select {
 		case ws.eventCh <- msg:
 		default:
-			ws.errors++
+			ws.errors.Add(1)
 			e.logger.Warn().
 				Str("workflow", ws.name).
 				Str("subject", msg.Subject).
@@ -219,7 +220,7 @@ func (ws *workflowState) run() {
 	for msg := range ws.eventCh {
 		var ev protocol.Event
 		if err := json.Unmarshal(msg.Data, &ev); err != nil {
-			ws.errors++
+			ws.errors.Add(1)
 			ws.modCtx.logger.Error().Err(err).Msg("unmarshal event")
 			continue
 		}
@@ -236,7 +237,7 @@ func (ws *workflowState) run() {
 				NRet:    0,
 				Protect: true,
 			}, eventTable); err != nil {
-				ws.errors++
+				ws.errors.Add(1)
 				ws.modCtx.logger.Error().
 					Err(err).
 					Str("pattern", h.Pattern).
@@ -244,7 +245,7 @@ func (ws *workflowState) run() {
 					Msg("handler error")
 			}
 		}
-		ws.events++
+		ws.events.Add(1)
 	}
 }
 

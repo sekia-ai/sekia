@@ -28,15 +28,23 @@ type Daemon struct {
 	webServer *web.Server
 	startedAt time.Time
 	stopCh    chan struct{}
+	readyCh   chan struct{}
 }
 
 // NewDaemon creates a Daemon from config.
 func NewDaemon(cfg Config, logger zerolog.Logger) *Daemon {
 	return &Daemon{
-		cfg:    cfg,
-		logger: logger,
-		stopCh: make(chan struct{}),
+		cfg:     cfg,
+		logger:  logger,
+		stopCh:  make(chan struct{}),
+		readyCh: make(chan struct{}),
 	}
+}
+
+// Ready returns a channel that is closed when the daemon has finished starting.
+// Wait on this before calling NATSClientURL or NATSConnectOpts.
+func (d *Daemon) Ready() <-chan struct{} {
+	return d.readyCh
 }
 
 // Run starts all subsystems and blocks until a signal is received or Stop is called.
@@ -102,6 +110,8 @@ func (d *Daemon) Run() error {
 		Str("socket", d.cfg.Server.Socket).
 		Str("web", d.cfg.Web.Listen).
 		Msg("sekiad started")
+
+	close(d.readyCh)
 
 	// 6. Wait for signal, stop call, or server error.
 	sigCh := make(chan os.Signal, 1)
