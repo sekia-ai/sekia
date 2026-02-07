@@ -1,0 +1,8 @@
+[nats]
+url = "nats://127.0.0.1:4222"
+
+[slack]
+# Can also be set via SLACK_BOT_TOKEN env var.
+bot_token = ""
+# Can also be set via SLACK_APP_TOKEN env var (required for Socket Mode).
+app_token = ""

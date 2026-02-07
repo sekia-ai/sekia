@@ -1,0 +1,11 @@
+[nats]
+url = "nats://127.0.0.1:4222"
+
+[linear]
+# Can also be set via LINEAR_API_KEY env var.
+api_key = ""
+
+[poll]
+interval = "30s"
+# Optionally limit to a specific team key (e.g., "ENG").
+team_filter = ""

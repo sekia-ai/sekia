@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Build all binaries
-go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github
+go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github ./cmd/sekia-slack ./cmd/sekia-linear ./cmd/sekia-gmail
 
 # Run all tests
 go test ./...
@@ -22,24 +22,24 @@ No Makefile or custom scripts — standard Go toolchain only.
 
 ## Architecture
 
-Sekia is a multi-agent event bus. Three binaries (`sekiad` daemon, `sekiactl` CLI, `sekia-github` GitHub agent) communicate over NATS. The daemon and CLI also use a Unix socket.
+Sekia is a multi-agent event bus. Six binaries (`sekiad` daemon, `sekiactl` CLI, `sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-gmail` agents) communicate over NATS. The daemon and CLI also use a Unix socket.
 
 ### Dependency flow
 
 ```
-cmd/sekiad          cmd/sekiactl        cmd/sekia-github
-    │                    │                    │
-    ▼                    ▼                    ▼
-internal/server     cmd/sekiactl/cmd    internal/github
-    │                    │                    │
-    ├─► internal/natsserver   (embedded NATS + JetStream)
-    ├─► internal/registry     (agent tracking via NATS subscriptions)
-    ├─► internal/workflow     (Lua workflow engine — event→handler→command)
-    ├─► internal/api          (HTTP-over-Unix-socket API)
-    │                    │                    │
-    └────────┬───────────┘                    │
-             ▼                                │
-        pkg/protocol  ◄───────────────────────┘
+cmd/sekiad          cmd/sekiactl        cmd/sekia-github  cmd/sekia-slack  cmd/sekia-linear  cmd/sekia-gmail
+    │                    │                    │                  │                 │                 │
+    ▼                    ▼                    ▼                  ▼                 ▼                 ▼
+internal/server     cmd/sekiactl/cmd    internal/github    internal/slack   internal/linear   internal/gmail
+    │                    │                    │                  │                 │                 │
+    ├─► internal/natsserver   (embedded NATS + JetStream)       │                 │                 │
+    ├─► internal/registry     (agent tracking)                  │                 │                 │
+    ├─► internal/workflow     (Lua workflow engine)              │                 │                 │
+    ├─► internal/api          (HTTP-over-Unix-socket API)       │                 │                 │
+    │                    │                    │                  │                 │                 │
+    └────────┬───────────┘                    └──────────────────┴─────────────────┴─────────────────┘
+             ▼                                                  │
+        pkg/protocol  ◄─────────────────────────────────────────┘
              ▲         (shared wire types — Event, Registration, Heartbeat, API responses)
              │
         pkg/agent             (SDK for building agents — auto-register, auto-heartbeat)
@@ -110,6 +110,60 @@ Standalone binary (`cmd/sekia-github/`) that bridges GitHub webhooks to the NATS
 
 **Config file**: `sekia-github.toml` (same search paths as `sekia.toml`). Env vars: `GITHUB_TOKEN`, `GITHUB_WEBHOOK_SECRET`, `SEKIA_NATS_URL`.
 
+### Slack agent (`internal/slack/`)
+
+Standalone binary (`cmd/sekia-slack/`) that connects to Slack via Socket Mode (WebSocket) and executes Slack API commands.
+
+**Flow**: `Slack Socket Mode → sekia-slack → sekia.events.slack → Lua workflow → sekia.commands.slack-agent → sekia-slack → Slack API`
+
+**Event types**: `slack.message.received`, `slack.reaction.added`, `slack.channel.created`, `slack.mention`
+
+**Commands**: `send_message`, `add_reaction`, `send_reply`
+
+**Key design decisions:**
+- **Socket Mode** — WebSocket connection to Slack, no public URL needed.
+- **SlackClient interface** for testability — wraps `slack-go/slack`.
+- **Bot self-message filtering** — resolves bot user ID via `AuthTest`, skips own messages.
+- **Test bypass** — `NewTestAgent()` skips Socket Mode; tests publish events directly to NATS.
+
+**Config file**: `sekia-slack.toml`. Env vars: `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SEKIA_NATS_URL`.
+
+### Linear agent (`internal/linear/`)
+
+Standalone binary (`cmd/sekia-linear/`) that polls Linear's GraphQL API and executes Linear API commands.
+
+**Flow**: `Linear GraphQL poll → sekia-linear → sekia.events.linear → Lua workflow → sekia.commands.linear-agent → sekia-linear → Linear API`
+
+**Event types**: `linear.issue.created`, `linear.issue.updated`, `linear.issue.completed`, `linear.comment.created`
+
+**Commands**: `create_issue`, `update_issue`, `create_comment`, `add_label`
+
+**Key design decisions:**
+- **GraphQL polling** — periodic API queries (configurable interval, default 30s), no webhooks needed.
+- **Lightweight GraphQL client** — `net/http` + JSON, no framework dependency.
+- **LinearClient interface** for testability — covers both polling reads and command mutations.
+- **Created vs updated vs completed** — determined by `createdAt` vs `lastSyncTime` and state name.
+
+**Config file**: `sekia-linear.toml`. Env vars: `LINEAR_API_KEY`, `SEKIA_NATS_URL`.
+
+### Gmail agent (`internal/gmail/`)
+
+Standalone binary (`cmd/sekia-gmail/`) that polls Gmail via IMAP and sends emails via SMTP.
+
+**Flow**: `IMAP poll → sekia-gmail → sekia.events.gmail → Lua workflow → sekia.commands.gmail-agent → sekia-gmail → SMTP/IMAP`
+
+**Event types**: `gmail.message.received`
+
+**Commands**: `send_email`, `reply_email`, `add_label`, `archive`
+
+**Key design decisions:**
+- **IMAP polling** with UID tracking — polls for unseen messages, tracks highest UID to avoid re-processing.
+- **SMTP for sending** — `net/smtp` with Gmail's SMTP server; Gmail auto-copies to Sent.
+- **GmailClient interface** for testability — abstracts IMAP reads and SMTP writes.
+- **App Password auth** via `GMAIL_APP_PASSWORD` env var.
+
+**Config file**: `sekia-gmail.toml`. Env vars: `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`, `SEKIA_NATS_URL`.
+
 ## Project status
 
-Phases 1 (core infrastructure), 2 (Lua workflow engine), and 3 (GitHub agent) are complete. Remaining phases: Gmail/Slack/Linear agents, polish.
+Phases 1 (core infrastructure), 2 (Lua workflow engine), 3 (GitHub agent), and 4 (Slack/Linear/Gmail agents) are complete. Remaining: Phase 5 (polish — docs, Docker, Homebrew, web UI).
