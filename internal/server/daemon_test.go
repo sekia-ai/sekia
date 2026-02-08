@@ -92,7 +92,7 @@ func TestEndToEnd(t *testing.T) {
 		}
 		json.NewDecoder(resp.Body).Decode(&agents)
 		resp.Body.Close()
-		if len(agents.Agents) == 1 && agents.Agents[0].Version != "" {
+		if len(agents.Agents) == 1 && agents.Agents[0].Version != "" && agents.Agents[0].Status == "running" {
 			break
 		}
 		agents = protocol.AgentsResponse{} // reset for next iteration
