@@ -85,7 +85,7 @@ changelog:
 
 brews:
   - name: sekia
-    ids: [sekiad, sekiactl, sekia-github, sekia-slack, sekia-linear, sekia-gmail, sekia-mcp]
+    ids: [default]
     repository:
       owner: sekia-ai
       name: homebrew-tap
