@@ -124,6 +124,9 @@ Defaults:
 | `nats.data_dir` | `~/.local/share/sekia/nats` |
 | `workflows.dir` | `~/.config/sekia/workflows` |
 | `workflows.hot_reload` | `true` |
+| `ai.provider` | `anthropic` |
+| `ai.model` | `claude-sonnet-4-20250514` |
+| `ai.max_tokens` | `1024` |
 | `web.listen` | (empty — disabled) |
 
 See [configs/sekia.toml](configs/sekia.toml) for an example.
@@ -173,7 +176,7 @@ func main() {
 	a, err := agent.New(agent.Config{
 		Registration: protocol.Registration{
 			Name:         "my-agent",
-			Version:      "0.1.0",
+			Version:      "0.0.2",
 			Capabilities: []string{"read", "write"},
 			Commands:     []string{"sync"},
 		},
@@ -222,11 +225,85 @@ end)
 | `sekia.publish(subject, type, payload)` | Emit a new event |
 | `sekia.command(agent, command, payload)` | Send command to an agent |
 | `sekia.log(level, message)` | Log a message (`debug`, `info`, `warn`, `error`) |
+| `sekia.ai(prompt [, opts])` | Call an LLM and return the response text. Options: `model`, `max_tokens`, `temperature`, `system` |
+| `sekia.ai_json(prompt [, opts])` | Like `sekia.ai` but requests JSON and returns a parsed Lua table |
 | `sekia.name` | The workflow's name (derived from filename) |
 
 Workflows run in a sandboxed Lua VM with only `base`, `table`, `string`, and `math` libraries available. Dangerous functions (`os`, `io`, `debug`, `dofile`, `load`) are removed.
 
 When `hot_reload` is enabled (default), editing or adding `.lua` files automatically reloads the affected workflows.
+
+### AI-Powered Workflows
+
+Workflows can call an LLM using `sekia.ai()` and `sekia.ai_json()`. Configure the AI provider in `sekia.toml`:
+
+```toml
+[ai]
+# api_key can also be set via SEKIA_AI_API_KEY env var
+api_key = ""
+model = "claude-sonnet-4-20250514"
+max_tokens = 1024
+```
+
+Both functions are synchronous and return `(result, nil)` on success or `(nil, error_string)` on failure. If no API key is configured, they return `nil, "AI not configured"`.
+
+`sekia.ai(prompt, opts)` returns the raw response text. `sekia.ai_json(prompt, opts)` requests a JSON response and parses it into a Lua table.
+
+Options (all optional): `model`, `max_tokens`, `temperature`, `system`.
+
+**Example — AI issue classifier** ([configs/workflows/ai-issue-classifier.lua](configs/workflows/ai-issue-classifier.lua)):
+
+```lua
+sekia.on("sekia.events.github", function(event)
+    if event.type ~= "github.issue.opened" then return end
+
+    local prompt = "Classify this GitHub issue. Reply with exactly one word: bug, feature, question, or docs.\n\n"
+        .. "Title: " .. (event.payload.title or "") .. "\n"
+        .. "Body: " .. (event.payload.body or "")
+
+    local result, err = sekia.ai(prompt, {
+        max_tokens = 16,
+        temperature = 0,
+    })
+
+    if err then
+        sekia.log("error", "AI classification failed: " .. err)
+        return
+    end
+
+    local label = string.lower(string.gsub(result, "%s+", ""))
+    sekia.command("github-agent", "add_label", {
+        owner  = event.payload.owner,
+        repo   = event.payload.repo,
+        number = event.payload.number,
+        label  = label,
+    })
+end)
+```
+
+**Example — AI PR summary** ([configs/workflows/ai-pr-summary.lua](configs/workflows/ai-pr-summary.lua)):
+
+```lua
+sekia.on("sekia.events.github", function(event)
+    if event.type ~= "github.pr.opened" then return end
+
+    local result, err = sekia.ai(
+        "Write a brief one-paragraph summary of this pull request.\n\n"
+            .. "Title: " .. (event.payload.title or "") .. "\n"
+            .. "Body: " .. (event.payload.body or ""),
+        { system = "You are a helpful code review assistant. Be concise and technical." }
+    )
+
+    if err then return end
+
+    sekia.command("github-agent", "create_comment", {
+        owner  = event.payload.owner,
+        repo   = event.payload.repo,
+        number = event.payload.number,
+        body   = "**AI Summary:** " .. result,
+    })
+end)
+```
 
 ## Agents
 

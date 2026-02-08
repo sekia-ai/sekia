@@ -12,8 +12,23 @@ import (
 )
 
 func newWorkflowsCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "workflows",
+		Short: "Manage workflows",
+	}
+
+	cmd.AddCommand(newWorkflowsListCmd())
+	cmd.AddCommand(newWorkflowsReloadCmd())
+
+	// Default to list when no subcommand given.
+	cmd.RunE = newWorkflowsListCmd().RunE
+
+	return cmd
+}
+
+func newWorkflowsListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
 		Short: "List loaded workflows",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var resp protocol.WorkflowsResponse
@@ -37,6 +52,21 @@ func newWorkflowsCmd() *cobra.Command {
 				)
 			}
 			w.Flush()
+			return nil
+		},
+	}
+}
+
+func newWorkflowsReloadCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "reload",
+		Short: "Reload all workflows from disk",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var resp map[string]string
+			if err := apiPost("/api/v1/workflows/reload", &resp); err != nil {
+				return err
+			}
+			fmt.Println("Workflows reloaded.")
 			return nil
 		},
 	}
