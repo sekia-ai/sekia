@@ -82,17 +82,22 @@ func TestEndToEnd(t *testing.T) {
 	}
 	defer testAgent.Close()
 
-	// Give NATS a moment to deliver the registration + initial heartbeat.
-	time.Sleep(500 * time.Millisecond)
-
-	// Check agents list.
-	resp, err = client.Get("http://sekiad/api/v1/agents")
-	if err != nil {
-		t.Fatalf("agents request: %v", err)
-	}
+	// Poll until the agent registration propagates through NATS.
 	var agents protocol.AgentsResponse
-	json.NewDecoder(resp.Body).Decode(&agents)
-	resp.Body.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err = client.Get("http://sekiad/api/v1/agents")
+		if err != nil {
+			t.Fatalf("agents request: %v", err)
+		}
+		json.NewDecoder(resp.Body).Decode(&agents)
+		resp.Body.Close()
+		if len(agents.Agents) == 1 && agents.Agents[0].Version != "" {
+			break
+		}
+		agents = protocol.AgentsResponse{} // reset for next iteration
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	if len(agents.Agents) != 1 {
 		t.Fatalf("expected 1 agent, got %d", len(agents.Agents))
