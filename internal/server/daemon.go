@@ -10,6 +10,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
+	"github.com/sekia-ai/sekia/internal/ai"
 	"github.com/sekia-ai/sekia/internal/api"
 	"github.com/sekia-ai/sekia/internal/natsserver"
 	"github.com/sekia-ai/sekia/internal/registry"
@@ -19,16 +20,17 @@ import (
 
 // Daemon is the sekiad process.
 type Daemon struct {
-	cfg       Config
-	logger    zerolog.Logger
-	nats      *natsserver.Server
-	registry  *registry.Registry
-	engine    *workflow.Engine
-	apiServer *api.Server
-	webServer *web.Server
-	startedAt time.Time
-	stopCh    chan struct{}
-	readyCh   chan struct{}
+	cfg         Config
+	logger      zerolog.Logger
+	nats        *natsserver.Server
+	registry    *registry.Registry
+	engine      *workflow.Engine
+	apiServer   *api.Server
+	webServer   *web.Server
+	startedAt   time.Time
+	stopCh      chan struct{}
+	readyCh     chan struct{}
+	llmOverride ai.LLMClient // set by tests to inject a mock
 }
 
 // NewDaemon creates a Daemon from config.
@@ -39,6 +41,12 @@ func NewDaemon(cfg Config, logger zerolog.Logger) *Daemon {
 		stopCh:  make(chan struct{}),
 		readyCh: make(chan struct{}),
 	}
+}
+
+// SetLLMClient overrides the AI client used by the workflow engine.
+// Must be called before Run(). Intended for testing with a mock.
+func (d *Daemon) SetLLMClient(c ai.LLMClient) {
+	d.llmOverride = c
 }
 
 // Ready returns a channel that is closed when the daemon has finished starting.
@@ -70,9 +78,19 @@ func (d *Daemon) Run() error {
 	}
 	d.registry = reg
 
-	// 3. Start workflow engine.
+	// 3. Create LLM client (if configured).
+	llm := d.llmOverride
+	if llm == nil && d.cfg.AI.APIKey != "" {
+		llm = ai.NewAnthropicClient(d.cfg.AI, d.logger)
+		d.logger.Info().
+			Str("provider", d.cfg.AI.Provider).
+			Str("model", d.cfg.AI.Model).
+			Msg("AI client configured")
+	}
+
+	// 4. Start workflow engine.
 	if d.cfg.Workflows.Dir != "" {
-		eng := workflow.New(ns.Conn(), d.cfg.Workflows.Dir, d.logger)
+		eng := workflow.New(ns.Conn(), d.cfg.Workflows.Dir, llm, d.logger)
 		if err := eng.Start(); err != nil {
 			reg.Close()
 			ns.Shutdown()
@@ -89,7 +107,7 @@ func (d *Daemon) Run() error {
 		d.engine = eng
 	}
 
-	// 4. Start API server.
+	// 5. Start API server.
 	d.apiServer = api.New(d.cfg.Server.Socket, reg, d.engine, d.startedAt, d.logger)
 	apiLn, err := d.apiServer.Listen()
 	if err != nil {
@@ -105,7 +123,7 @@ func (d *Daemon) Run() error {
 		apiErrCh <- d.apiServer.Serve(apiLn)
 	}()
 
-	// 5. Start web UI (if configured).
+	// 6. Start web UI (if configured).
 	var webErrCh chan error
 	if d.cfg.Web.Listen != "" {
 		d.webServer = web.New(d.cfg.Web.Listen, reg, d.engine, ns.Conn(), d.startedAt, d.logger)
@@ -122,7 +140,7 @@ func (d *Daemon) Run() error {
 
 	close(d.readyCh)
 
-	// 6. Wait for signal, stop call, or server error.
+	// 7. Wait for signal, stop call, or server error.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/viper"
+
+	"github.com/sekia-ai/sekia/internal/ai"
 )
 
 // Config is the top-level daemon configuration.
@@ -13,6 +15,7 @@ type Config struct {
 	NATS      NATSConfig     `mapstructure:"nats"`
 	Workflows WorkflowConfig `mapstructure:"workflows"`
 	Web       WebConfig      `mapstructure:"web"`
+	AI        ai.Config      `mapstructure:"ai"`
 }
 
 // WebConfig holds web dashboard settings.
@@ -53,6 +56,11 @@ func LoadConfig(cfgFile string) (Config, error) {
 
 	v.SetDefault("workflows.dir", filepath.Join(homeDir, ".config", "sekia", "workflows"))
 	v.SetDefault("workflows.hot_reload", true)
+
+	v.SetDefault("ai.provider", "anthropic")
+	v.SetDefault("ai.model", "claude-sonnet-4-20250514")
+	v.SetDefault("ai.max_tokens", 1024)
+	v.SetDefault("ai.temperature", 0.0)
 
 	v.SetConfigType("toml")
 

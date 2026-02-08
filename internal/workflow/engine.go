@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 	lua "github.com/yuin/gopher-lua"
 
+	"github.com/sekia-ai/sekia/internal/ai"
 	"github.com/sekia-ai/sekia/pkg/protocol"
 )
 
@@ -48,15 +49,18 @@ type Engine struct {
 	logger    zerolog.Logger
 	dir       string
 	sub       *nats.Subscription
+	llm       ai.LLMClient
 }
 
 // New creates a workflow engine. Does not start it.
-func New(nc *nats.Conn, dir string, logger zerolog.Logger) *Engine {
+// The llm parameter is optional (may be nil if AI is not configured).
+func New(nc *nats.Conn, dir string, llm ai.LLMClient, logger zerolog.Logger) *Engine {
 	return &Engine{
 		workflows: make(map[string]*workflowState),
 		nc:        nc,
 		logger:    logger.With().Str("component", "workflow").Logger(),
 		dir:       dir,
+		llm:       llm,
 	}
 }
 
@@ -129,6 +133,7 @@ func (e *Engine) LoadWorkflow(name, filePath string) error {
 		name:   name,
 		nc:     e.nc,
 		logger: wfLogger,
+		llm:    e.llm,
 	}
 	registerSekiaModule(L, modCtx)
 

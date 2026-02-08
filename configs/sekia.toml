@@ -12,3 +12,11 @@ hot_reload = true
 
 [web]
 listen = ":8080"
+
+# [ai]
+# provider = "anthropic"
+# api_key = ""            # or set SEKIA_AI_API_KEY env var
+# model = "claude-sonnet-4-20250514"
+# max_tokens = 1024
+# temperature = 0.0
+# system_prompt = ""

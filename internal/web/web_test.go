@@ -49,7 +49,7 @@ func setupTest(t *testing.T) (*Server, *nats.Conn) {
 	}
 	t.Cleanup(reg.Close)
 
-	eng := workflow.New(nc, t.TempDir(), logger)
+	eng := workflow.New(nc, t.TempDir(), nil, logger)
 	if err := eng.Start(); err != nil {
 		t.Fatal(err)
 	}

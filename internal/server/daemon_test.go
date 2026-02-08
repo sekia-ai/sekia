@@ -12,6 +12,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
+	"github.com/sekia-ai/sekia/internal/ai"
 	"github.com/sekia-ai/sekia/internal/server"
 	"github.com/sekia-ai/sekia/pkg/agent"
 	"github.com/sekia-ai/sekia/pkg/protocol"
@@ -273,5 +274,122 @@ end)
 
 	if status.WorkflowCount != 1 {
 		t.Errorf("workflow_count = %d, want 1", status.WorkflowCount)
+	}
+}
+
+// mockLLM implements ai.LLMClient for integration testing.
+type mockLLM struct {
+	response string
+}
+
+func (m *mockLLM) Complete(_ context.Context, req ai.CompleteRequest) (string, error) {
+	return m.response, nil
+}
+
+func TestAIWorkflowEndToEnd(t *testing.T) {
+	wfDir := t.TempDir()
+
+	// Write a workflow that uses sekia.ai() to classify an event.
+	workflowCode := `
+sekia.on("sekia.events.test", function(event)
+	local label, err = sekia.ai("classify: " .. event.payload.title)
+	if err then
+		sekia.log("error", "AI failed: " .. err)
+		return
+	end
+	sekia.command("test-agent", "label", {
+		ai_response = label,
+		title = event.payload.title,
+	})
+end)
+`
+	os.WriteFile(filepath.Join(wfDir, "ai-classify.lua"), []byte(workflowCode), 0644)
+
+	// Create daemon with mock LLM.
+	tmpDir := t.TempDir()
+	socketPath := filepath.Join(tmpDir, "sekiad.sock")
+
+	cfg := server.Config{
+		Server: server.ServerConfig{Socket: socketPath},
+		NATS:   server.NATSConfig{Embedded: true, DataDir: filepath.Join(tmpDir, "nats")},
+		Workflows: server.WorkflowConfig{
+			Dir:       wfDir,
+			HotReload: false,
+		},
+	}
+
+	logger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).
+		With().Timestamp().Logger()
+
+	d := server.NewDaemon(cfg, logger)
+	d.SetLLMClient(&mockLLM{response: "bug"})
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- d.Run() }()
+
+	select {
+	case <-d.Ready():
+	case <-time.After(10 * time.Second):
+		t.Fatal("daemon did not start in time")
+	}
+	defer func() {
+		d.Stop()
+		select {
+		case err := <-errCh:
+			if err != nil {
+				t.Errorf("daemon error: %v", err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Error("daemon did not shut down in time")
+		}
+	}()
+
+	// Connect a test agent.
+	testAgent, err := agent.New(agent.Config{
+		NATSUrl:  d.NATSClientURL(),
+		NATSOpts: d.NATSConnectOpts(),
+	}, "test-agent", "0.1.0", []string{"testing"}, []string{"label"}, logger)
+	if err != nil {
+		t.Fatalf("create test agent: %v", err)
+	}
+	defer testAgent.Close()
+
+	// Subscribe to capture the command.
+	commandReceived := make(chan []byte, 1)
+	sub, err := testAgent.Conn().Subscribe("sekia.commands.test-agent", func(msg *nats.Msg) {
+		commandReceived <- msg.Data
+	})
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	defer sub.Unsubscribe()
+
+	time.Sleep(500 * time.Millisecond)
+
+	// Publish a test event.
+	ev := protocol.NewEvent("issue.opened", "test-source", map[string]any{
+		"title": "Fix the login page crash",
+	})
+	evData, _ := json.Marshal(ev)
+	testAgent.Conn().Publish("sekia.events.test", evData)
+	testAgent.Conn().Flush()
+
+	// Wait for the AI workflow to process.
+	select {
+	case cmdData := <-commandReceived:
+		var cmd map[string]any
+		json.Unmarshal(cmdData, &cmd)
+		if cmd["command"] != "label" {
+			t.Errorf("command = %v, want label", cmd["command"])
+		}
+		payload := cmd["payload"].(map[string]any)
+		if payload["ai_response"] != "bug" {
+			t.Errorf("ai_response = %v, want bug", payload["ai_response"])
+		}
+		if payload["title"] != "Fix the login page crash" {
+			t.Errorf("title = %v, want 'Fix the login page crash'", payload["title"])
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for AI workflow command")
 	}
 }

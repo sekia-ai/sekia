@@ -83,6 +83,8 @@ Lua-based event→handler→command engine using [gopher-lua](https://github.com
 - `sekia.command(agent, command, payload)` — send command to an agent
 - `sekia.log(level, message)` — log via zerolog
 - `sekia.name` — the workflow's name
+- `sekia.ai(prompt [, opts])` — synchronous LLM call, returns `(result, err)`. Options: `model`, `max_tokens`, `temperature`, `system`
+- `sekia.ai_json(prompt [, opts])` — like `sekia.ai` but requests JSON and returns a parsed Lua table
 
 **Key design decisions:**
 - **Sandboxed**: only `base` (minus `dofile`/`loadfile`/`load`), `table`, `string`, `math` loaded. No `os`/`io`/`debug`.
@@ -93,6 +95,22 @@ Lua-based event→handler→command engine using [gopher-lua](https://github.com
 **API endpoints:**
 - `GET /api/v1/workflows` — list loaded workflows
 - `POST /api/v1/workflows/reload` — trigger full reload
+
+### AI integration (`internal/ai/`)
+
+LLM client for the Anthropic Messages API, wired into the Lua workflow engine as `sekia.ai()` and `sekia.ai_json()`.
+
+**Flow**: `Lua handler calls sekia.ai(prompt) → Go LLM client → Anthropic Messages API → response text returned to Lua`
+
+**Key design decisions:**
+- **Inline Lua function** (not a separate agent) — synchronous per-workflow, safe because each workflow has its own goroutine.
+- **Raw `net/http`** — calls Anthropic Messages API directly, no SDK dependency (matches Linear agent pattern).
+- **`LLMClient` interface** for testability — `Daemon.SetLLMClient()` injects a mock for integration tests.
+- **Optional** — if no API key configured, `sekia.ai()` returns `nil, "AI not configured"`.
+- **Error handling** — returns `(nil, error_string)` on failure (never raises Lua errors, unlike `sekia.publish`/`sekia.command`).
+- **120s timeout** per LLM call.
+
+**Config**: `[ai]` section in `sekia.toml`. Env var: `SEKIA_AI_API_KEY`.
 
 ### GitHub agent (`internal/github/`)
 
