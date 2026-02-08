@@ -55,7 +55,7 @@ end)
 	wfPath := filepath.Join(tmpDir, "echo.lua")
 	os.WriteFile(wfPath, []byte(workflowCode), 0644)
 
-	eng := New(nc, tmpDir, testLogger())
+	eng := New(nc, tmpDir, nil, testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}
@@ -122,7 +122,7 @@ end)
 	wfPath := filepath.Join(tmpDir, "looper.lua")
 	os.WriteFile(wfPath, []byte(workflowCode), 0644)
 
-	eng := New(nc, tmpDir, testLogger())
+	eng := New(nc, tmpDir, nil, testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}
@@ -160,7 +160,7 @@ end)
 	wfPath := filepath.Join(tmpDir, "catchall.lua")
 	os.WriteFile(wfPath, []byte(workflowCode), 0644)
 
-	eng := New(nc, tmpDir, testLogger())
+	eng := New(nc, tmpDir, nil, testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}
@@ -217,7 +217,7 @@ end)
 	os.WriteFile(filepath.Join(tmpDir, "wf_a.lua"), []byte(wfA), 0644)
 	os.WriteFile(filepath.Join(tmpDir, "wf_b.lua"), []byte(wfB), 0644)
 
-	eng := New(nc, tmpDir, testLogger())
+	eng := New(nc, tmpDir, nil, testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}
@@ -277,7 +277,7 @@ end)
 	wfPath := filepath.Join(tmpDir, "erroring.lua")
 	os.WriteFile(wfPath, []byte(workflowCode), 0644)
 
-	eng := New(nc, tmpDir, testLogger())
+	eng := New(nc, tmpDir, nil, testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}

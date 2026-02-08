@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog"
 	lua "github.com/yuin/gopher-lua"
 
+	"github.com/sekia-ai/sekia/internal/ai"
 	"github.com/sekia-ai/sekia/pkg/protocol"
 )
 
@@ -25,6 +26,7 @@ type moduleContext struct {
 	nc       *nats.Conn
 	logger   zerolog.Logger
 	handlers []handlerEntry
+	llm      ai.LLMClient // nil if AI is not configured
 }
 
 // registerSekiaModule creates the global "sekia" table with on/publish/command/log functions.
@@ -36,6 +38,8 @@ func registerSekiaModule(L *lua.LState, ctx *moduleContext) {
 	L.SetField(mod, "publish", L.NewFunction(ctx.luaPublish))
 	L.SetField(mod, "command", L.NewFunction(ctx.luaCommand))
 	L.SetField(mod, "log", L.NewFunction(ctx.luaLog))
+	L.SetField(mod, "ai", L.NewFunction(ctx.luaAI))
+	L.SetField(mod, "ai_json", L.NewFunction(ctx.luaAIJSON))
 
 	L.SetGlobal("sekia", mod)
 }
