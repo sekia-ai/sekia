@@ -21,7 +21,7 @@ import (
 
 const (
 	agentName    = "github-agent"
-	agentVersion = "0.1.0"
+	agentVersion = "0.0.2"
 )
 
 // GitHubAgent bridges GitHub webhooks to the sekia event bus
