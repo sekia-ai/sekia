@@ -3,16 +3,23 @@ package github
 import (
 	"context"
 	"fmt"
+	"time"
 
 	gh "github.com/google/go-github/v68/github"
 )
 
-// GitHubClient abstracts the GitHub API methods used by commands.
+// GitHubClient abstracts the GitHub API methods used by commands and polling.
 type GitHubClient interface {
+	// Command methods.
 	AddLabels(ctx context.Context, owner, repo string, number int, labels []string) error
 	RemoveLabel(ctx context.Context, owner, repo string, number int, label string) error
 	CreateComment(ctx context.Context, owner, repo string, number int, body string) error
 	EditIssueState(ctx context.Context, owner, repo string, number int, state string) error
+
+	// Polling methods.
+	ListIssuesSince(ctx context.Context, owner, repo string, since time.Time) ([]*gh.Issue, error)
+	ListPRsSince(ctx context.Context, owner, repo string, since time.Time) ([]*gh.PullRequest, error)
+	ListCommentsSince(ctx context.Context, owner, repo string, since time.Time) ([]*gh.IssueComment, error)
 }
 
 // realGitHubClient wraps the google/go-github client.
@@ -42,6 +49,77 @@ func (c *realGitHubClient) EditIssueState(ctx context.Context, owner, repo strin
 		State: &state,
 	})
 	return err
+}
+
+func (c *realGitHubClient) ListIssuesSince(ctx context.Context, owner, repo string, since time.Time) ([]*gh.Issue, error) {
+	opts := &gh.IssueListByRepoOptions{
+		Since:       since,
+		State:       "all",
+		Sort:        "updated",
+		Direction:   "desc",
+		ListOptions: gh.ListOptions{PerPage: 100},
+	}
+	var all []*gh.Issue
+	for {
+		issues, resp, err := c.client.Issues.ListByRepo(ctx, owner, repo, opts)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, issues...)
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+	return all, nil
+}
+
+func (c *realGitHubClient) ListPRsSince(ctx context.Context, owner, repo string, since time.Time) ([]*gh.PullRequest, error) {
+	opts := &gh.PullRequestListOptions{
+		State:       "all",
+		Sort:        "updated",
+		Direction:   "desc",
+		ListOptions: gh.ListOptions{PerPage: 100},
+	}
+	var all []*gh.PullRequest
+	for {
+		prs, resp, err := c.client.PullRequests.List(ctx, owner, repo, opts)
+		if err != nil {
+			return nil, err
+		}
+		for _, pr := range prs {
+			if pr.GetUpdatedAt().Time.Before(since) {
+				return all, nil
+			}
+			all = append(all, pr)
+		}
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+	return all, nil
+}
+
+func (c *realGitHubClient) ListCommentsSince(ctx context.Context, owner, repo string, since time.Time) ([]*gh.IssueComment, error) {
+	opts := &gh.IssueListCommentsOptions{
+		Since: &since,
+		Sort:  gh.String("updated"),
+		ListOptions: gh.ListOptions{PerPage: 100},
+	}
+	var all []*gh.IssueComment
+	for {
+		comments, resp, err := c.client.Issues.ListComments(ctx, owner, repo, 0, opts)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, comments...)
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+	return all, nil
 }
 
 // extractRepoRef extracts owner, repo, and issue/PR number from a command payload.

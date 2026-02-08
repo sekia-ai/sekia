@@ -2,6 +2,7 @@ package github
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -11,6 +12,7 @@ type Config struct {
 	NATS    NATSConfig    `mapstructure:"nats"`
 	GitHub  GitHubConfig  `mapstructure:"github"`
 	Webhook WebhookConfig `mapstructure:"webhook"`
+	Poll    PollConfig    `mapstructure:"poll"`
 }
 
 // NATSConfig holds NATS connection settings.
@@ -30,6 +32,13 @@ type WebhookConfig struct {
 	Path   string `mapstructure:"path"`
 }
 
+// PollConfig holds GitHub REST API polling settings.
+type PollConfig struct {
+	Enabled  bool          `mapstructure:"enabled"`
+	Interval time.Duration `mapstructure:"interval"`
+	Repos    []string      `mapstructure:"repos"`
+}
+
 // LoadConfig reads configuration from file, env, and defaults.
 func LoadConfig(cfgFile string) (Config, error) {
 	v := viper.New()
@@ -37,6 +46,9 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v.SetDefault("nats.url", "nats://127.0.0.1:4222")
 	v.SetDefault("webhook.listen", ":8080")
 	v.SetDefault("webhook.path", "/webhook")
+	v.SetDefault("poll.enabled", false)
+	v.SetDefault("poll.interval", "30s")
+	v.SetDefault("poll.repos", []string{})
 
 	v.SetConfigType("toml")
 
@@ -64,6 +76,14 @@ func LoadConfig(cfgFile string) (Config, error) {
 
 	if cfg.GitHub.Token == "" {
 		return cfg, fmt.Errorf("github.token is required (set via config file or GITHUB_TOKEN env var)")
+	}
+
+	if cfg.Poll.Enabled && len(cfg.Poll.Repos) == 0 {
+		return cfg, fmt.Errorf("poll.repos is required when poll.enabled is true")
+	}
+
+	if cfg.Webhook.Listen == "" && !cfg.Poll.Enabled {
+		return cfg, fmt.Errorf("at least one of webhook.listen or poll.enabled must be configured")
 	}
 
 	return cfg, nil

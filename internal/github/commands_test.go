@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
+
+	gh "github.com/google/go-github/v68/github"
 )
 
 // mockGitHubClient records all API calls for assertion.
@@ -37,6 +40,18 @@ func (m *mockGitHubClient) CreateComment(_ context.Context, owner, repo string, 
 func (m *mockGitHubClient) EditIssueState(_ context.Context, owner, repo string, number int, state string) error {
 	m.calls = append(m.calls, mockCall{"EditIssueState", owner, repo, number, []string{state}})
 	return nil
+}
+
+func (m *mockGitHubClient) ListIssuesSince(_ context.Context, _, _ string, _ time.Time) ([]*gh.Issue, error) {
+	return nil, nil
+}
+
+func (m *mockGitHubClient) ListPRsSince(_ context.Context, _, _ string, _ time.Time) ([]*gh.PullRequest, error) {
+	return nil, nil
+}
+
+func (m *mockGitHubClient) ListCommentsSince(_ context.Context, _, _ string, _ time.Time) ([]*gh.IssueComment, error) {
+	return nil, nil
 }
 
 func TestCmdAddLabel(t *testing.T) {

@@ -311,7 +311,9 @@ Each agent is a standalone binary that connects to the daemon's NATS bus, publis
 
 ### GitHub Agent
 
-Ingests GitHub webhooks and executes GitHub API commands.
+Ingests GitHub events via webhooks and/or REST API polling, and executes GitHub API commands.
+
+**Webhook mode** (default):
 
 ```bash
 export GITHUB_TOKEN=ghp_...
@@ -320,16 +322,34 @@ export GITHUB_TOKEN=ghp_...
 
 Point your GitHub repository's webhook settings to `http://<host>:8080/webhook`. Optionally set `GITHUB_WEBHOOK_SECRET` to verify signatures.
 
+**Polling mode** — useful when the agent cannot receive inbound webhooks (e.g., behind a firewall or in local development). Both modes can run simultaneously.
+
+```toml
+# sekia-github.toml
+[poll]
+enabled = true
+interval = "30s"
+repos = ["myorg/myrepo"]
+```
+
+To use polling only (no webhook server), set `webhook.listen = ""`.
+
 **Config**: [configs/sekia-github.toml](configs/sekia-github.toml). Env vars: `GITHUB_TOKEN`, `GITHUB_WEBHOOK_SECRET`, `SEKIA_NATS_URL`.
 
 **Events**:
 
-| GitHub Event | Sekia Event Type |
-|---|---|
-| Issue opened/closed/reopened/labeled/assigned | `github.issue.<action>` |
-| PR opened/closed/merged/review_requested | `github.pr.<action>` |
-| Push | `github.push` |
-| Issue comment created | `github.comment.created` |
+| GitHub Event | Sekia Event Type | Source |
+|---|---|---|
+| Issue opened/closed/reopened/labeled/assigned | `github.issue.<action>` | Webhook |
+| Issue opened/closed | `github.issue.opened`, `github.issue.closed` | Polling |
+| Issue updated (any change) | `github.issue.updated` | Polling only |
+| PR opened/closed/merged/review_requested | `github.pr.<action>` | Webhook |
+| PR opened/closed/merged | `github.pr.opened`, `github.pr.closed`, `github.pr.merged` | Polling |
+| PR updated (any change) | `github.pr.updated` | Polling only |
+| Push | `github.push` | Webhook only |
+| Issue comment created | `github.comment.created` | Both |
+
+Polled events include `payload.polled = true` so workflows can distinguish them from webhook events if needed.
 
 **Commands**:
 
