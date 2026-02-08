@@ -37,6 +37,7 @@ go.work.sum
 /sekia-gmail
 /sekia-linear
 /sekia-slack
+/sekia-mcp
 
 # goreleaser output
 dist/
