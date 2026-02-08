@@ -2,6 +2,7 @@ package github_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	gh "github.com/google/go-github/v68/github"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 
@@ -272,6 +274,165 @@ func newTestDaemon(t *testing.T, wfDir string) (*server.Daemon, *http.Client) {
 	})
 
 	return d, nil
+}
+
+// TestGitHubAgentPollingEndToEnd tests the full polling flow:
+//
+//	GitHub REST API poll → github-agent → NATS event → Lua workflow → NATS command → github-agent → GitHub API
+func TestGitHubAgentPollingEndToEnd(t *testing.T) {
+	// 1. Mock GitHub API for commands.
+	var mu sync.Mutex
+	var apiCalls []apiCall
+
+	mockGH := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body := new(bytes.Buffer)
+		body.ReadFrom(r.Body)
+
+		mu.Lock()
+		apiCalls = append(apiCalls, apiCall{Method: r.Method, Path: r.URL.Path, Body: body.String()})
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `[{"name":"triage"}]`)
+	}))
+	defer mockGH.Close()
+
+	// 2. Write a Lua workflow that reacts to polled issue events.
+	wfDir := t.TempDir()
+	workflowCode := `
+sekia.on("sekia.events.github", function(event)
+	if event.type ~= "github.issue.opened" then return end
+	sekia.command("github-agent", "add_label", {
+		owner  = event.payload.owner,
+		repo   = event.payload.repo,
+		number = event.payload.number,
+		label  = "triage",
+	})
+end)
+`
+	os.WriteFile(filepath.Join(wfDir, "auto-label.lua"), []byte(workflowCode), 0644)
+
+	// 3. Start daemon.
+	d, _ := newTestDaemon(t, wfDir)
+
+	// 4. Create a mock GitHubClient that returns a new issue on first poll.
+	now := time.Now()
+	created := gh.Timestamp{Time: now}
+	mock := &e2ePollMockClient{
+		issues: []*gh.Issue{{
+			Number:    gh.Ptr(99),
+			Title:     gh.Ptr("Polled issue"),
+			Body:      gh.Ptr("Found via polling"),
+			State:     gh.Ptr("open"),
+			HTMLURL:   gh.Ptr("https://github.com/pollorg/pollrepo/issues/99"),
+			User:      &gh.User{Login: gh.Ptr("alice")},
+			CreatedAt: &created,
+		}},
+		mockGHURL: mockGH.URL,
+	}
+
+	// 5. Start agent with polling enabled.
+	ga := ghagent.NewTestAgentWithPolling(
+		d.NATSClientURL(),
+		d.NATSConnectOpts(),
+		mock,
+		200*time.Millisecond,
+		[]string{"pollorg/pollrepo"},
+		":0",
+		zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger(),
+	)
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- ga.Run() }()
+	select {
+	case <-ga.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("github agent did not start in time")
+	}
+	t.Cleanup(func() {
+		ga.Stop()
+		select {
+		case <-errCh:
+		case <-time.After(5 * time.Second):
+			t.Error("github agent did not shut down in time")
+		}
+	})
+
+	// 6. Wait for the command to propagate through the workflow engine.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(apiCalls)
+		mu.Unlock()
+		if n > 0 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(apiCalls) == 0 {
+		t.Fatal("no GitHub API calls received; expected add_label from polled issue")
+	}
+
+	call := apiCalls[0]
+	expectedPath := "/repos/pollorg/pollrepo/issues/99/labels"
+	if call.Path != expectedPath {
+		t.Errorf("API path = %s, want %s", call.Path, expectedPath)
+	}
+}
+
+// e2ePollMockClient is a mock GitHubClient for polling integration tests.
+// It returns issues from its list on the first ListIssuesSince call, then empty.
+// Command methods proxy to the mock HTTP server for assertion.
+type e2ePollMockClient struct {
+	mu        sync.Mutex
+	issues    []*gh.Issue
+	mockGHURL string
+}
+
+func (m *e2ePollMockClient) ListIssuesSince(_ context.Context, _, _ string, _ time.Time) ([]*gh.Issue, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	issues := m.issues
+	m.issues = nil
+	return issues, nil
+}
+
+func (m *e2ePollMockClient) ListPRsSince(_ context.Context, _, _ string, _ time.Time) ([]*gh.PullRequest, error) {
+	return nil, nil
+}
+
+func (m *e2ePollMockClient) ListCommentsSince(_ context.Context, _, _ string, _ time.Time) ([]*gh.IssueComment, error) {
+	return nil, nil
+}
+
+func (m *e2ePollMockClient) AddLabels(ctx context.Context, owner, repo string, number int, labels []string) error {
+	// Proxy to mock HTTP server so the test can assert on the call.
+	url := fmt.Sprintf("%s/repos/%s/%s/issues/%d/labels", m.mockGHURL, owner, repo, number)
+	body, _ := json.Marshal(labels)
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
+}
+
+func (m *e2ePollMockClient) RemoveLabel(_ context.Context, _, _ string, _ int, _ string) error {
+	return nil
+}
+
+func (m *e2ePollMockClient) CreateComment(_ context.Context, _, _ string, _ int, _ string) error {
+	return nil
+}
+
+func (m *e2ePollMockClient) EditIssueState(_ context.Context, _, _ string, _ int, _ string) error {
+	return nil
 }
 
 func newTestGitHubAgent(t *testing.T, d *server.Daemon, mockGHURL string) *testGitHubAgent {

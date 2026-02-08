@@ -114,21 +114,31 @@ LLM client for the Anthropic Messages API, wired into the Lua workflow engine as
 
 ### GitHub agent (`internal/github/`)
 
-Standalone binary (`cmd/sekia-github/`) that bridges GitHub webhooks to the NATS event bus and executes GitHub API commands.
+Standalone binary (`cmd/sekia-github/`) that bridges GitHub webhooks and/or REST API polling to the NATS event bus and executes GitHub API commands.
 
-**Flow**: `GitHub webhook → sekia-github → sekia.events.github → Lua workflow → sekia.commands.github-agent → sekia-github → GitHub API`
+**Flow (webhook)**: `GitHub webhook → sekia-github → sekia.events.github → Lua workflow → sekia.commands.github-agent → sekia-github → GitHub API`
 
-**Event types**: `github.issue.{opened,closed,reopened,labeled,assigned}`, `github.pr.{opened,closed,merged,review_requested}`, `github.push`, `github.comment.created`
+**Flow (polling)**: `GitHub REST API poll → sekia-github → sekia.events.github → Lua workflow → sekia.commands.github-agent → sekia-github → GitHub API`
+
+**Event types (webhook)**: `github.issue.{opened,closed,reopened,labeled,assigned}`, `github.pr.{opened,closed,merged,review_requested}`, `github.push`, `github.comment.created`
+
+**Event types (polling only)**: `github.issue.updated`, `github.pr.updated` — polling cannot distinguish fine-grained actions like labeled/assigned/reopened.
 
 **Commands**: `add_label`, `remove_label`, `create_comment`, `close_issue`, `reopen_issue`
 
 **Key design decisions:**
-- **GitHubClient interface** for testability — commands go through an interface that wraps `google/go-github`, easily mocked in tests.
+- **GitHubClient interface** for testability — commands and polling reads go through an interface that wraps `google/go-github`, easily mocked in tests.
 - **All events on `sekia.events.github`** — workflows filter by `event.type` field, not NATS subject.
 - **Webhook HMAC-SHA256 verification** via `X-Hub-Signature-256` header (optional, controlled by `webhook.secret` config).
 - **PAT auth** via `GITHUB_TOKEN` env var or config file.
+- **Polling as alternative to webhooks** — configurable via `[poll]` section. Uses `google/go-github` REST API with `Since` parameter and `lastSyncTime` watermark (same pattern as Linear agent). Polling and webhooks can run simultaneously; polled events include `payload.polled = true`.
+- **Push events are webhook-only** — the GitHub REST API has no equivalent for recent pushes.
+- **Rate limit awareness** — logs a warning at startup if the estimated API call rate (3 calls/repo/cycle) exceeds 80% of GitHub's 5000/hour limit.
+- **Webhook server is optional** — set `webhook.listen = ""` to disable; at least one of webhook or polling must be enabled.
 
 **Config file**: `sekia-github.toml` (same search paths as `sekia.toml`). Env vars: `GITHUB_TOKEN`, `GITHUB_WEBHOOK_SECRET`, `SEKIA_NATS_URL`.
+
+**Polling config**: `[poll]` section — `enabled` (bool, default false), `interval` (duration, default 30s), `repos` (list of `"owner/repo"`, required when enabled).
 
 ### Slack agent (`internal/slack/`)
 

@@ -10,3 +10,11 @@ listen = ":8080"
 path = "/webhook"
 # Can also be set via GITHUB_WEBHOOK_SECRET env var.
 secret = ""
+
+[poll]
+# Enable GitHub REST API polling as an alternative/supplement to webhooks.
+# Useful when the agent cannot receive inbound webhooks (e.g., behind a firewall).
+enabled = false
+interval = "30s"
+# Repositories to poll (required when enabled). Format: "owner/repo".
+# repos = ["myorg/myrepo", "myorg/another-repo"]

@@ -24,15 +24,17 @@ const (
 	agentVersion = "0.0.2"
 )
 
-// GitHubAgent bridges GitHub webhooks to the sekia event bus
-// and executes GitHub API commands dispatched by workflows.
+// GitHubAgent bridges GitHub webhooks and/or REST API polling to the sekia
+// event bus and executes GitHub API commands dispatched by workflows.
 type GitHubAgent struct {
-	cfg      Config
-	ghClient GitHubClient
-	agent    *agent.Agent
-	webhook  *WebhookServer
-	logger   zerolog.Logger
-	stopCh   chan struct{}
+	cfg          Config
+	ghClient     GitHubClient
+	agent        *agent.Agent
+	webhook      *WebhookServer
+	poller       *Poller
+	pollerCancel context.CancelFunc
+	logger       zerolog.Logger
+	stopCh       chan struct{}
 
 	// Overridable for testing.
 	natsOpts []nats.Option
@@ -55,16 +57,24 @@ func NewAgent(cfg Config, logger zerolog.Logger) *GitHubAgent {
 }
 
 // Run starts the agent: connects to NATS, subscribes to commands,
-// starts the webhook server, and blocks until signal or Stop().
+// starts the webhook server and/or poller, and blocks until signal or Stop().
 func (ga *GitHubAgent) Run() error {
 	// 1. Connect to NATS via the agent SDK.
+	capabilities := []string{"github-api"}
+	if ga.cfg.Webhook.Listen != "" {
+		capabilities = append(capabilities, "github-webhooks")
+	}
+	if ga.cfg.Poll.Enabled {
+		capabilities = append(capabilities, "github-polling")
+	}
+
 	agentCfg := agent.Config{
 		NATSUrl:  ga.cfg.NATS.URL,
 		NATSOpts: ga.natsOpts,
 	}
 	a, err := agent.New(
 		agentCfg, agentName, agentVersion,
-		[]string{"github-webhooks", "github-api"},
+		capabilities,
 		[]string{"add_label", "remove_label", "create_comment", "close_issue", "reopen_issue"},
 		ga.logger,
 	)
@@ -80,27 +90,38 @@ func (ga *GitHubAgent) Run() error {
 		return fmt.Errorf("subscribe commands: %w", err)
 	}
 
-	// 3. Start webhook server.
-	ga.webhook = NewWebhookServer(ga.cfg.Webhook, ga.publishEvent, ga.logger)
-	if err := ga.webhook.Listen(); err != nil {
-		a.Close()
-		return fmt.Errorf("listen webhook: %w", err)
-	}
-	webhookErrCh := make(chan error, 1)
-	go func() {
-		if err := ga.webhook.Serve(); err != nil && err != http.ErrServerClosed {
-			webhookErrCh <- err
+	// 3. Start webhook server (if configured).
+	var webhookErrCh chan error
+	if ga.cfg.Webhook.Listen != "" {
+		ga.webhook = NewWebhookServer(ga.cfg.Webhook, ga.publishEvent, ga.logger)
+		if err := ga.webhook.Listen(); err != nil {
+			a.Close()
+			return fmt.Errorf("listen webhook: %w", err)
 		}
-	}()
+		webhookErrCh = make(chan error, 1)
+		go func() {
+			if err := ga.webhook.Serve(); err != nil && err != http.ErrServerClosed {
+				webhookErrCh <- err
+			}
+		}()
+	}
+
+	// 4. Start poller (if configured).
+	pollErrCh, err := ga.startPoller()
+	if err != nil {
+		ga.shutdown()
+		return err
+	}
 
 	ga.logger.Info().
 		Str("nats", ga.cfg.NATS.URL).
 		Str("webhook", ga.cfg.Webhook.Listen).
+		Bool("polling", ga.cfg.Poll.Enabled).
 		Msg("github agent started")
 
 	close(ga.readyCh)
 
-	// 4. Block on signal or stop.
+	// 5. Block on signal or stop.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
@@ -111,7 +132,11 @@ func (ga *GitHubAgent) Run() error {
 		ga.logger.Info().Msg("stop requested, shutting down")
 	case err := <-webhookErrCh:
 		ga.logger.Error().Err(err).Msg("webhook server error")
-		a.Close()
+		ga.shutdown()
+		return err
+	case err := <-pollErrCh:
+		ga.logger.Error().Err(err).Msg("poller error")
+		ga.shutdown()
 		return err
 	}
 
@@ -155,7 +180,58 @@ func NewTestAgent(natsURL string, natsOpts []nats.Option, ghBaseURL, webhookList
 	}
 }
 
+// startPoller initialises and launches the poller goroutine if polling is
+// enabled. Returns a nil channel when polling is disabled.
+func (ga *GitHubAgent) startPoller() (chan error, error) {
+	if !ga.cfg.Poll.Enabled {
+		return nil, nil
+	}
+
+	repos, err := ParseRepos(ga.cfg.Poll.Repos)
+	if err != nil {
+		return nil, fmt.Errorf("parse poll repos: %w", err)
+	}
+	ga.poller = NewPoller(ga.ghClient, ga.cfg.Poll.Interval, repos, ga.publishEvent, ga.logger)
+
+	var ctx context.Context
+	ctx, ga.pollerCancel = context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- ga.poller.Run(ctx)
+	}()
+
+	callsPerHour := float64(len(repos)) * 3 * (3600 / ga.cfg.Poll.Interval.Seconds())
+	if callsPerHour > 4000 {
+		ga.logger.Warn().
+			Float64("estimated_calls_per_hour", callsPerHour).
+			Msg("polling rate may approach GitHub API rate limit; consider increasing interval or reducing repos")
+	}
+
+	return errCh, nil
+}
+
+// NewTestAgentWithPolling creates a GitHubAgent configured for testing with polling
+// enabled and an injected GitHubClient (for mock poll responses).
+func NewTestAgentWithPolling(natsURL string, natsOpts []nats.Option, ghClient GitHubClient, pollInterval time.Duration, repos []string, webhookListen string, logger zerolog.Logger) *GitHubAgent {
+	return &GitHubAgent{
+		cfg: Config{
+			NATS:    NATSConfig{URL: natsURL},
+			Webhook: WebhookConfig{Listen: webhookListen, Path: "/webhook"},
+			Poll:    PollConfig{Enabled: true, Interval: pollInterval, Repos: repos},
+		},
+		ghClient: ghClient,
+		natsOpts: natsOpts,
+		logger:   logger.With().Str("component", "github-agent").Logger(),
+		stopCh:   make(chan struct{}),
+		readyCh:  make(chan struct{}),
+	}
+}
+
 func (ga *GitHubAgent) shutdown() error {
+	if ga.pollerCancel != nil {
+		ga.pollerCancel()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
