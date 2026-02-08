@@ -19,4 +19,4 @@ jobs:
 
       - run: go test -race -count=1 ./...
 
-      - run: go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github ./cmd/sekia-slack ./cmd/sekia-linear ./cmd/sekia-gmail
+      - run: go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github ./cmd/sekia-slack ./cmd/sekia-linear ./cmd/sekia-gmail ./cmd/sekia-mcp

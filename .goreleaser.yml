@@ -55,9 +55,18 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}}
 
+  - id: sekia-mcp
+    main: ./cmd/sekia-mcp
+    binary: sekia-mcp
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=0]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
 archives:
   - id: default
-    builds: [sekiad, sekiactl, sekia-github, sekia-slack, sekia-linear, sekia-gmail]
+    builds: [sekiad, sekiactl, sekia-github, sekia-slack, sekia-linear, sekia-gmail, sekia-mcp]
     name_template: "sekia_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
@@ -76,7 +85,7 @@ changelog:
 
 brews:
   - name: sekia
-    ids: [sekiad, sekiactl, sekia-github, sekia-slack, sekia-linear, sekia-gmail]
+    ids: [sekiad, sekiactl, sekia-github, sekia-slack, sekia-linear, sekia-gmail, sekia-mcp]
     repository:
       owner: sekia-ai
       name: homebrew-tap
@@ -92,6 +101,7 @@ brews:
       bin.install "sekia-slack"
       bin.install "sekia-linear"
       bin.install "sekia-gmail"
+      bin.install "sekia-mcp"
     test: |
       system bin/"sekiad", "--help"
       system bin/"sekiactl", "--help"

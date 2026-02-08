@@ -2,7 +2,7 @@
 
 A multi-agent event bus for automating workflows across GitHub, Gmail, Linear, and Slack. Built on embedded NATS with JetStream.
 
-Six binaries — `sekiad` (daemon), `sekiactl` (CLI), and four agents (`sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-gmail`) — communicate over NATS. The daemon and CLI also use a Unix socket.
+Seven binaries — `sekiad` (daemon), `sekiactl` (CLI), four agents (`sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-gmail`), and `sekia-mcp` (MCP server) — communicate over NATS. The daemon and CLI also use a Unix socket.
 
 ## Architecture
 
@@ -60,6 +60,7 @@ go install github.com/sekia-ai/sekia/cmd/sekia-github@latest
 go install github.com/sekia-ai/sekia/cmd/sekia-slack@latest
 go install github.com/sekia-ai/sekia/cmd/sekia-linear@latest
 go install github.com/sekia-ai/sekia/cmd/sekia-gmail@latest
+go install github.com/sekia-ai/sekia/cmd/sekia-mcp@latest
 ```
 
 ### Docker
@@ -92,7 +93,7 @@ docker build --target sekia-github -t sekia/sekia-github .
 ### Build
 
 ```bash
-go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github ./cmd/sekia-slack ./cmd/sekia-linear ./cmd/sekia-gmail
+go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github ./cmd/sekia-slack ./cmd/sekia-linear ./cmd/sekia-gmail ./cmd/sekia-mcp
 ```
 
 ### Run the daemon
@@ -415,6 +416,45 @@ sekia.on("sekia.events.gmail", function(event)
         })
     end
 end)
+```
+
+---
+
+### MCP Server
+
+Exposes Sekia capabilities to AI assistants (Claude Desktop, Claude Code, Cursor) via the [Model Context Protocol](https://modelcontextprotocol.io). Uses stdio transport — the MCP client launches `sekia-mcp` as a subprocess.
+
+```bash
+./sekia-mcp
+```
+
+**Config**: [configs/sekia-mcp.toml](configs/sekia-mcp.toml). Env vars: `SEKIA_NATS_URL`, `SEKIA_DAEMON_SOCKET`.
+
+**MCP Tools**:
+
+| Tool | Description |
+|---|---|
+| `get_status` | Daemon health, uptime, NATS status, agent/workflow counts |
+| `list_agents` | Connected agents with capabilities, commands, and heartbeat data |
+| `list_workflows` | Loaded Lua workflows with handler patterns and event/error counts |
+| `reload_workflows` | Hot-reload all .lua workflow files from disk |
+| `publish_event` | Emit a synthetic event onto the NATS bus to trigger workflows |
+| `send_command` | Send a command to a connected agent (Slack message, GitHub comment, etc.) |
+
+**Claude Desktop setup**: Add to your MCP settings (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "sekia": {
+      "command": "sekia-mcp",
+      "env": {
+        "SEKIA_NATS_URL": "nats://127.0.0.1:4222",
+        "SEKIA_DAEMON_SOCKET": "/tmp/sekiad.sock"
+      }
+    }
+  }
+}
 ```
 
 ---

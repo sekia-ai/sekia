@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Build all binaries
-go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github ./cmd/sekia-slack ./cmd/sekia-linear ./cmd/sekia-gmail
+go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github ./cmd/sekia-slack ./cmd/sekia-linear ./cmd/sekia-gmail ./cmd/sekia-mcp
 
 # Run all tests
 go test ./...
@@ -22,21 +22,21 @@ No Makefile or custom scripts — standard Go toolchain only.
 
 ## Architecture
 
-Sekia is a multi-agent event bus. Six binaries (`sekiad` daemon, `sekiactl` CLI, `sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-gmail` agents) communicate over NATS. The daemon and CLI also use a Unix socket.
+Sekia is a multi-agent event bus. Seven binaries (`sekiad` daemon, `sekiactl` CLI, `sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-gmail` agents, `sekia-mcp` MCP server) communicate over NATS. The daemon and CLI also use a Unix socket.
 
 ### Dependency flow
 
 ```
-cmd/sekiad          cmd/sekiactl        cmd/sekia-github  cmd/sekia-slack  cmd/sekia-linear  cmd/sekia-gmail
-    │                    │                    │                  │                 │                 │
-    ▼                    ▼                    ▼                  ▼                 ▼                 ▼
-internal/server     cmd/sekiactl/cmd    internal/github    internal/slack   internal/linear   internal/gmail
-    │                    │                    │                  │                 │                 │
-    ├─► internal/natsserver   (embedded NATS + JetStream)       │                 │                 │
-    ├─► internal/registry     (agent tracking)                  │                 │                 │
-    ├─► internal/workflow     (Lua workflow engine)              │                 │                 │
-    ├─► internal/api          (HTTP-over-Unix-socket API)       │                 │                 │
-    ├─► internal/web          (embedded web dashboard)          │                 │                 │
+cmd/sekiad          cmd/sekiactl        cmd/sekia-github  cmd/sekia-slack  cmd/sekia-linear  cmd/sekia-gmail  cmd/sekia-mcp
+    │                    │                    │                  │                 │                 │                │
+    ▼                    ▼                    ▼                  ▼                 ▼                 ▼                ▼
+internal/server     cmd/sekiactl/cmd    internal/github    internal/slack   internal/linear   internal/gmail   internal/mcp
+    │                    │                    │                  │                 │                 │                │
+    ├─► internal/natsserver   (embedded NATS + JetStream)       │                 │                 │                │
+    ├─► internal/registry     (agent tracking)                  │                 │                 │                │
+    ├─► internal/workflow     (Lua workflow engine)              │                 │                 │                │
+    ├─► internal/api          (HTTP-over-Unix-socket API) ◄─────┼─────────────────┼─────────────────┼────────────────┘
+    ├─► internal/web          (embedded web dashboard)          │                 │                 │       (reads via Unix socket)
     │                    │                    │                  │                 │                 │
     └────────┬───────────┘                    └──────────────────┴─────────────────┴─────────────────┘
              ▼                                                  │
@@ -205,6 +205,29 @@ Embedded web UI served on a configurable TCP port. Uses server-side HTML templat
 - `GET /web/events/stream` — SSE endpoint for live events
 - `GET /web/static/*` — vendored JS/CSS assets
 
+### MCP server (`internal/mcp/`)
+
+Standalone binary (`cmd/sekia-mcp/`) that exposes Sekia capabilities to AI assistants via the Model Context Protocol. Uses stdio transport — MCP clients (Claude Desktop, Claude Code, Cursor) launch it as a subprocess.
+
+**Flow**: `AI assistant → MCP stdio → sekia-mcp → Unix socket API (reads) + NATS (writes)`
+
+**MCP Tools**:
+- `get_status` — daemon health, uptime, NATS status, agent/workflow counts (reads Unix socket API)
+- `list_agents` — connected agents with capabilities, commands, heartbeat data (reads Unix socket API)
+- `list_workflows` — loaded Lua workflows with handler patterns, event/error counts (reads Unix socket API)
+- `reload_workflows` — hot-reload all .lua files from disk (posts to Unix socket API)
+- `publish_event` — emit synthetic event onto NATS bus to trigger workflows (publishes to NATS)
+- `send_command` — send command to a connected agent (publishes to NATS)
+
+**Key design decisions:**
+- **Standalone binary with stdio** — follows MCP convention; clients launch `sekia-mcp` as subprocess.
+- **Dual communication** — reads daemon state via Unix socket API, writes events/commands via direct NATS connection.
+- **No agent registration** — unlike the other agents, does not use `pkg/agent`. It's a thin protocol adapter, not an event-processing agent.
+- **`DaemonAPI` interface** for testability — tests inject a mock API client.
+- **Library**: `github.com/mark3labs/mcp-go` for MCP protocol handling.
+
+**Config file**: `sekia-mcp.toml`. Env vars: `SEKIA_NATS_URL`, `SEKIA_DAEMON_SOCKET`.
+
 ## Project status
 
-All phases complete. Docker, goreleaser, GitHub Actions CI/CD, and web dashboard are in place.
+All phases complete. Docker, goreleaser, GitHub Actions CI/CD, web dashboard, and MCP server are in place.

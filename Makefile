@@ -1,4 +1,4 @@
-BINARIES = sekiad sekiactl sekia-github sekia-slack sekia-linear sekia-gmail
+BINARIES = sekiad sekiactl sekia-github sekia-slack sekia-linear sekia-gmail sekia-mcp
 VERSION ?= dev
 LDFLAGS = -s -w -X main.version=$(VERSION)
 
