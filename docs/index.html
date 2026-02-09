@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sekia — Multi-agent event bus</title>
+  <meta name="description" content="Sekia is a multi-agent event bus for workflow automation. Lua workflows react to events from GitHub, Slack, Linear, and Gmail.">
+  <link rel="icon" href="logo.png" type="image/png">
+  <link rel="stylesheet" href="style.css">
+  <script>
+    // Apply theme before render to prevent flash
+    (function() {
+      var t = localStorage.getItem('theme');
+      if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <div class="nav-inner">
+    <a href="#" class="nav-brand">
+      <img src="logo.png" alt="Sekia">
+      sekia
+    </a>
+    <div class="nav-spacer"></div>
+    <button id="theme-toggle" aria-label="Toggle theme">
+      <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+    <a href="https://github.com/sekia-ai/sekia" class="nav-link" aria-label="GitHub">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+    </a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero container">
+  <img src="logo.png" alt="Sekia logo" class="hero-logo">
+  <h1>sekia</h1>
+  <p class="tagline">Multi-agent event bus for workflow automation</p>
+  <div class="hero-install">
+    <code>brew install sekia-ai/tap/sekia</code>
+    <button class="copy-btn" data-copy="brew install sekia-ai/tap/sekia" aria-label="Copy">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+    </button>
+  </div>
+</section>
+
+<!-- Features -->
+<section class="container">
+  <div class="features">
+    <div class="feature">
+      <div class="feature-title">Event-driven workflows</div>
+      <div class="feature-desc">Lua scripts react to events from GitHub, Slack, Linear, and Gmail</div>
+    </div>
+    <div class="feature">
+      <div class="feature-title">Built-in AI</div>
+      <div class="feature-desc">Call LLMs from workflows with <code>sekia.ai()</code></div>
+    </div>
+    <div class="feature">
+      <div class="feature-title">Zero config</div>
+      <div class="feature-desc">Embedded NATS, hot-reload workflows, run <code>sekiad</code> and go</div>
+    </div>
+    <div class="feature">
+      <div class="feature-title">MCP server</div>
+      <div class="feature-desc">Works with Claude Desktop, Claude Code, and Cursor</div>
+    </div>
+  </div>
+</section>
+
+<!-- Install -->
+<section class="container">
+  <h2 class="section-title">Install</h2>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="brew">Homebrew</button>
+    <button class="tab-btn" data-tab="go">Go</button>
+    <button class="tab-btn" data-tab="docker">Docker</button>
+    <button class="tab-btn" data-tab="source">Source</button>
+  </div>
+  <div class="tab-content active" id="tab-brew">
+    <pre><code>brew install sekia-ai/tap/sekia</code></pre>
+  </div>
+  <div class="tab-content" id="tab-go">
+    <pre><code>go install github.com/sekia-ai/sekia/cmd/sekiad@latest
+go install github.com/sekia-ai/sekia/cmd/sekiactl@latest
+go install github.com/sekia-ai/sekia/cmd/sekia-github@latest
+go install github.com/sekia-ai/sekia/cmd/sekia-slack@latest
+go install github.com/sekia-ai/sekia/cmd/sekia-linear@latest
+go install github.com/sekia-ai/sekia/cmd/sekia-gmail@latest
+go install github.com/sekia-ai/sekia/cmd/sekia-mcp@latest</code></pre>
+  </div>
+  <div class="tab-content" id="tab-docker">
+    <pre><code>git clone https://github.com/sekia-ai/sekia.git
+cd sekia
+docker compose up</code></pre>
+  </div>
+  <div class="tab-content" id="tab-source">
+    <pre><code>git clone https://github.com/sekia-ai/sekia.git
+cd sekia
+go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github \
+         ./cmd/sekia-slack ./cmd/sekia-linear ./cmd/sekia-gmail \
+         ./cmd/sekia-mcp</code></pre>
+  </div>
+</section>
+
+<!-- Quick Start -->
+<section class="container">
+  <h2 class="section-title">Quick start</h2>
+  <div class="steps">
+
+    <div class="step">
+      <div class="step-header">
+        <span class="step-num">1</span>
+        <span class="step-label">Start the daemon</span>
+      </div>
+      <pre><code>sekiad</code></pre>
+    </div>
+
+    <div class="step">
+      <div class="step-header">
+        <span class="step-num">2</span>
+        <span class="step-label">Write a workflow</span>
+      </div>
+      <pre><code><span class="cm">-- ~/.config/sekia/workflows/auto-label.lua</span>
+
+sekia.<span class="fn">on</span>(<span class="str">"sekia.events.github"</span>, <span class="kw">function</span>(event)
+    <span class="kw">if</span> event.type ~= <span class="str">"github.issue.opened"</span> <span class="kw">then</span> <span class="kw">return</span> <span class="kw">end</span>
+
+    <span class="kw">local</span> title = string.<span class="fn">lower</span>(event.payload.title <span class="kw">or</span> <span class="str">""</span>)
+
+    <span class="kw">if</span> string.<span class="fn">find</span>(title, <span class="str">"bug"</span>) <span class="kw">then</span>
+        sekia.<span class="fn">command</span>(<span class="str">"github-agent"</span>, <span class="str">"add_label"</span>, {
+            owner  = event.payload.owner,
+            repo   = event.payload.repo,
+            number = event.payload.number,
+            label  = <span class="str">"bug"</span>,
+        })
+    <span class="kw">end</span>
+<span class="kw">end</span>)</code></pre>
+    </div>
+
+    <div class="step">
+      <div class="step-header">
+        <span class="step-num">3</span>
+        <span class="step-label">Connect an agent</span>
+      </div>
+      <pre><code><span class="kw">export</span> GITHUB_TOKEN=ghp_...
+sekia-github</code></pre>
+    </div>
+
+    <div class="step">
+      <div class="step-header">
+        <span class="step-num">4</span>
+        <span class="step-label">Check status</span>
+      </div>
+      <pre><code>sekiactl status
+sekiactl agents</code></pre>
+    </div>
+
+  </div>
+</section>
+
+<!-- Lua API -->
+<section class="container">
+  <h2 class="section-title">Lua API</h2>
+  <table class="api-table">
+    <thead>
+      <tr><th>Function</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>sekia.on(pattern, fn)</code></td><td>Register handler for NATS subject pattern</td></tr>
+      <tr><td><code>sekia.publish(subj, type, data)</code></td><td>Emit an event</td></tr>
+      <tr><td><code>sekia.command(agent, cmd, data)</code></td><td>Send command to an agent</td></tr>
+      <tr><td><code>sekia.log(level, msg)</code></td><td>Log a message</td></tr>
+      <tr><td><code>sekia.ai(prompt [, opts])</code></td><td>Call an LLM, returns <code>(result, err)</code></td></tr>
+      <tr><td><code>sekia.ai_json(prompt [, opts])</code></td><td>Call an LLM, returns parsed Lua table</td></tr>
+      <tr><td><code>sekia.name</code></td><td>The workflow's name</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- Agents -->
+<section class="container">
+  <h2 class="section-title">Agents</h2>
+  <div class="agents">
+    <div class="agent-card">
+      <div class="agent-name">GitHub</div>
+      <div class="agent-desc">Webhooks and REST API polling for issues, PRs, pushes</div>
+      <div class="agent-env">GITHUB_TOKEN</div>
+    </div>
+    <div class="agent-card">
+      <div class="agent-name">Slack</div>
+      <div class="agent-desc">Socket Mode for messages, reactions, mentions</div>
+      <div class="agent-env">SLACK_BOT_TOKEN SLACK_APP_TOKEN</div>
+    </div>
+    <div class="agent-card">
+      <div class="agent-name">Linear</div>
+      <div class="agent-desc">GraphQL polling for issues, comments, state changes</div>
+      <div class="agent-env">LINEAR_API_KEY</div>
+    </div>
+    <div class="agent-card">
+      <div class="agent-name">Gmail</div>
+      <div class="agent-desc">IMAP polling for incoming mail, SMTP for sending</div>
+      <div class="agent-env">GMAIL_ADDRESS GMAIL_APP_PASSWORD</div>
+    </div>
+    <div class="agent-card">
+      <div class="agent-name">MCP Server</div>
+      <div class="agent-desc">Expose Sekia to Claude Desktop, Claude Code, Cursor</div>
+      <div class="agent-env">sekia-mcp (stdio)</div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="container">
+    <a href="https://github.com/sekia-ai/sekia">GitHub</a>
+    &nbsp;&middot;&nbsp;
+    Apache 2.0
+    &nbsp;&middot;&nbsp;
+    Built with NATS and Lua
+  </div>
+</footer>
+
+<script>
+// Theme toggle
+(function() {
+  var btn = document.getElementById('theme-toggle');
+  btn.addEventListener('click', function() {
+    var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    document.documentElement.setAttribute('data-theme', isDark ? '' : 'dark');
+    localStorage.setItem('theme', isDark ? 'light' : 'dark');
+  });
+})();
+
+// Install tabs
+(function() {
+  var btns = document.querySelectorAll('.tab-btn');
+  btns.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      btns.forEach(function(b) { b.classList.remove('active'); });
+      document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
+      btn.classList.add('active');
+      document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    });
+  });
+})();
+
+// Copy buttons
+document.querySelectorAll('.copy-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var text = btn.dataset.copy || btn.closest('pre').textContent;
+    navigator.clipboard.writeText(text).then(function() {
+      var orig = btn.innerHTML;
+      btn.textContent = '\u2713';
+      setTimeout(function() { btn.innerHTML = orig; }, 1500);
+    });
+  });
+});
+</script>
+
+<!-- Show/hide sun/moon icons based on theme -->
+<style>
+  .icon-moon { display: none; }
+  [data-theme="dark"] .icon-sun { display: none; }
+  [data-theme="dark"] .icon-moon { display: block; }
+</style>
+
+</body>
+</html>
