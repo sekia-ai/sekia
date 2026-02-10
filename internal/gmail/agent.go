@@ -18,7 +18,7 @@ import (
 
 const (
 	agentName    = "gmail-agent"
-	agentVersion = "0.0.5"
+	agentVersion = "0.0.6"
 )
 
 // GmailAgent bridges Gmail events to the sekia event bus
