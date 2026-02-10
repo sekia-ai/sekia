@@ -191,7 +191,7 @@ func (ga *GitHubAgent) startPoller() (chan error, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse poll repos: %w", err)
 	}
-	ga.poller = NewPoller(ga.ghClient, ga.cfg.Poll.Interval, repos, ga.publishEvent, ga.logger)
+	ga.poller = NewPoller(ga.ghClient, ga.cfg.Poll.Interval, ga.cfg.Poll.PerTick, repos, ga.publishEvent, ga.logger)
 
 	var ctx context.Context
 	ctx, ga.pollerCancel = context.WithCancel(context.Background())
@@ -217,7 +217,7 @@ func NewTestAgentWithPolling(natsURL string, natsOpts []nats.Option, ghClient Gi
 		cfg: Config{
 			NATS:    NATSConfig{URL: natsURL},
 			Webhook: WebhookConfig{Listen: webhookListen, Path: "/webhook"},
-			Poll:    PollConfig{Enabled: true, Interval: pollInterval, Repos: repos},
+			Poll:    PollConfig{Enabled: true, Interval: pollInterval, Repos: repos, PerTick: 100},
 		},
 		ghClient: ghClient,
 		natsOpts: natsOpts,

@@ -16,5 +16,9 @@ secret = ""
 # Useful when the agent cannot receive inbound webhooks (e.g., behind a firewall).
 enabled = false
 interval = "30s"
+# Maximum items fetched per tick. Controls how many events are emitted each interval.
+# Lower values = gentler on GitHub API rate limits but slower to catch up.
+# Each tick makes at most ceil(per_tick/100) API calls per resource type per repo.
+per_tick = 100
 # Repositories to poll (required when enabled). Format: "owner/repo".
 # repos = ["myorg/myrepo", "myorg/another-repo"]
