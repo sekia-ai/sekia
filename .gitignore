@@ -41,3 +41,5 @@ go.work.sum
 
 # goreleaser output
 dist/
+
+.DS_Store
