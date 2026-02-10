@@ -37,6 +37,7 @@ type PollConfig struct {
 	Enabled  bool          `mapstructure:"enabled"`
 	Interval time.Duration `mapstructure:"interval"`
 	Repos    []string      `mapstructure:"repos"`
+	PerTick  int           `mapstructure:"per_tick"`
 }
 
 // LoadConfig reads configuration from file, env, and defaults.
@@ -49,6 +50,7 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v.SetDefault("poll.enabled", false)
 	v.SetDefault("poll.interval", "30s")
 	v.SetDefault("poll.repos", []string{})
+	v.SetDefault("poll.per_tick", 100)
 
 	v.SetConfigType("toml")
 
@@ -80,6 +82,10 @@ func LoadConfig(cfgFile string) (Config, error) {
 
 	if cfg.Poll.Enabled && len(cfg.Poll.Repos) == 0 {
 		return cfg, fmt.Errorf("poll.repos is required when poll.enabled is true")
+	}
+
+	if cfg.Poll.Enabled && cfg.Poll.PerTick < 1 {
+		return cfg, fmt.Errorf("poll.per_tick must be at least 1")
 	}
 
 	if cfg.Webhook.Listen == "" && !cfg.Poll.Enabled {

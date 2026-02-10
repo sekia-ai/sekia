@@ -42,16 +42,16 @@ func (m *mockGitHubClient) EditIssueState(_ context.Context, owner, repo string,
 	return nil
 }
 
-func (m *mockGitHubClient) ListIssuesSince(_ context.Context, _, _ string, _ time.Time) ([]*gh.Issue, error) {
-	return nil, nil
+func (m *mockGitHubClient) ListIssuesPage(_ context.Context, _, _ string, _ time.Time, _, _ int) ([]*gh.Issue, int, error) {
+	return nil, 0, nil
 }
 
-func (m *mockGitHubClient) ListPRsSince(_ context.Context, _, _ string, _ time.Time) ([]*gh.PullRequest, error) {
-	return nil, nil
+func (m *mockGitHubClient) ListPRsPage(_ context.Context, _, _ string, _ time.Time, _, _ int) ([]*gh.PullRequest, int, error) {
+	return nil, 0, nil
 }
 
-func (m *mockGitHubClient) ListCommentsSince(_ context.Context, _, _ string, _ time.Time) ([]*gh.IssueComment, error) {
-	return nil, nil
+func (m *mockGitHubClient) ListCommentsPage(_ context.Context, _, _ string, _ time.Time, _, _ int) ([]*gh.IssueComment, int, error) {
+	return nil, 0, nil
 }
 
 func TestCmdAddLabel(t *testing.T) {

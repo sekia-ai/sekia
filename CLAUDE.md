@@ -131,14 +131,14 @@ Standalone binary (`cmd/sekia-github/`) that bridges GitHub webhooks and/or REST
 - **All events on `sekia.events.github`** — workflows filter by `event.type` field, not NATS subject.
 - **Webhook HMAC-SHA256 verification** via `X-Hub-Signature-256` header (optional, controlled by `webhook.secret` config).
 - **PAT auth** via `GITHUB_TOKEN` env var or config file.
-- **Polling as alternative to webhooks** — configurable via `[poll]` section. Uses `google/go-github` REST API with `Since` parameter and `lastSyncTime` watermark (same pattern as Linear agent). Polling and webhooks can run simultaneously; polled events include `payload.polled = true`.
+- **Polling as alternative to webhooks** — configurable via `[poll]` section. Uses `google/go-github` REST API with `Since` parameter and `lastSyncTime` watermark. Cursor-based state machine: each tick fetches at most `per_tick` items (default 100), resuming from where it left off. When all items for all repos are consumed, `lastSyncTime` advances and a new cycle begins. Polling and webhooks can run simultaneously; polled events include `payload.polled = true`.
 - **Push events are webhook-only** — the GitHub REST API has no equivalent for recent pushes.
 - **Rate limit awareness** — logs a warning at startup if the estimated API call rate (3 calls/repo/cycle) exceeds 80% of GitHub's 5000/hour limit.
 - **Webhook server is optional** — set `webhook.listen = ""` to disable; at least one of webhook or polling must be enabled.
 
 **Config file**: `sekia-github.toml` (same search paths as `sekia.toml`). Env vars: `GITHUB_TOKEN`, `GITHUB_WEBHOOK_SECRET`, `SEKIA_NATS_URL`.
 
-**Polling config**: `[poll]` section — `enabled` (bool, default false), `interval` (duration, default 30s), `repos` (list of `"owner/repo"`, required when enabled).
+**Polling config**: `[poll]` section — `enabled` (bool, default false), `interval` (duration, default 30s), `per_tick` (int, default 100, max items per tick), `repos` (list of `"owner/repo"`, required when enabled).
 
 ### Slack agent (`internal/slack/`)
 

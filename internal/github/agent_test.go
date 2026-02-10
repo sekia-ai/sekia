@@ -386,7 +386,7 @@ end)
 }
 
 // e2ePollMockClient is a mock GitHubClient for polling integration tests.
-// It returns issues from its list on the first ListIssuesSince call, then empty.
+// It returns issues from its list on the first ListIssuesPage call, then empty.
 // Command methods proxy to the mock HTTP server for assertion.
 type e2ePollMockClient struct {
 	mu        sync.Mutex
@@ -394,20 +394,20 @@ type e2ePollMockClient struct {
 	mockGHURL string
 }
 
-func (m *e2ePollMockClient) ListIssuesSince(_ context.Context, _, _ string, _ time.Time) ([]*gh.Issue, error) {
+func (m *e2ePollMockClient) ListIssuesPage(_ context.Context, _, _ string, _ time.Time, _, _ int) ([]*gh.Issue, int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	issues := m.issues
 	m.issues = nil
-	return issues, nil
+	return issues, 0, nil
 }
 
-func (m *e2ePollMockClient) ListPRsSince(_ context.Context, _, _ string, _ time.Time) ([]*gh.PullRequest, error) {
-	return nil, nil
+func (m *e2ePollMockClient) ListPRsPage(_ context.Context, _, _ string, _ time.Time, _, _ int) ([]*gh.PullRequest, int, error) {
+	return nil, 0, nil
 }
 
-func (m *e2ePollMockClient) ListCommentsSince(_ context.Context, _, _ string, _ time.Time) ([]*gh.IssueComment, error) {
-	return nil, nil
+func (m *e2ePollMockClient) ListCommentsPage(_ context.Context, _, _ string, _ time.Time, _, _ int) ([]*gh.IssueComment, int, error) {
+	return nil, 0, nil
 }
 
 func (m *e2ePollMockClient) AddLabels(ctx context.Context, owner, repo string, number int, labels []string) error {

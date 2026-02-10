@@ -16,10 +16,11 @@ type GitHubClient interface {
 	CreateComment(ctx context.Context, owner, repo string, number int, body string) error
 	EditIssueState(ctx context.Context, owner, repo string, number int, state string) error
 
-	// Polling methods.
-	ListIssuesSince(ctx context.Context, owner, repo string, since time.Time) ([]*gh.Issue, error)
-	ListPRsSince(ctx context.Context, owner, repo string, since time.Time) ([]*gh.PullRequest, error)
-	ListCommentsSince(ctx context.Context, owner, repo string, since time.Time) ([]*gh.IssueComment, error)
+	// Polling methods — fetch a single page of results.
+	// Returns (items, nextPage, error). nextPage == 0 means no more data.
+	ListIssuesPage(ctx context.Context, owner, repo string, since time.Time, page, perPage int) ([]*gh.Issue, int, error)
+	ListPRsPage(ctx context.Context, owner, repo string, since time.Time, page, perPage int) ([]*gh.PullRequest, int, error)
+	ListCommentsPage(ctx context.Context, owner, repo string, since time.Time, page, perPage int) ([]*gh.IssueComment, int, error)
 }
 
 // realGitHubClient wraps the google/go-github client.
@@ -51,75 +52,54 @@ func (c *realGitHubClient) EditIssueState(ctx context.Context, owner, repo strin
 	return err
 }
 
-func (c *realGitHubClient) ListIssuesSince(ctx context.Context, owner, repo string, since time.Time) ([]*gh.Issue, error) {
+func (c *realGitHubClient) ListIssuesPage(ctx context.Context, owner, repo string, since time.Time, page, perPage int) ([]*gh.Issue, int, error) {
 	opts := &gh.IssueListByRepoOptions{
 		Since:       since,
 		State:       "all",
 		Sort:        "updated",
 		Direction:   "desc",
-		ListOptions: gh.ListOptions{PerPage: 100},
+		ListOptions: gh.ListOptions{Page: page, PerPage: perPage},
 	}
-	var all []*gh.Issue
-	for {
-		issues, resp, err := c.client.Issues.ListByRepo(ctx, owner, repo, opts)
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, issues...)
-		if resp.NextPage == 0 {
-			break
-		}
-		opts.Page = resp.NextPage
+	issues, resp, err := c.client.Issues.ListByRepo(ctx, owner, repo, opts)
+	if err != nil {
+		return nil, 0, err
 	}
-	return all, nil
+	return issues, resp.NextPage, nil
 }
 
-func (c *realGitHubClient) ListPRsSince(ctx context.Context, owner, repo string, since time.Time) ([]*gh.PullRequest, error) {
+func (c *realGitHubClient) ListPRsPage(ctx context.Context, owner, repo string, since time.Time, page, perPage int) ([]*gh.PullRequest, int, error) {
 	opts := &gh.PullRequestListOptions{
 		State:       "all",
 		Sort:        "updated",
 		Direction:   "desc",
-		ListOptions: gh.ListOptions{PerPage: 100},
+		ListOptions: gh.ListOptions{Page: page, PerPage: perPage},
 	}
-	var all []*gh.PullRequest
-	for {
-		prs, resp, err := c.client.PullRequests.List(ctx, owner, repo, opts)
-		if err != nil {
-			return nil, err
-		}
-		for _, pr := range prs {
-			if pr.GetUpdatedAt().Time.Before(since) {
-				return all, nil
-			}
-			all = append(all, pr)
-		}
-		if resp.NextPage == 0 {
-			break
-		}
-		opts.Page = resp.NextPage
+	prs, resp, err := c.client.PullRequests.List(ctx, owner, repo, opts)
+	if err != nil {
+		return nil, 0, err
 	}
-	return all, nil
+	// PR list API doesn't support Since — filter client-side.
+	var filtered []*gh.PullRequest
+	for _, pr := range prs {
+		if pr.GetUpdatedAt().Time.Before(since) {
+			return filtered, 0, nil
+		}
+		filtered = append(filtered, pr)
+	}
+	return filtered, resp.NextPage, nil
 }
 
-func (c *realGitHubClient) ListCommentsSince(ctx context.Context, owner, repo string, since time.Time) ([]*gh.IssueComment, error) {
+func (c *realGitHubClient) ListCommentsPage(ctx context.Context, owner, repo string, since time.Time, page, perPage int) ([]*gh.IssueComment, int, error) {
 	opts := &gh.IssueListCommentsOptions{
-		Since: &since,
-		Sort:  gh.String("updated"),
-		ListOptions: gh.ListOptions{PerPage: 100},
+		Since:       &since,
+		Sort:        gh.String("updated"),
+		ListOptions: gh.ListOptions{Page: page, PerPage: perPage},
 	}
-	var all []*gh.IssueComment
-	for {
-		comments, resp, err := c.client.Issues.ListComments(ctx, owner, repo, 0, opts)
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, comments...)
-		if resp.NextPage == 0 {
-			break
-		}
-		opts.Page = resp.NextPage
+	comments, resp, err := c.client.Issues.ListComments(ctx, owner, repo, 0, opts)
+	if err != nil {
+		return nil, 0, err
 	}
-	return all, nil
+	return comments, resp.NextPage, nil
 }
 
 // extractRepoRef extracts owner, repo, and issue/PR number from a command payload.
