@@ -13,7 +13,7 @@ var (
 func NewRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:     "sekiactl",
-		Short:   "Sekia CLI — control the sekiad daemon",
+		Short:   "sekia CLI — control the sekiad daemon",
 		Version: Version,
 	}
 

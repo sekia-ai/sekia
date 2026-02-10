@@ -21,7 +21,7 @@ func main() {
 
 	rootCmd := &cobra.Command{
 		Use:   "sekia-mcp",
-		Short: "Sekia MCP server — expose Sekia capabilities to AI assistants",
+		Short: "sekia MCP server — expose sekia capabilities to AI assistants",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := zerolog.New(
 				zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339},

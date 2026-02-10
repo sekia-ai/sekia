@@ -11,7 +11,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// MCPServer exposes Sekia capabilities to AI assistants via MCP.
+// MCPServer exposes sekia capabilities to AI assistants via MCP.
 type MCPServer struct {
 	api    DaemonAPI
 	nc     *nats.Conn
@@ -52,7 +52,7 @@ func (s *MCPServer) Run(ctx context.Context, natsURL string) error {
 
 	srv := mcpserver.NewMCPServer(
 		"sekia",
-		"0.0.4",
+		"0.0.5",
 		mcpserver.WithRecovery(),
 	)
 
@@ -68,7 +68,7 @@ func (s *MCPServer) Run(ctx context.Context, natsURL string) error {
 func (s *MCPServer) registerTools(srv *mcpserver.MCPServer) {
 	srv.AddTool(
 		mcplib.NewTool("get_status",
-			mcplib.WithDescription("Get Sekia daemon status including uptime, NATS health, and agent/workflow counts"),
+			mcplib.WithDescription("Get sekia daemon status including uptime, NATS health, and agent/workflow counts"),
 			mcplib.WithReadOnlyHintAnnotation(true),
 		),
 		s.handleGetStatus,
@@ -76,7 +76,7 @@ func (s *MCPServer) registerTools(srv *mcpserver.MCPServer) {
 
 	srv.AddTool(
 		mcplib.NewTool("list_agents",
-			mcplib.WithDescription("List all connected Sekia agents with their capabilities, commands, heartbeat data, and error counts"),
+			mcplib.WithDescription("List all connected sekia agents with their capabilities, commands, heartbeat data, and error counts"),
 			mcplib.WithReadOnlyHintAnnotation(true),
 		),
 		s.handleListAgents,
@@ -99,7 +99,7 @@ func (s *MCPServer) registerTools(srv *mcpserver.MCPServer) {
 
 	srv.AddTool(
 		mcplib.NewTool("publish_event",
-			mcplib.WithDescription("Publish a synthetic event onto the Sekia NATS event bus, triggering matching Lua workflows"),
+			mcplib.WithDescription("Publish a synthetic event onto the sekia NATS event bus, triggering matching Lua workflows"),
 			mcplib.WithString("source", mcplib.Required(), mcplib.Description("Event source identifier (e.g. \"mcp\", \"manual-test\"). Published to sekia.events.<source>")),
 			mcplib.WithString("event_type", mcplib.Required(), mcplib.Description("Event type (e.g. \"test.ping\", \"github.issue.opened\")")),
 			mcplib.WithObject("payload", mcplib.Description("Arbitrary JSON payload for the event")),
@@ -109,7 +109,7 @@ func (s *MCPServer) registerTools(srv *mcpserver.MCPServer) {
 
 	srv.AddTool(
 		mcplib.NewTool("send_command",
-			mcplib.WithDescription("Send a command to a connected Sekia agent (e.g. send Slack message, create GitHub comment, create Linear issue)"),
+			mcplib.WithDescription("Send a command to a connected sekia agent (e.g. send Slack message, create GitHub comment, create Linear issue)"),
 			mcplib.WithString("agent", mcplib.Required(), mcplib.Description("Target agent name (e.g. \"github-agent\", \"slack-agent\", \"linear-agent\", \"gmail-agent\")")),
 			mcplib.WithString("command", mcplib.Required(), mcplib.Description("Command name (e.g. \"create_comment\", \"send_message\", \"create_issue\", \"send_email\")")),
 			mcplib.WithObject("payload", mcplib.Required(), mcplib.Description("Command-specific payload")),

@@ -18,7 +18,7 @@ func main() {
 
 	rootCmd := &cobra.Command{
 		Use:   "sekia-slack",
-		Short: "Sekia Slack agent — Socket Mode event ingestion and Slack API commands",
+		Short: "sekia Slack agent — Socket Mode event ingestion and Slack API commands",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := zerolog.New(
 				zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339},

@@ -78,8 +78,8 @@ func TestDashboardRenders(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	html := string(body)
 
-	if !strings.Contains(html, "Sekia Dashboard") {
-		t.Error("expected page title 'Sekia Dashboard'")
+	if !strings.Contains(html, "sekia Dashboard") {
+		t.Error("expected page title 'sekia Dashboard'")
 	}
 	if !strings.Contains(html, "System Status") {
 		t.Error("expected 'System Status' section")

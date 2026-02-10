@@ -18,7 +18,7 @@ func main() {
 
 	rootCmd := &cobra.Command{
 		Use:   "sekia-linear",
-		Short: "Sekia Linear agent — GraphQL polling and Linear API commands",
+		Short: "sekia Linear agent — GraphQL polling and Linear API commands",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := zerolog.New(
 				zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339},

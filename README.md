@@ -1,4 +1,8 @@
-# Sekia
+<img width=128 src="logo.png" />
+
+[![CI](https://github.com/sekia-ai/sekia/actions/workflows/ci.yml/badge.svg)](https://github.com/sekia-ai/sekia/actions/workflows/ci.yml) [![Dependabot Updates](https://github.com/sekia-ai/sekia/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/sekia-ai/sekia/actions/workflows/dependabot/dependabot-updates) [![pages-build-deployment](https://github.com/sekia-ai/sekia/actions/workflows/pages/pages-build-deployment/badge.svg)](https://github.com/sekia-ai/sekia/actions/workflows/pages/pages-build-deployment) [![Release](https://github.com/sekia-ai/sekia/actions/workflows/release.yml/badge.svg)](https://github.com/sekia-ai/sekia/actions/workflows/release.yml)
+
+# sekia
 
 A multi-agent event bus for automating workflows across GitHub, Gmail, Linear, and Slack. Built on embedded NATS with JetStream.
 
@@ -112,7 +116,7 @@ go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github ./cmd/sekia-slack ./cmd/
 
 ## Configuration
 
-Sekia uses TOML config files searched in `/etc/sekia`, `~/.config/sekia`, and `.`. Environment variables with the `SEKIA_` prefix are also supported.
+sekia uses TOML config files searched in `/etc/sekia`, `~/.config/sekia`, and `.`. Environment variables with the `SEKIA_` prefix are also supported.
 
 Defaults:
 
@@ -133,7 +137,7 @@ See [configs/sekia.toml](configs/sekia.toml) for an example.
 
 ## Web Dashboard
 
-Sekia includes an embedded web dashboard for monitoring agents, workflows, and live events. Enable it by setting `web.listen`:
+sekia includes an embedded web dashboard for monitoring agents, workflows, and live events. Enable it by setting `web.listen`:
 
 ```toml
 [web]
@@ -176,7 +180,7 @@ func main() {
 	a, err := agent.New(agent.Config{
 		Registration: protocol.Registration{
 			Name:         "my-agent",
-			Version:      "0.0.4",
+			Version:      "0.0.5",
 			Capabilities: []string{"read", "write"},
 			Commands:     []string{"sync"},
 		},
@@ -338,7 +342,7 @@ To use polling only (no webhook server), set `webhook.listen = ""`.
 
 **Events**:
 
-| GitHub Event | Sekia Event Type | Source |
+| GitHub Event | sekia Event Type | Source |
 |---|---|---|
 | Issue opened/closed/reopened/labeled/assigned | `github.issue.<action>` | Webhook |
 | Issue opened/closed | `github.issue.opened`, `github.issue.closed` | Polling |
@@ -381,7 +385,7 @@ export SLACK_APP_TOKEN=xapp-...
 
 **Events**:
 
-| Slack Event | Sekia Event Type | Payload Fields |
+| Slack Event | sekia Event Type | Payload Fields |
 |---|---|---|
 | New message (not from bot) | `slack.message.received` | `channel`, `user`, `text`, `timestamp`, `thread_ts` (if threaded) |
 | Reaction added | `slack.reaction.added` | `user`, `reaction`, `channel`, `timestamp` |
@@ -432,7 +436,7 @@ export LINEAR_API_KEY=lin_api_...
 
 **Events**:
 
-| Trigger | Sekia Event Type | Payload Fields |
+| Trigger | sekia Event Type | Payload Fields |
 |---|---|---|
 | New issue (created since last poll) | `linear.issue.created` | `id`, `identifier`, `title`, `state`, `priority`, `team`, `url`, `assignee`, `labels` |
 | Issue updated | `linear.issue.updated` | (same as above) |
@@ -486,7 +490,7 @@ export GMAIL_APP_PASSWORD=abcd-efgh-ijkl-mnop
 
 **Events**:
 
-| Trigger | Sekia Event Type | Payload Fields |
+| Trigger | sekia Event Type | Payload Fields |
 |---|---|---|
 | New unseen message | `gmail.message.received` | `uid`, `message_id`, `from`, `to`, `subject`, `body`, `date` |
 
@@ -519,7 +523,7 @@ end)
 
 ### MCP Server
 
-Exposes Sekia capabilities to AI assistants (Claude Desktop, Claude Code, Cursor) via the [Model Context Protocol](https://modelcontextprotocol.io). Uses stdio transport — the MCP client launches `sekia-mcp` as a subprocess.
+Exposes sekia capabilities to AI assistants (Claude Desktop, Claude Code, Cursor) via the [Model Context Protocol](https://modelcontextprotocol.io). Uses stdio transport — the MCP client launches `sekia-mcp` as a subprocess.
 
 ```bash
 ./sekia-mcp
@@ -558,7 +562,7 @@ Exposes Sekia capabilities to AI assistants (Claude Desktop, Claude Code, Cursor
 
 ## Cross-Agent Workflows
 
-The real power of Sekia is connecting agents together. Here's a workflow that posts to Slack when a GitHub issue is opened, and creates a Linear tracking issue:
+The real power of sekia is connecting agents together. Here's a workflow that posts to Slack when a GitHub issue is opened, and creates a Linear tracking issue:
 
 ```lua
 -- ~/.config/sekia/workflows/issue-tracker.lua

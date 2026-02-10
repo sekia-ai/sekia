@@ -22,7 +22,7 @@ No Makefile or custom scripts — standard Go toolchain only.
 
 ## Architecture
 
-Sekia is a multi-agent event bus. Seven binaries (`sekiad` daemon, `sekiactl` CLI, `sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-gmail` agents, `sekia-mcp` MCP server) communicate over NATS. The daemon and CLI also use a Unix socket.
+sekia is a multi-agent event bus. Seven binaries (`sekiad` daemon, `sekiactl` CLI, `sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-gmail` agents, `sekia-mcp` MCP server) communicate over NATS. The daemon and CLI also use a Unix socket.
 
 ### Dependency flow
 
@@ -217,7 +217,7 @@ Embedded web UI served on a configurable TCP port. Uses server-side HTML templat
 
 ### MCP server (`internal/mcp/`)
 
-Standalone binary (`cmd/sekia-mcp/`) that exposes Sekia capabilities to AI assistants via the Model Context Protocol. Uses stdio transport — MCP clients (Claude Desktop, Claude Code, Cursor) launch it as a subprocess.
+Standalone binary (`cmd/sekia-mcp/`) that exposes sekia capabilities to AI assistants via the Model Context Protocol. Uses stdio transport — MCP clients (Claude Desktop, Claude Code, Cursor) launch it as a subprocess.
 
 **Flow**: `AI assistant → MCP stdio → sekia-mcp → Unix socket API (reads) + NATS (writes)`
 
