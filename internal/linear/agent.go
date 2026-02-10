@@ -145,6 +145,7 @@ func (la *LinearAgent) publishEvent(ev protocol.Event) {
 		la.logger.Error().Err(err).Msg("publish event")
 		return
 	}
+	la.agent.Conn().Flush()
 	la.agent.RecordEvent()
 }
 
