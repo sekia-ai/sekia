@@ -18,7 +18,7 @@ func main() {
 
 	rootCmd := &cobra.Command{
 		Use:   "sekiad",
-		Short: "Sekia daemon — multi-agent event bus",
+		Short: "sekia daemon — multi-agent event bus",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := zerolog.New(
 				zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339},

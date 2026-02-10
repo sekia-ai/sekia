@@ -1,4 +1,4 @@
-# Sekia MCP Server configuration
+# sekia MCP Server configuration
 # Env overrides: SEKIA_NATS_URL, SEKIA_DAEMON_SOCKET
 
 [nats]

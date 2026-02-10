@@ -18,7 +18,7 @@ func main() {
 
 	rootCmd := &cobra.Command{
 		Use:   "sekia-gmail",
-		Short: "Sekia Gmail agent — IMAP polling and email commands",
+		Short: "sekia Gmail agent — IMAP polling and email commands",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := zerolog.New(
 				zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339},

@@ -17,7 +17,7 @@ type Config struct {
 	NATSOpts []nats.Option
 }
 
-// Agent is the base for all Sekia agents.
+// Agent is the base for all sekia agents.
 type Agent struct {
 	Name         string
 	Version      string

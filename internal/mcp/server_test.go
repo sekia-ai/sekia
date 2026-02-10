@@ -80,9 +80,9 @@ func TestListAgents(t *testing.T) {
 		api: &mockAPI{
 			agents: &protocol.AgentsResponse{
 				Agents: []protocol.AgentInfo{
-					{Name: "github-agent", Version: "0.0.4", Status: "running",
+					{Name: "github-agent", Version: "0.0.5", Status: "running",
 						Commands: []string{"add_label", "create_comment"}},
-					{Name: "slack-agent", Version: "0.0.4", Status: "running",
+					{Name: "slack-agent", Version: "0.0.5", Status: "running",
 						Commands: []string{"send_message"}},
 				},
 			},
@@ -422,7 +422,7 @@ end)
 	testAgent, err := agent.New(agent.Config{
 		NATSUrl:  d.NATSClientURL(),
 		NATSOpts: d.NATSConnectOpts(),
-	}, "test-agent", "0.0.4", []string{"testing"}, []string{"echo"}, logger)
+	}, "test-agent", "0.0.5", []string{"testing"}, []string{"echo"}, logger)
 	if err != nil {
 		t.Fatalf("create test agent: %v", err)
 	}

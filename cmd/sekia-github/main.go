@@ -18,7 +18,7 @@ func main() {
 
 	rootCmd := &cobra.Command{
 		Use:   "sekia-github",
-		Short: "Sekia GitHub agent — webhook ingestion and GitHub API commands",
+		Short: "sekia GitHub agent — webhook ingestion and GitHub API commands",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := zerolog.New(
 				zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339},
