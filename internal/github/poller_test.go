@@ -76,6 +76,10 @@ func (m *pollMockClient) ListCommentsPage(_ context.Context, _, _ string, _ time
 	return comments, 0, nil
 }
 
+func (m *pollMockClient) ListIssuesByLabelPage(_ context.Context, _, _ string, _ []string, _ string, _, _ int) ([]*gh.Issue, int, error) {
+	return nil, 0, nil
+}
+
 func TestPollerNewIssue(t *testing.T) {
 	now := time.Now()
 	created := gh.Timestamp{Time: now}
@@ -99,7 +103,7 @@ func TestPollerNewIssue(t *testing.T) {
 		mu.Unlock()
 	}
 
-	p := NewPoller(mock, time.Hour, 100, []RepoRef{{Owner: "o", Repo: "r"}}, onEvent, zerolog.Nop())
+	p := NewPoller(PollerConfig{Client: mock, Interval: time.Hour, PerTick: 100, Repos: []RepoRef{{Owner: "o", Repo: "r"}}, OnEvent: onEvent, Logger: zerolog.Nop()})
 	p.lastSyncTime = now.Add(-1 * time.Minute)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -140,7 +144,7 @@ func TestPollerSkipsPRsFromIssuesList(t *testing.T) {
 	var events []protocol.Event
 	onEvent := func(ev protocol.Event) { events = append(events, ev) }
 
-	p := NewPoller(mock, time.Hour, 100, []RepoRef{{Owner: "o", Repo: "r"}}, onEvent, zerolog.Nop())
+	p := NewPoller(PollerConfig{Client: mock, Interval: time.Hour, PerTick: 100, Repos: []RepoRef{{Owner: "o", Repo: "r"}}, OnEvent: onEvent, Logger: zerolog.Nop()})
 	p.lastSyncTime = now.Add(-1 * time.Minute)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -183,7 +187,7 @@ func TestPollerMultipleRepos(t *testing.T) {
 	}
 
 	repos := []RepoRef{{Owner: "a", Repo: "b"}, {Owner: "c", Repo: "d"}}
-	p := NewPoller(mock, time.Hour, 100, repos, onEvent, zerolog.Nop())
+	p := NewPoller(PollerConfig{Client: mock, Interval: time.Hour, PerTick: 100, Repos: repos, OnEvent: onEvent, Logger: zerolog.Nop()})
 	p.lastSyncTime = now.Add(-1 * time.Minute)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -206,7 +210,7 @@ func TestPollerAPIErrorNoAdvance(t *testing.T) {
 		issueErr: errors.New("rate limited"),
 	}
 
-	p := NewPoller(mock, time.Hour, 100, []RepoRef{{Owner: "o", Repo: "r"}}, func(protocol.Event) {}, zerolog.Nop())
+	p := NewPoller(PollerConfig{Client: mock, Interval: time.Hour, PerTick: 100, Repos: []RepoRef{{Owner: "o", Repo: "r"}}, OnEvent: func(protocol.Event) {}, Logger: zerolog.Nop()})
 	original := p.lastSyncTime
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -225,7 +229,7 @@ func TestPollerAPIErrorNoAdvance(t *testing.T) {
 func TestPollerLastSyncTimeAdvances(t *testing.T) {
 	mock := &pollMockClient{} // no issues, no errors
 
-	p := NewPoller(mock, time.Hour, 100, []RepoRef{{Owner: "o", Repo: "r"}}, func(protocol.Event) {}, zerolog.Nop())
+	p := NewPoller(PollerConfig{Client: mock, Interval: time.Hour, PerTick: 100, Repos: []RepoRef{{Owner: "o", Repo: "r"}}, OnEvent: func(protocol.Event) {}, Logger: zerolog.Nop()})
 	original := p.lastSyncTime
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -339,6 +343,10 @@ func (m *paginatingMockClient) ListCommentsPage(_ context.Context, _, _ string, 
 	return nil, 0, nil
 }
 
+func (m *paginatingMockClient) ListIssuesByLabelPage(_ context.Context, _, _ string, _ []string, _ string, _, _ int) ([]*gh.Issue, int, error) {
+	return nil, 0, nil
+}
+
 func makeIssue(num int, created time.Time) *gh.Issue {
 	ts := gh.Timestamp{Time: created}
 	return &gh.Issue{
@@ -376,7 +384,7 @@ func TestPollerPerTickBound(t *testing.T) {
 	}
 
 	// perTick=2: each tick fetches one page of up to 2 items.
-	p := NewPoller(mock, time.Hour, 2, []RepoRef{{Owner: "o", Repo: "r"}}, onEvent, zerolog.Nop())
+	p := NewPoller(PollerConfig{Client: mock, Interval: time.Hour, PerTick: 2, Repos: []RepoRef{{Owner: "o", Repo: "r"}}, OnEvent: onEvent, Logger: zerolog.Nop()})
 	p.lastSyncTime = now.Add(-1 * time.Minute)
 
 	ctx := context.Background()
@@ -454,7 +462,7 @@ func TestPollerCursorResumesAcrossTicks(t *testing.T) {
 	}
 
 	// perTick=2: first tick gets 2 issues, second tick gets 1 PR.
-	p := NewPoller(mock, time.Hour, 2, []RepoRef{{Owner: "o", Repo: "r"}}, onEvent, zerolog.Nop())
+	p := NewPoller(PollerConfig{Client: mock, Interval: time.Hour, PerTick: 2, Repos: []RepoRef{{Owner: "o", Repo: "r"}}, OnEvent: onEvent, Logger: zerolog.Nop()})
 	p.lastSyncTime = now.Add(-1 * time.Minute)
 
 	ctx := context.Background()
@@ -496,7 +504,7 @@ func TestPollerCycleAdvancesLastSyncTime(t *testing.T) {
 		},
 	}
 
-	p := NewPoller(mock, time.Hour, 1, []RepoRef{{Owner: "o", Repo: "r"}}, func(protocol.Event) {}, zerolog.Nop())
+	p := NewPoller(PollerConfig{Client: mock, Interval: time.Hour, PerTick: 1, Repos: []RepoRef{{Owner: "o", Repo: "r"}}, OnEvent: func(protocol.Event) {}, Logger: zerolog.Nop()})
 	original := p.lastSyncTime
 
 	ctx := context.Background()
@@ -554,9 +562,9 @@ func TestPollerErrorRetainsPosition(t *testing.T) {
 	}
 
 	var eventCount int
-	p := NewPoller(mock, time.Hour, 100, []RepoRef{{Owner: "o", Repo: "r"}}, func(protocol.Event) {
+	p := NewPoller(PollerConfig{Client: mock, Interval: time.Hour, PerTick: 100, Repos: []RepoRef{{Owner: "o", Repo: "r"}}, OnEvent: func(protocol.Event) {
 		eventCount++
-	}, zerolog.Nop())
+	}, Logger: zerolog.Nop()})
 	p.lastSyncTime = now.Add(-1 * time.Minute)
 	original := p.lastSyncTime
 
@@ -607,5 +615,250 @@ func TestPollerErrorRetainsPosition(t *testing.T) {
 	p.tick(ctx)
 	if eventCount != 2 {
 		t.Fatalf("tick 3: expected 2 events total, got %d", eventCount)
+	}
+}
+
+// --- Label-mode tests ---
+
+// labelMockClient supports label-filtered polling tests.
+type labelMockClient struct {
+	mu         sync.Mutex
+	labelPages map[int]struct {
+		issues   []*gh.Issue
+		nextPage int
+	}
+	labelErr error
+}
+
+func (m *labelMockClient) AddLabels(_ context.Context, _, _ string, _ int, _ []string) error {
+	return nil
+}
+func (m *labelMockClient) RemoveLabel(_ context.Context, _, _ string, _ int, _ string) error {
+	return nil
+}
+func (m *labelMockClient) CreateComment(_ context.Context, _, _ string, _ int, _ string) error {
+	return nil
+}
+func (m *labelMockClient) EditIssueState(_ context.Context, _, _ string, _ int, _ string) error {
+	return nil
+}
+func (m *labelMockClient) ListIssuesPage(_ context.Context, _, _ string, _ time.Time, _, _ int) ([]*gh.Issue, int, error) {
+	return nil, 0, nil
+}
+func (m *labelMockClient) ListPRsPage(_ context.Context, _, _ string, _ time.Time, _, _ int) ([]*gh.PullRequest, int, error) {
+	return nil, 0, nil
+}
+func (m *labelMockClient) ListCommentsPage(_ context.Context, _, _ string, _ time.Time, _, _ int) ([]*gh.IssueComment, int, error) {
+	return nil, 0, nil
+}
+
+func (m *labelMockClient) ListIssuesByLabelPage(_ context.Context, _, _ string, _ []string, _ string, page, _ int) ([]*gh.Issue, int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.labelErr != nil {
+		return nil, 0, m.labelErr
+	}
+	if p, ok := m.labelPages[page]; ok {
+		return p.issues, p.nextPage, nil
+	}
+	return nil, 0, nil
+}
+
+func makeIssueWithLabels(num int, labels []string) *gh.Issue {
+	ts := gh.Timestamp{Time: time.Now()}
+	ghLabels := make([]*gh.Label, len(labels))
+	for i, l := range labels {
+		ghLabels[i] = &gh.Label{Name: gh.Ptr(l)}
+	}
+	return &gh.Issue{
+		Number:    gh.Ptr(num),
+		Title:     gh.Ptr("Issue"),
+		Body:      gh.Ptr(""),
+		State:     gh.Ptr("open"),
+		HTMLURL:   gh.Ptr("https://github.com/o/r/issues/1"),
+		User:      &gh.User{Login: gh.Ptr("alice")},
+		CreatedAt: &ts,
+		Labels:    ghLabels,
+	}
+}
+
+func TestPollerLabelMode(t *testing.T) {
+	mock := &labelMockClient{
+		labelPages: map[int]struct {
+			issues   []*gh.Issue
+			nextPage int
+		}{
+			1: {issues: []*gh.Issue{
+				makeIssueWithLabels(1, []string{"Severity:Info"}),
+				makeIssueWithLabels(2, []string{"Severity:Info", "Other"}),
+			}, nextPage: 0},
+		},
+	}
+
+	var mu sync.Mutex
+	var events []protocol.Event
+	onEvent := func(ev protocol.Event) {
+		mu.Lock()
+		events = append(events, ev)
+		mu.Unlock()
+	}
+
+	p := NewPoller(PollerConfig{
+		Client:  mock,
+		Interval: time.Hour,
+		PerTick: 100,
+		Repos:   []RepoRef{{Owner: "o", Repo: "r"}},
+		Labels:  []string{"Severity:Info"},
+		State:   "open",
+		OnEvent: onEvent,
+		Logger:  zerolog.Nop(),
+	})
+
+	ctx := context.Background()
+	p.tick(ctx)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(events))
+	}
+	if events[0].Type != "github.issue.matched" {
+		t.Errorf("got type %q, want github.issue.matched", events[0].Type)
+	}
+	// Verify labels are in the payload.
+	labels, ok := events[0].Payload["labels"].([]string)
+	if !ok || len(labels) != 1 || labels[0] != "Severity:Info" {
+		t.Errorf("unexpected labels in payload: %v", events[0].Payload["labels"])
+	}
+}
+
+func TestPollerLabelModeSkipsPRsAndComments(t *testing.T) {
+	mock := &labelMockClient{
+		labelPages: map[int]struct {
+			issues   []*gh.Issue
+			nextPage int
+		}{
+			1: {issues: []*gh.Issue{
+				makeIssueWithLabels(1, []string{"bug"}),
+			}, nextPage: 0},
+		},
+	}
+
+	var events []protocol.Event
+	onEvent := func(ev protocol.Event) { events = append(events, ev) }
+
+	p := NewPoller(PollerConfig{
+		Client:  mock,
+		Interval: time.Hour,
+		PerTick: 100,
+		Repos:   []RepoRef{{Owner: "o", Repo: "r"}},
+		Labels:  []string{"bug"},
+		State:   "open",
+		OnEvent: onEvent,
+		Logger:  zerolog.Nop(),
+	})
+
+	ctx := context.Background()
+	p.tick(ctx)
+
+	// Cycle should complete after one tick (issues only, no PRs/comments).
+	if p.inCycle {
+		t.Fatal("expected cycle to complete — label mode should skip PRs and comments")
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+}
+
+func TestPollerLabelModePerTickBound(t *testing.T) {
+	mock := &labelMockClient{
+		labelPages: map[int]struct {
+			issues   []*gh.Issue
+			nextPage int
+		}{
+			1: {issues: []*gh.Issue{
+				makeIssueWithLabels(1, []string{"bug"}),
+				makeIssueWithLabels(2, []string{"bug"}),
+			}, nextPage: 2},
+			2: {issues: []*gh.Issue{
+				makeIssueWithLabels(3, []string{"bug"}),
+			}, nextPage: 0},
+		},
+	}
+
+	var mu sync.Mutex
+	var events []protocol.Event
+	onEvent := func(ev protocol.Event) {
+		mu.Lock()
+		events = append(events, ev)
+		mu.Unlock()
+	}
+
+	// perTick=2: first tick gets page 1 (2 items), second tick gets page 2 (1 item).
+	p := NewPoller(PollerConfig{
+		Client:  mock,
+		Interval: time.Hour,
+		PerTick: 2,
+		Repos:   []RepoRef{{Owner: "o", Repo: "r"}},
+		Labels:  []string{"bug"},
+		State:   "open",
+		OnEvent: onEvent,
+		Logger:  zerolog.Nop(),
+	})
+
+	ctx := context.Background()
+
+	p.tick(ctx)
+	mu.Lock()
+	if len(events) != 2 {
+		t.Fatalf("tick 1: expected 2 events, got %d", len(events))
+	}
+	mu.Unlock()
+
+	if !p.inCycle {
+		t.Fatal("expected cycle to still be active after tick 1")
+	}
+
+	p.tick(ctx)
+	mu.Lock()
+	if len(events) != 3 {
+		t.Fatalf("tick 2: expected 3 events total, got %d", len(events))
+	}
+	mu.Unlock()
+
+	if p.inCycle {
+		t.Fatal("expected cycle to be complete after all items consumed")
+	}
+}
+
+func TestPollerLabelModeDoesNotAdvanceLastSyncTime(t *testing.T) {
+	mock := &labelMockClient{
+		labelPages: map[int]struct {
+			issues   []*gh.Issue
+			nextPage int
+		}{
+			1: {issues: []*gh.Issue{
+				makeIssueWithLabels(1, []string{"bug"}),
+			}, nextPage: 0},
+		},
+	}
+
+	p := NewPoller(PollerConfig{
+		Client:  mock,
+		Interval: time.Hour,
+		PerTick: 100,
+		Repos:   []RepoRef{{Owner: "o", Repo: "r"}},
+		Labels:  []string{"bug"},
+		State:   "open",
+		OnEvent: func(protocol.Event) {},
+		Logger:  zerolog.Nop(),
+	})
+	original := p.lastSyncTime
+
+	ctx := context.Background()
+	p.tick(ctx)
+
+	if !p.lastSyncTime.Equal(original) {
+		t.Error("label mode should not advance lastSyncTime")
 	}
 }

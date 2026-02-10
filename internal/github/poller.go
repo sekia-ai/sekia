@@ -37,11 +37,17 @@ type pollCursor struct {
 // comments. Each tick fetches at most perTick items, resuming from where it
 // left off via a cursor. When all items for all repos are consumed, it advances
 // lastSyncTime and starts a new cycle.
+//
+// When labels is non-empty, the poller operates in "label mode": it queries
+// issues by label and state (no time filter), only processes issues (skipping
+// PRs and comments), and does not advance lastSyncTime.
 type Poller struct {
 	client   GitHubClient
 	interval time.Duration
 	perTick  int
 	repos    []RepoRef
+	labels   []string
+	state    string
 	onEvent  func(protocol.Event)
 	logger   zerolog.Logger
 
@@ -51,15 +57,29 @@ type Poller struct {
 	inCycle      bool
 }
 
+// PollerConfig holds parameters for creating a Poller.
+type PollerConfig struct {
+	Client   GitHubClient
+	Interval time.Duration
+	PerTick  int
+	Repos    []RepoRef
+	Labels   []string
+	State    string
+	OnEvent  func(protocol.Event)
+	Logger   zerolog.Logger
+}
+
 // NewPoller creates a GitHub API poller.
-func NewPoller(client GitHubClient, interval time.Duration, perTick int, repos []RepoRef, onEvent func(protocol.Event), logger zerolog.Logger) *Poller {
+func NewPoller(cfg PollerConfig) *Poller {
 	return &Poller{
-		client:       client,
-		interval:     interval,
-		perTick:      perTick,
-		repos:        repos,
-		onEvent:      onEvent,
-		logger:       logger.With().Str("component", "poller").Logger(),
+		client:       cfg.Client,
+		interval:     cfg.Interval,
+		perTick:      cfg.PerTick,
+		repos:        cfg.Repos,
+		labels:       cfg.Labels,
+		state:        cfg.State,
+		onEvent:      cfg.OnEvent,
+		logger:       cfg.Logger.With().Str("component", "poller").Logger(),
 		lastSyncTime: time.Now().Add(-5 * time.Minute),
 	}
 }
@@ -79,6 +99,12 @@ func (p *Poller) Run(ctx context.Context) error {
 			p.tick(ctx)
 		}
 	}
+}
+
+// isLabelMode returns true when the poller is configured to query by label
+// instead of using time-based polling.
+func (p *Poller) isLabelMode() bool {
+	return len(p.labels) > 0
 }
 
 func (p *Poller) tick(ctx context.Context) {
@@ -106,7 +132,9 @@ func (p *Poller) tick(ctx context.Context) {
 	}
 
 	if !failed && p.cursorExhausted() {
-		p.lastSyncTime = p.cycleSince
+		if !p.isLabelMode() {
+			p.lastSyncTime = p.cycleSince
+		}
 		p.inCycle = false
 		p.logger.Debug().Int("repos", len(p.repos)).Msg("poll cycle complete")
 	}
@@ -121,12 +149,19 @@ func (p *Poller) advanceCursor(nextPage int) {
 		p.cursor.page = nextPage
 		return
 	}
-	p.cursor.phase++
-	p.cursor.page = 1
-	if p.cursor.phase >= phaseCount {
+	if p.isLabelMode() {
+		// Label mode only fetches issues — skip PRs and comments.
 		p.cursor.repoIdx++
 		p.cursor.phase = phaseIssues
 		p.cursor.page = 1
+	} else {
+		p.cursor.phase++
+		p.cursor.page = 1
+		if p.cursor.phase >= phaseCount {
+			p.cursor.repoIdx++
+			p.cursor.phase = phaseIssues
+			p.cursor.page = 1
+		}
 	}
 }
 
@@ -140,13 +175,17 @@ func (p *Poller) fetchAndEmit(ctx context.Context, repo RepoRef, since time.Time
 	var nextPage int
 	var err error
 
-	switch p.cursor.phase {
-	case phaseIssues:
-		emitted, nextPage, err = p.fetchIssues(ctx, repo, since, perPage)
-	case phasePRs:
-		emitted, nextPage, err = p.fetchPRs(ctx, repo, since, perPage)
-	case phaseComments:
-		emitted, nextPage, err = p.fetchComments(ctx, repo, since, perPage)
+	if p.isLabelMode() {
+		emitted, nextPage, err = p.fetchIssuesByLabel(ctx, repo, perPage)
+	} else {
+		switch p.cursor.phase {
+		case phaseIssues:
+			emitted, nextPage, err = p.fetchIssues(ctx, repo, since, perPage)
+		case phasePRs:
+			emitted, nextPage, err = p.fetchPRs(ctx, repo, since, perPage)
+		case phaseComments:
+			emitted, nextPage, err = p.fetchComments(ctx, repo, since, perPage)
+		}
 	}
 
 	if err != nil {
@@ -185,6 +224,24 @@ func (p *Poller) fetchPRs(ctx context.Context, repo RepoRef, since time.Time, pe
 		p.onEvent(ev)
 		emitted++
 		p.logger.Debug().Str("type", ev.Type).Int("number", pr.GetNumber()).Msg("PR event")
+	}
+	return emitted, nextPage, nil
+}
+
+func (p *Poller) fetchIssuesByLabel(ctx context.Context, repo RepoRef, perPage int) (int, int, error) {
+	issues, nextPage, err := p.client.ListIssuesByLabelPage(ctx, repo.Owner, repo.Repo, p.labels, p.state, p.cursor.page, perPage)
+	if err != nil {
+		return 0, 0, err
+	}
+	var emitted int
+	for _, issue := range issues {
+		if issue.PullRequestLinks != nil {
+			continue
+		}
+		ev := MapLabelMatchedIssue(issue, repo.Owner, repo.Repo)
+		p.onEvent(ev)
+		emitted++
+		p.logger.Debug().Str("type", ev.Type).Int("number", issue.GetNumber()).Msg("label-matched issue")
 	}
 	return emitted, nextPage, nil
 }

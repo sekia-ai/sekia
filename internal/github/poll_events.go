@@ -79,6 +79,30 @@ func MapPolledPR(pr *gh.PullRequest, owner, repo string, lastSyncTime time.Time)
 	return protocol.NewEvent(sekiaType, "github", p)
 }
 
+// MapLabelMatchedIssue converts a GitHub Issue found via label-filtered polling
+// into a sekia Event with type "github.issue.matched".
+func MapLabelMatchedIssue(issue *gh.Issue, owner, repo string) protocol.Event {
+	p := map[string]any{
+		"owner":  owner,
+		"repo":   repo,
+		"number": issue.GetNumber(),
+		"title":  issue.GetTitle(),
+		"body":   issue.GetBody(),
+		"author": issue.GetUser().GetLogin(),
+		"url":    issue.GetHTMLURL(),
+		"state":  issue.GetState(),
+		"polled": true,
+	}
+
+	labels := make([]string, 0, len(issue.Labels))
+	for _, l := range issue.Labels {
+		labels = append(labels, l.GetName())
+	}
+	p["labels"] = labels
+
+	return protocol.NewEvent("github.issue.matched", "github", p)
+}
+
 // MapPolledComment converts a GitHub IssueComment from the REST API into a sekia Event.
 func MapPolledComment(comment *gh.IssueComment, owner, repo string) protocol.Event {
 	p := map[string]any{
