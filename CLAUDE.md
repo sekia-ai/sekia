@@ -124,6 +124,8 @@ Standalone binary (`cmd/sekia-github/`) that bridges GitHub webhooks and/or REST
 
 **Event types (polling only)**: `github.issue.updated`, `github.pr.updated` — polling cannot distinguish fine-grained actions like labeled/assigned/reopened.
 
+**Event types (label-filtered mode)**: `github.issue.matched` — emitted for each issue matching the configured labels and state. Payload includes `labels`, `state`, `owner`, `repo`, `number`, `title`, `body`, `author`, `url`, `polled`.
+
 **Commands**: `add_label`, `remove_label`, `create_comment`, `close_issue`, `reopen_issue`
 
 **Key design decisions:**
@@ -138,7 +140,7 @@ Standalone binary (`cmd/sekia-github/`) that bridges GitHub webhooks and/or REST
 
 **Config file**: `sekia-github.toml` (same search paths as `sekia.toml`). Env vars: `GITHUB_TOKEN`, `GITHUB_WEBHOOK_SECRET`, `SEKIA_NATS_URL`.
 
-**Polling config**: `[poll]` section — `enabled` (bool, default false), `interval` (duration, default 30s), `per_tick` (int, default 100, max items per tick), `repos` (list of `"owner/repo"`, required when enabled).
+**Polling config**: `[poll]` section — `enabled` (bool, default false), `interval` (duration, default 30s), `per_tick` (int, default 100, max items per tick), `repos` (list of `"owner/repo"`, required when enabled), `labels` (list of strings, optional), `state` (string, default "open"). When `labels` is non-empty the poller switches to **label-filtered mode**: queries issues by label+state instead of time, only fetches issues (skips PRs/comments), emits `github.issue.matched` events, and does not advance `lastSyncTime`.
 
 ### Slack agent (`internal/slack/`)
 

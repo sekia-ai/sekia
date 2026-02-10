@@ -21,6 +21,9 @@ type GitHubClient interface {
 	ListIssuesPage(ctx context.Context, owner, repo string, since time.Time, page, perPage int) ([]*gh.Issue, int, error)
 	ListPRsPage(ctx context.Context, owner, repo string, since time.Time, page, perPage int) ([]*gh.PullRequest, int, error)
 	ListCommentsPage(ctx context.Context, owner, repo string, since time.Time, page, perPage int) ([]*gh.IssueComment, int, error)
+
+	// Label-filtered polling — fetch issues by label and state (no time filter).
+	ListIssuesByLabelPage(ctx context.Context, owner, repo string, labels []string, state string, page, perPage int) ([]*gh.Issue, int, error)
 }
 
 // realGitHubClient wraps the google/go-github client.
@@ -100,6 +103,21 @@ func (c *realGitHubClient) ListCommentsPage(ctx context.Context, owner, repo str
 		return nil, 0, err
 	}
 	return comments, resp.NextPage, nil
+}
+
+func (c *realGitHubClient) ListIssuesByLabelPage(ctx context.Context, owner, repo string, labels []string, state string, page, perPage int) ([]*gh.Issue, int, error) {
+	opts := &gh.IssueListByRepoOptions{
+		Labels:      labels,
+		State:       state,
+		Sort:        "updated",
+		Direction:   "desc",
+		ListOptions: gh.ListOptions{Page: page, PerPage: perPage},
+	}
+	issues, resp, err := c.client.Issues.ListByRepo(ctx, owner, repo, opts)
+	if err != nil {
+		return nil, 0, err
+	}
+	return issues, resp.NextPage, nil
 }
 
 // extractRepoRef extracts owner, repo, and issue/PR number from a command payload.

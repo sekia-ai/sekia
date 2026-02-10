@@ -22,3 +22,8 @@ interval = "30s"
 per_tick = 100
 # Repositories to poll (required when enabled). Format: "owner/repo".
 # repos = ["myorg/myrepo", "myorg/another-repo"]
+# Label-filtered mode: when labels is non-empty, the poller queries issues by
+# label and state instead of using time-based polling. Only issues are fetched
+# (PRs and comments are skipped). Events use type "github.issue.matched".
+# labels = ["Severity:Info"]
+# state = "open"  # one of: open, closed, all (default: open)

@@ -38,6 +38,8 @@ type PollConfig struct {
 	Interval time.Duration `mapstructure:"interval"`
 	Repos    []string      `mapstructure:"repos"`
 	PerTick  int           `mapstructure:"per_tick"`
+	Labels   []string      `mapstructure:"labels"`
+	State    string        `mapstructure:"state"`
 }
 
 // LoadConfig reads configuration from file, env, and defaults.
@@ -51,6 +53,8 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v.SetDefault("poll.interval", "30s")
 	v.SetDefault("poll.repos", []string{})
 	v.SetDefault("poll.per_tick", 100)
+	v.SetDefault("poll.labels", []string{})
+	v.SetDefault("poll.state", "open")
 
 	v.SetConfigType("toml")
 
@@ -86,6 +90,13 @@ func LoadConfig(cfgFile string) (Config, error) {
 
 	if cfg.Poll.Enabled && cfg.Poll.PerTick < 1 {
 		return cfg, fmt.Errorf("poll.per_tick must be at least 1")
+	}
+
+	switch cfg.Poll.State {
+	case "open", "closed", "all":
+		// valid
+	default:
+		return cfg, fmt.Errorf("poll.state must be one of: open, closed, all")
 	}
 
 	if cfg.Webhook.Listen == "" && !cfg.Poll.Enabled {
