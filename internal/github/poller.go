@@ -28,9 +28,10 @@ const (
 
 // pollCursor tracks position within a polling cycle.
 type pollCursor struct {
-	repoIdx int
-	phase   pollPhase
-	page    int // GitHub API page number (1-based)
+	repoIdx  int
+	labelIdx int // index into labels slice (label mode only)
+	phase    pollPhase
+	page     int // GitHub API page number (1-based)
 }
 
 // Poller periodically queries the GitHub REST API for updated issues, PRs, and
@@ -39,7 +40,8 @@ type pollCursor struct {
 // lastSyncTime and starts a new cycle.
 //
 // When labels is non-empty, the poller operates in "label mode": it queries
-// issues by label and state (no time filter), only processes issues (skipping
+// issues for each label separately (OR semantics — issues matching ANY label
+// are returned), deduplicates across labels, only processes issues (skipping
 // PRs and comments), and does not advance lastSyncTime.
 type Poller struct {
 	client   GitHubClient
@@ -55,6 +57,7 @@ type Poller struct {
 	cursor       pollCursor
 	cycleSince   time.Time
 	inCycle      bool
+	seenIssues   map[string]bool // dedup across labels within a cycle
 }
 
 // PollerConfig holds parameters for creating a Poller.
@@ -109,8 +112,9 @@ func (p *Poller) isLabelMode() bool {
 
 func (p *Poller) tick(ctx context.Context) {
 	if !p.inCycle {
-		p.cursor = pollCursor{repoIdx: 0, phase: phaseIssues, page: 1}
+		p.cursor = pollCursor{repoIdx: 0, labelIdx: 0, phase: phaseIssues, page: 1}
 		p.cycleSince = time.Now()
+		p.seenIssues = make(map[string]bool)
 		p.inCycle = true
 	}
 
@@ -150,10 +154,14 @@ func (p *Poller) advanceCursor(nextPage int) {
 		return
 	}
 	if p.isLabelMode() {
-		// Label mode only fetches issues — skip PRs and comments.
-		p.cursor.repoIdx++
-		p.cursor.phase = phaseIssues
+		// Label mode iterates each label separately (OR semantics).
+		p.cursor.labelIdx++
 		p.cursor.page = 1
+		if p.cursor.labelIdx >= len(p.labels) {
+			p.cursor.repoIdx++
+			p.cursor.labelIdx = 0
+			p.cursor.page = 1
+		}
 	} else {
 		p.cursor.phase++
 		p.cursor.page = 1
@@ -229,7 +237,8 @@ func (p *Poller) fetchPRs(ctx context.Context, repo RepoRef, since time.Time, pe
 }
 
 func (p *Poller) fetchIssuesByLabel(ctx context.Context, repo RepoRef, perPage int) (int, int, error) {
-	issues, nextPage, err := p.client.ListIssuesByLabelPage(ctx, repo.Owner, repo.Repo, p.labels, p.state, p.cursor.page, perPage)
+	label := p.labels[p.cursor.labelIdx]
+	issues, nextPage, err := p.client.ListIssuesByLabelPage(ctx, repo.Owner, repo.Repo, []string{label}, p.state, p.cursor.page, perPage)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -238,10 +247,16 @@ func (p *Poller) fetchIssuesByLabel(ctx context.Context, repo RepoRef, perPage i
 		if issue.PullRequestLinks != nil {
 			continue
 		}
+		// Deduplicate: an issue matching multiple labels is emitted only once per cycle.
+		key := fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Repo, issue.GetNumber())
+		if p.seenIssues[key] {
+			continue
+		}
+		p.seenIssues[key] = true
 		ev := MapLabelMatchedIssue(issue, repo.Owner, repo.Repo)
 		p.onEvent(ev)
 		emitted++
-		p.logger.Debug().Str("type", ev.Type).Int("number", issue.GetNumber()).Msg("label-matched issue")
+		p.logger.Debug().Str("type", ev.Type).Int("number", issue.GetNumber()).Str("label", label).Msg("label-matched issue")
 	}
 	return emitted, nextPage, nil
 }

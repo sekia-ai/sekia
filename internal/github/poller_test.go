@@ -620,13 +620,16 @@ func TestPollerErrorRetainsPosition(t *testing.T) {
 
 // --- Label-mode tests ---
 
+type labelPageResponse struct {
+	issues   []*gh.Issue
+	nextPage int
+}
+
 // labelMockClient supports label-filtered polling tests.
+// byLabel maps each label string to its per-page responses.
 type labelMockClient struct {
-	mu         sync.Mutex
-	labelPages map[int]struct {
-		issues   []*gh.Issue
-		nextPage int
-	}
+	mu       sync.Mutex
+	byLabel  map[string]map[int]labelPageResponse
 	labelErr error
 }
 
@@ -652,13 +655,20 @@ func (m *labelMockClient) ListCommentsPage(_ context.Context, _, _ string, _ tim
 	return nil, 0, nil
 }
 
-func (m *labelMockClient) ListIssuesByLabelPage(_ context.Context, _, _ string, _ []string, _ string, page, _ int) ([]*gh.Issue, int, error) {
+func (m *labelMockClient) ListIssuesByLabelPage(_ context.Context, _, _ string, labels []string, _ string, page, _ int) ([]*gh.Issue, int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.labelErr != nil {
 		return nil, 0, m.labelErr
 	}
-	if p, ok := m.labelPages[page]; ok {
+	if len(labels) == 0 {
+		return nil, 0, nil
+	}
+	pages, ok := m.byLabel[labels[0]]
+	if !ok {
+		return nil, 0, nil
+	}
+	if p, ok := pages[page]; ok {
 		return p.issues, p.nextPage, nil
 	}
 	return nil, 0, nil
@@ -684,14 +694,13 @@ func makeIssueWithLabels(num int, labels []string) *gh.Issue {
 
 func TestPollerLabelMode(t *testing.T) {
 	mock := &labelMockClient{
-		labelPages: map[int]struct {
-			issues   []*gh.Issue
-			nextPage int
-		}{
-			1: {issues: []*gh.Issue{
-				makeIssueWithLabels(1, []string{"Severity:Info"}),
-				makeIssueWithLabels(2, []string{"Severity:Info", "Other"}),
-			}, nextPage: 0},
+		byLabel: map[string]map[int]labelPageResponse{
+			"Severity:Info": {
+				1: {issues: []*gh.Issue{
+					makeIssueWithLabels(1, []string{"Severity:Info"}),
+					makeIssueWithLabels(2, []string{"Severity:Info", "Other"}),
+				}, nextPage: 0},
+			},
 		},
 	}
 
@@ -734,13 +743,12 @@ func TestPollerLabelMode(t *testing.T) {
 
 func TestPollerLabelModeSkipsPRsAndComments(t *testing.T) {
 	mock := &labelMockClient{
-		labelPages: map[int]struct {
-			issues   []*gh.Issue
-			nextPage int
-		}{
-			1: {issues: []*gh.Issue{
-				makeIssueWithLabels(1, []string{"bug"}),
-			}, nextPage: 0},
+		byLabel: map[string]map[int]labelPageResponse{
+			"bug": {
+				1: {issues: []*gh.Issue{
+					makeIssueWithLabels(1, []string{"bug"}),
+				}, nextPage: 0},
+			},
 		},
 	}
 
@@ -772,17 +780,16 @@ func TestPollerLabelModeSkipsPRsAndComments(t *testing.T) {
 
 func TestPollerLabelModePerTickBound(t *testing.T) {
 	mock := &labelMockClient{
-		labelPages: map[int]struct {
-			issues   []*gh.Issue
-			nextPage int
-		}{
-			1: {issues: []*gh.Issue{
-				makeIssueWithLabels(1, []string{"bug"}),
-				makeIssueWithLabels(2, []string{"bug"}),
-			}, nextPage: 2},
-			2: {issues: []*gh.Issue{
-				makeIssueWithLabels(3, []string{"bug"}),
-			}, nextPage: 0},
+		byLabel: map[string]map[int]labelPageResponse{
+			"bug": {
+				1: {issues: []*gh.Issue{
+					makeIssueWithLabels(1, []string{"bug"}),
+					makeIssueWithLabels(2, []string{"bug"}),
+				}, nextPage: 2},
+				2: {issues: []*gh.Issue{
+					makeIssueWithLabels(3, []string{"bug"}),
+				}, nextPage: 0},
+			},
 		},
 	}
 
@@ -833,13 +840,12 @@ func TestPollerLabelModePerTickBound(t *testing.T) {
 
 func TestPollerLabelModeDoesNotAdvanceLastSyncTime(t *testing.T) {
 	mock := &labelMockClient{
-		labelPages: map[int]struct {
-			issues   []*gh.Issue
-			nextPage int
-		}{
-			1: {issues: []*gh.Issue{
-				makeIssueWithLabels(1, []string{"bug"}),
-			}, nextPage: 0},
+		byLabel: map[string]map[int]labelPageResponse{
+			"bug": {
+				1: {issues: []*gh.Issue{
+					makeIssueWithLabels(1, []string{"bug"}),
+				}, nextPage: 0},
+			},
 		},
 	}
 
@@ -860,5 +866,93 @@ func TestPollerLabelModeDoesNotAdvanceLastSyncTime(t *testing.T) {
 
 	if !p.lastSyncTime.Equal(original) {
 		t.Error("label mode should not advance lastSyncTime")
+	}
+}
+
+func TestPollerLabelModeORSemantics(t *testing.T) {
+	// Two labels, each matching different issues. Both should be emitted.
+	mock := &labelMockClient{
+		byLabel: map[string]map[int]labelPageResponse{
+			"Severity:Info": {
+				1: {issues: []*gh.Issue{
+					makeIssueWithLabels(1, []string{"Severity:Info"}),
+				}, nextPage: 0},
+			},
+			"Source:RunReveal": {
+				1: {issues: []*gh.Issue{
+					makeIssueWithLabels(2, []string{"Source:RunReveal"}),
+				}, nextPage: 0},
+			},
+		},
+	}
+
+	var events []protocol.Event
+	onEvent := func(ev protocol.Event) { events = append(events, ev) }
+
+	p := NewPoller(PollerConfig{
+		Client:   mock,
+		Interval: time.Hour,
+		PerTick:  100,
+		Repos:    []RepoRef{{Owner: "o", Repo: "r"}},
+		Labels:   []string{"Severity:Info", "Source:RunReveal"},
+		State:    "open",
+		OnEvent:  onEvent,
+		Logger:   zerolog.Nop(),
+	})
+
+	ctx := context.Background()
+	p.tick(ctx)
+
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events (one per label), got %d", len(events))
+	}
+	// Verify both issues are present.
+	nums := map[int]bool{}
+	for _, ev := range events {
+		if n, ok := ev.Payload["number"]; ok {
+			nums[n.(int)] = true
+		}
+	}
+	if !nums[1] || !nums[2] {
+		t.Errorf("expected issues #1 and #2, got %v", nums)
+	}
+}
+
+func TestPollerLabelModeDeduplication(t *testing.T) {
+	// Issue #1 has both labels — should only be emitted once.
+	mock := &labelMockClient{
+		byLabel: map[string]map[int]labelPageResponse{
+			"Severity:Info": {
+				1: {issues: []*gh.Issue{
+					makeIssueWithLabels(1, []string{"Severity:Info", "Source:RunReveal"}),
+				}, nextPage: 0},
+			},
+			"Source:RunReveal": {
+				1: {issues: []*gh.Issue{
+					makeIssueWithLabels(1, []string{"Severity:Info", "Source:RunReveal"}),
+				}, nextPage: 0},
+			},
+		},
+	}
+
+	var events []protocol.Event
+	onEvent := func(ev protocol.Event) { events = append(events, ev) }
+
+	p := NewPoller(PollerConfig{
+		Client:   mock,
+		Interval: time.Hour,
+		PerTick:  100,
+		Repos:    []RepoRef{{Owner: "o", Repo: "r"}},
+		Labels:   []string{"Severity:Info", "Source:RunReveal"},
+		State:    "open",
+		OnEvent:  onEvent,
+		Logger:   zerolog.Nop(),
+	})
+
+	ctx := context.Background()
+	p.tick(ctx)
+
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event (deduplicated), got %d", len(events))
 	}
 }
