@@ -17,7 +17,8 @@ type Config struct {
 
 // NATSConfig holds NATS connection settings.
 type NATSConfig struct {
-	URL string `mapstructure:"url"`
+	URL   string `mapstructure:"url"`
+	Token string `mapstructure:"token"`
 }
 
 // IMAPConfig holds IMAP connection credentials.
@@ -66,6 +67,7 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v.BindEnv("smtp.username", "GMAIL_ADDRESS")
 	v.BindEnv("smtp.password", "GMAIL_APP_PASSWORD")
 	v.BindEnv("nats.url", "SEKIA_NATS_URL")
+	v.BindEnv("nats.token", "SEKIA_NATS_TOKEN")
 
 	_ = v.ReadInConfig() // config file is optional
 

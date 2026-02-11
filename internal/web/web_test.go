@@ -17,6 +17,10 @@ import (
 )
 
 func setupTest(t *testing.T) (*Server, *nats.Conn) {
+	return setupTestWithAuth(t, "", "")
+}
+
+func setupTestWithAuth(t *testing.T, username, password string) (*Server, *nats.Conn) {
 	t.Helper()
 
 	ns, err := natsserver.NewServer(&natsserver.Options{
@@ -49,13 +53,13 @@ func setupTest(t *testing.T) (*Server, *nats.Conn) {
 	}
 	t.Cleanup(reg.Close)
 
-	eng := workflow.New(nc, t.TempDir(), nil, logger)
+	eng := workflow.New(nc, t.TempDir(), nil, 0, logger)
 	if err := eng.Start(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(eng.Stop)
 
-	srv := New(":0", reg, eng, nc, time.Now(), logger)
+	srv := New(Config{Listen: ":0", Username: username, Password: password}, reg, eng, nc, time.Now(), logger)
 	return srv, nc
 }
 
@@ -203,5 +207,69 @@ func TestEventBus(t *testing.T) {
 	recent := eb.Recent()
 	if len(recent) != 5 {
 		t.Errorf("expected 5 recent events, got %d", len(recent))
+	}
+}
+
+func TestAuthRequired(t *testing.T) {
+	srv, _ := setupTestWithAuth(t, "admin", "secret")
+
+	ts := httptest.NewServer(srv.httpServer.Handler)
+	defer ts.Close()
+
+	// Without credentials → 401.
+	resp, err := http.Get(ts.URL + "/web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 401 {
+		t.Fatalf("expected 401 without auth, got %d", resp.StatusCode)
+	}
+	if resp.Header.Get("WWW-Authenticate") == "" {
+		t.Error("expected WWW-Authenticate header")
+	}
+
+	// With wrong credentials → 401.
+	req, _ := http.NewRequest("GET", ts.URL+"/web", nil)
+	req.SetBasicAuth("admin", "wrong")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 401 {
+		t.Fatalf("expected 401 with wrong password, got %d", resp.StatusCode)
+	}
+
+	// With correct credentials → 200.
+	req, _ = http.NewRequest("GET", ts.URL+"/web", nil)
+	req.SetBasicAuth("admin", "secret")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200 with correct auth, got %d", resp.StatusCode)
+	}
+}
+
+func TestSecurityHeaders(t *testing.T) {
+	srv, _ := setupTest(t)
+
+	ts := httptest.NewServer(srv.httpServer.Handler)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	if resp.Header.Get("X-Content-Type-Options") != "nosniff" {
+		t.Error("expected X-Content-Type-Options: nosniff")
+	}
+	if resp.Header.Get("X-Frame-Options") != "DENY" {
+		t.Error("expected X-Frame-Options: DENY")
 	}
 }

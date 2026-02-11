@@ -23,10 +23,14 @@ type MCPServer struct {
 
 // New creates an MCPServer. Call Run() to start serving on stdio.
 func New(cfg Config, logger zerolog.Logger) *MCPServer {
-	return &MCPServer{
+	s := &MCPServer{
 		api:    NewAPIClient(cfg.Daemon.Socket),
 		logger: logger.With().Str("component", "mcp").Logger(),
 	}
+	if cfg.NATS.Token != "" {
+		s.natsOpts = append(s.natsOpts, nats.Token(cfg.NATS.Token))
+	}
+	return s
 }
 
 // SetDaemonAPI overrides the daemon API client. Intended for testing with a mock.

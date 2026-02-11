@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"crypto/subtle"
 	"embed"
 	"html/template"
 	"io/fs"
@@ -19,6 +20,13 @@ import (
 //go:embed static templates
 var content embed.FS
 
+// Config holds web dashboard settings passed to New.
+type Config struct {
+	Listen   string
+	Username string // HTTP Basic Auth username (empty = no auth).
+	Password string // HTTP Basic Auth password (empty = no auth).
+}
+
 // Server serves the web dashboard on a TCP port.
 type Server struct {
 	listen     string
@@ -30,20 +38,25 @@ type Server struct {
 	logger     zerolog.Logger
 	templates  *template.Template
 	eventBus   *EventBus
+	username   string
+	password   string
 }
 
 // New creates a web UI server. The engine parameter may be nil if workflows are disabled.
-func New(listen string, reg *registry.Registry, engine *workflow.Engine,
+// If cfg.Username and cfg.Password are non-empty, HTTP Basic Auth is required for all routes.
+func New(cfg Config, reg *registry.Registry, engine *workflow.Engine,
 	nc *nats.Conn, startedAt time.Time, logger zerolog.Logger) *Server {
 
 	s := &Server{
-		listen:    listen,
+		listen:    cfg.Listen,
 		registry:  reg,
 		engine:    engine,
 		nc:        nc,
 		startedAt: startedAt,
 		logger:    logger.With().Str("component", "web").Logger(),
 		eventBus:  NewEventBus(50),
+		username:  cfg.Username,
+		password:  cfg.Password,
 	}
 
 	funcMap := template.FuncMap{
@@ -67,8 +80,30 @@ func New(listen string, reg *registry.Registry, engine *workflow.Engine,
 	mux.HandleFunc("GET /web/partials/workflows", s.handlePartialWorkflows)
 	mux.HandleFunc("GET /web/events/stream", s.handleEventStream)
 
-	s.httpServer = &http.Server{Handler: mux}
+	s.httpServer = &http.Server{Handler: s.securityMiddleware(mux)}
 	return s
+}
+
+// securityMiddleware adds security headers and optional HTTP Basic Auth to all responses.
+func (s *Server) securityMiddleware(next http.Handler) http.Handler {
+	authEnabled := s.username != "" && s.password != ""
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+
+		if authEnabled {
+			user, pass, ok := r.BasicAuth()
+			if !ok ||
+				subtle.ConstantTimeCompare([]byte(user), []byte(s.username)) != 1 ||
+				subtle.ConstantTimeCompare([]byte(pass), []byte(s.password)) != 1 {
+				w.Header().Set("WWW-Authenticate", `Basic realm="sekia"`)
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // Start begins listening on TCP. Blocks until Shutdown or error.

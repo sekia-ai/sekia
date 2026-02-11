@@ -68,9 +68,13 @@ func (ga *GitHubAgent) Run() error {
 		capabilities = append(capabilities, "github-polling")
 	}
 
+	natsOpts := ga.natsOpts
+	if ga.cfg.NATS.Token != "" {
+		natsOpts = append(natsOpts, nats.Token(ga.cfg.NATS.Token))
+	}
 	agentCfg := agent.Config{
 		NATSUrl:  ga.cfg.NATS.URL,
-		NATSOpts: ga.natsOpts,
+		NATSOpts: natsOpts,
 	}
 	a, err := agent.New(
 		agentCfg, agentName, agentVersion,

@@ -12,7 +12,8 @@ type Config struct {
 
 // NATSConfig holds NATS connection settings.
 type NATSConfig struct {
-	URL string `mapstructure:"url"`
+	URL   string `mapstructure:"url"`
+	Token string `mapstructure:"token"`
 }
 
 // DaemonConfig holds settings for connecting to the sekiad daemon API.
@@ -39,6 +40,7 @@ func LoadConfig(cfgFile string) (Config, error) {
 	}
 
 	v.BindEnv("nats.url", "SEKIA_NATS_URL")
+	v.BindEnv("nats.token", "SEKIA_NATS_TOKEN")
 	v.BindEnv("daemon.socket", "SEKIA_DAEMON_SOCKET")
 
 	_ = v.ReadInConfig() // config file is optional

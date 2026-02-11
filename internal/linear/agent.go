@@ -50,9 +50,13 @@ func NewAgent(cfg Config, logger zerolog.Logger) *LinearAgent {
 // starts the poller, and blocks until signal or Stop().
 func (la *LinearAgent) Run() error {
 	// 1. Connect to NATS via the agent SDK.
+	natsOpts := la.natsOpts
+	if la.cfg.NATS.Token != "" {
+		natsOpts = append(natsOpts, nats.Token(la.cfg.NATS.Token))
+	}
 	agentCfg := agent.Config{
 		NATSUrl:  la.cfg.NATS.URL,
-		NATSOpts: la.natsOpts,
+		NATSOpts: natsOpts,
 	}
 	a, err := agent.New(
 		agentCfg, agentName, agentVersion,

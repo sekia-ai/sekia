@@ -23,7 +23,7 @@ func TestLoadDir(t *testing.T) {
 	`), 0644)
 	os.WriteFile(filepath.Join(wfDir, "readme.txt"), []byte("not a workflow"), 0644)
 
-	eng := New(nc, wfDir, nil, testLogger())
+	eng := New(nc, wfDir, nil, 0, testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestLoadDir_EmptyDir(t *testing.T) {
 	wfDir := filepath.Join(tmpDir, "workflows")
 	// Don't create it — LoadDir should create it.
 
-	eng := New(nc, wfDir, nil, testLogger())
+	eng := New(nc, wfDir, nil, 0, testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestLoadDir_SyntaxError(t *testing.T) {
 		this is not valid lua !@#$
 	`), 0644)
 
-	eng := New(nc, wfDir, nil, testLogger())
+	eng := New(nc, wfDir, nil, 0, testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestReloadAll(t *testing.T) {
 		sekia.on("sekia.events.v1", function(event) end)
 	`), 0644)
 
-	eng := New(nc, wfDir, nil, testLogger())
+	eng := New(nc, wfDir, nil, 0, testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestHotReload(t *testing.T) {
 	wfDir := filepath.Join(tmpDir, "workflows")
 	os.MkdirAll(wfDir, 0755)
 
-	eng := New(nc, wfDir, nil, testLogger())
+	eng := New(nc, wfDir, nil, 0, testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}

@@ -15,6 +15,7 @@ type Config struct {
 	StoreDir string
 	Host     string
 	Port     int
+	Token    string // If non-empty, requires token auth for NATS connections.
 }
 
 // Server wraps an embedded NATS server with JetStream.
@@ -36,6 +37,9 @@ func New(cfg Config, logger zerolog.Logger) (*Server, error) {
 		NoLog:      true,
 		NoSigs:     true,
 	}
+	if cfg.Token != "" {
+		opts.Authorization = cfg.Token
+	}
 
 	ns, err := server.NewServer(opts)
 	if err != nil {
@@ -53,6 +57,9 @@ func New(cfg Config, logger zerolog.Logger) (*Server, error) {
 	var connectOpts []nats.Option
 	if opts.DontListen {
 		connectOpts = append(connectOpts, nats.InProcessServer(ns))
+	}
+	if cfg.Token != "" {
+		connectOpts = append(connectOpts, nats.Token(cfg.Token))
 	}
 	nc, err := nats.Connect(ns.ClientURL(), connectOpts...)
 	if err != nil {

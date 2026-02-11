@@ -51,9 +51,13 @@ func NewAgent(cfg Config, logger zerolog.Logger) *SlackAgent {
 // starts the Socket Mode listener, and blocks until signal or Stop().
 func (sa *SlackAgent) Run() error {
 	// 1. Connect to NATS via the agent SDK.
+	natsOpts := sa.natsOpts
+	if sa.cfg.NATS.Token != "" {
+		natsOpts = append(natsOpts, nats.Token(sa.cfg.NATS.Token))
+	}
 	agentCfg := agent.Config{
 		NATSUrl:  sa.cfg.NATS.URL,
-		NATSOpts: sa.natsOpts,
+		NATSOpts: natsOpts,
 	}
 	a, err := agent.New(
 		agentCfg, agentName, agentVersion,
