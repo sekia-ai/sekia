@@ -158,14 +158,19 @@ func (sa *SlackAgent) publishEvent(ev protocol.Event) {
 }
 
 func (sa *SlackAgent) handleCommand(msg *nats.Msg) {
-	var cmd struct {
-		Command string         `json:"command"`
-		Payload map[string]any `json:"payload"`
-		Source  string         `json:"source"`
-	}
+	var cmd protocol.Command
 	if err := json.Unmarshal(msg.Data, &cmd); err != nil {
 		sa.agent.RecordError()
 		sa.logger.Error().Err(err).Msg("unmarshal command")
+		return
+	}
+
+	if !protocol.VerifyCommand(&cmd, sa.cfg.Security.CommandSecret) {
+		sa.agent.RecordError()
+		sa.logger.Warn().
+			Str("command", cmd.Command).
+			Str("source", cmd.Source).
+			Msg("rejected command: invalid or missing signature")
 		return
 	}
 

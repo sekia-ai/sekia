@@ -8,8 +8,14 @@ import (
 
 // Config holds all configuration for the Slack agent.
 type Config struct {
-	NATS  NATSConfig  `mapstructure:"nats"`
-	Slack SlackConfig `mapstructure:"slack"`
+	NATS     NATSConfig     `mapstructure:"nats"`
+	Slack    SlackConfig    `mapstructure:"slack"`
+	Security SecurityConfig `mapstructure:"security"`
+}
+
+// SecurityConfig holds application-level security settings.
+type SecurityConfig struct {
+	CommandSecret string `mapstructure:"command_secret"`
 }
 
 // NATSConfig holds NATS connection settings.
@@ -45,6 +51,7 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v.BindEnv("slack.app_token", "SLACK_APP_TOKEN")
 	v.BindEnv("nats.url", "SEKIA_NATS_URL")
 	v.BindEnv("nats.token", "SEKIA_NATS_TOKEN")
+	v.BindEnv("security.command_secret", "SEKIA_COMMAND_SECRET")
 
 	_ = v.ReadInConfig() // config file is optional
 

@@ -17,6 +17,12 @@ type Config struct {
 	Workflows WorkflowConfig `mapstructure:"workflows"`
 	Web       WebConfig      `mapstructure:"web"`
 	AI        ai.Config      `mapstructure:"ai"`
+	Security  SecurityConfig `mapstructure:"security"`
+}
+
+// SecurityConfig holds application-level security settings.
+type SecurityConfig struct {
+	CommandSecret string `mapstructure:"command_secret"`
 }
 
 // WebConfig holds web dashboard settings.
@@ -85,6 +91,7 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v.BindEnv("nats.token", "SEKIA_NATS_TOKEN")
 	v.BindEnv("web.username", "SEKIA_WEB_USERNAME")
 	v.BindEnv("web.password", "SEKIA_WEB_PASSWORD")
+	v.BindEnv("security.command_secret", "SEKIA_COMMAND_SECRET")
 
 	// Config file is optional.
 	_ = v.ReadInConfig()

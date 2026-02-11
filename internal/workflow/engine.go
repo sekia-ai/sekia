@@ -53,12 +53,14 @@ type Engine struct {
 	sub            *nats.Subscription
 	llm            ai.LLMClient
 	handlerTimeout time.Duration
+	commandSecret  string
 }
 
 // New creates a workflow engine. Does not start it.
 // The llm parameter is optional (may be nil if AI is not configured).
 // handlerTimeout limits how long a single Lua handler call may run (0 = no limit).
-func New(nc *nats.Conn, dir string, llm ai.LLMClient, handlerTimeout time.Duration, logger zerolog.Logger) *Engine {
+// commandSecret is used for HMAC-SHA256 signing of outgoing commands (empty = no signing).
+func New(nc *nats.Conn, dir string, llm ai.LLMClient, handlerTimeout time.Duration, commandSecret string, logger zerolog.Logger) *Engine {
 	return &Engine{
 		workflows:      make(map[string]*workflowState),
 		nc:             nc,
@@ -66,6 +68,7 @@ func New(nc *nats.Conn, dir string, llm ai.LLMClient, handlerTimeout time.Durati
 		dir:            dir,
 		llm:            llm,
 		handlerTimeout: handlerTimeout,
+		commandSecret:  commandSecret,
 	}
 }
 
@@ -135,10 +138,11 @@ func (e *Engine) LoadWorkflow(name, filePath string) error {
 
 	L := NewSandboxedState(name, wfLogger)
 	modCtx := &moduleContext{
-		name:   name,
-		nc:     e.nc,
-		logger: wfLogger,
-		llm:    e.llm,
+		name:          name,
+		nc:            e.nc,
+		logger:        wfLogger,
+		llm:           e.llm,
+		commandSecret: e.commandSecret,
 	}
 	registerSekiaModule(L, modCtx)
 

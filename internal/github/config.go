@@ -9,10 +9,16 @@ import (
 
 // Config is the top-level GitHub agent configuration.
 type Config struct {
-	NATS    NATSConfig    `mapstructure:"nats"`
-	GitHub  GitHubConfig  `mapstructure:"github"`
-	Webhook WebhookConfig `mapstructure:"webhook"`
-	Poll    PollConfig    `mapstructure:"poll"`
+	NATS     NATSConfig     `mapstructure:"nats"`
+	GitHub   GitHubConfig   `mapstructure:"github"`
+	Webhook  WebhookConfig  `mapstructure:"webhook"`
+	Poll     PollConfig     `mapstructure:"poll"`
+	Security SecurityConfig `mapstructure:"security"`
+}
+
+// SecurityConfig holds application-level security settings.
+type SecurityConfig struct {
+	CommandSecret string `mapstructure:"command_secret"`
 }
 
 // NATSConfig holds NATS connection settings.
@@ -73,6 +79,7 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v.BindEnv("webhook.secret", "GITHUB_WEBHOOK_SECRET")
 	v.BindEnv("nats.url", "SEKIA_NATS_URL")
 	v.BindEnv("nats.token", "SEKIA_NATS_TOKEN")
+	v.BindEnv("security.command_secret", "SEKIA_COMMAND_SECRET")
 
 	// Config file is optional.
 	_ = v.ReadInConfig()
