@@ -53,7 +53,7 @@ func setupTestWithAuth(t *testing.T, username, password string) (*Server, *nats.
 	}
 	t.Cleanup(reg.Close)
 
-	eng := workflow.New(nc, t.TempDir(), nil, 0, logger)
+	eng := workflow.New(nc, t.TempDir(), nil, 0, "", logger)
 	if err := eng.Start(); err != nil {
 		t.Fatal(err)
 	}

@@ -273,14 +273,19 @@ func (ga *GitHubAgent) publishEvent(ev protocol.Event) {
 
 // handleCommand processes incoming commands from workflows.
 func (ga *GitHubAgent) handleCommand(msg *nats.Msg) {
-	var cmd struct {
-		Command string         `json:"command"`
-		Payload map[string]any `json:"payload"`
-		Source  string         `json:"source"`
-	}
+	var cmd protocol.Command
 	if err := json.Unmarshal(msg.Data, &cmd); err != nil {
 		ga.agent.RecordError()
 		ga.logger.Error().Err(err).Msg("unmarshal command")
+		return
+	}
+
+	if !protocol.VerifyCommand(&cmd, ga.cfg.Security.CommandSecret) {
+		ga.agent.RecordError()
+		ga.logger.Warn().
+			Str("command", cmd.Command).
+			Str("source", cmd.Source).
+			Msg("rejected command: invalid or missing signature")
 		return
 	}
 

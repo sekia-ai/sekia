@@ -154,14 +154,19 @@ func (la *LinearAgent) publishEvent(ev protocol.Event) {
 }
 
 func (la *LinearAgent) handleCommand(msg *nats.Msg) {
-	var cmd struct {
-		Command string         `json:"command"`
-		Payload map[string]any `json:"payload"`
-		Source  string         `json:"source"`
-	}
+	var cmd protocol.Command
 	if err := json.Unmarshal(msg.Data, &cmd); err != nil {
 		la.agent.RecordError()
 		la.logger.Error().Err(err).Msg("unmarshal command")
+		return
+	}
+
+	if !protocol.VerifyCommand(&cmd, la.cfg.Security.CommandSecret) {
+		la.agent.RecordError()
+		la.logger.Warn().
+			Str("command", cmd.Command).
+			Str("source", cmd.Source).
+			Msg("rejected command: invalid or missing signature")
 		return
 	}
 

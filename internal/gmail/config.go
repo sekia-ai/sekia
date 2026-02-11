@@ -9,10 +9,16 @@ import (
 
 // Config holds all configuration for the Gmail agent.
 type Config struct {
-	NATS NATSConfig `mapstructure:"nats"`
-	IMAP IMAPConfig `mapstructure:"imap"`
-	SMTP SMTPConfig `mapstructure:"smtp"`
-	Poll PollConfig `mapstructure:"poll"`
+	NATS     NATSConfig     `mapstructure:"nats"`
+	IMAP     IMAPConfig     `mapstructure:"imap"`
+	SMTP     SMTPConfig     `mapstructure:"smtp"`
+	Poll     PollConfig     `mapstructure:"poll"`
+	Security SecurityConfig `mapstructure:"security"`
+}
+
+// SecurityConfig holds application-level security settings.
+type SecurityConfig struct {
+	CommandSecret string `mapstructure:"command_secret"`
 }
 
 // NATSConfig holds NATS connection settings.
@@ -68,6 +74,7 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v.BindEnv("smtp.password", "GMAIL_APP_PASSWORD")
 	v.BindEnv("nats.url", "SEKIA_NATS_URL")
 	v.BindEnv("nats.token", "SEKIA_NATS_TOKEN")
+	v.BindEnv("security.command_secret", "SEKIA_COMMAND_SECRET")
 
 	_ = v.ReadInConfig() // config file is optional
 

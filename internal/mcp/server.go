@@ -13,9 +13,10 @@ import (
 
 // MCPServer exposes sekia capabilities to AI assistants via MCP.
 type MCPServer struct {
-	api    DaemonAPI
-	nc     *nats.Conn
-	logger zerolog.Logger
+	api           DaemonAPI
+	nc            *nats.Conn
+	logger        zerolog.Logger
+	commandSecret string
 
 	// Overridable for testing.
 	natsOpts []nats.Option
@@ -24,8 +25,9 @@ type MCPServer struct {
 // New creates an MCPServer. Call Run() to start serving on stdio.
 func New(cfg Config, logger zerolog.Logger) *MCPServer {
 	s := &MCPServer{
-		api:    NewAPIClient(cfg.Daemon.Socket),
-		logger: logger.With().Str("component", "mcp").Logger(),
+		api:           NewAPIClient(cfg.Daemon.Socket),
+		logger:        logger.With().Str("component", "mcp").Logger(),
+		commandSecret: cfg.Security.CommandSecret,
 	}
 	if cfg.NATS.Token != "" {
 		s.natsOpts = append(s.natsOpts, nats.Token(cfg.NATS.Token))

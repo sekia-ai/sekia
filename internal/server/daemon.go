@@ -93,8 +93,11 @@ func (d *Daemon) Run() error {
 	}
 
 	// 4. Start workflow engine.
+	if d.cfg.Security.CommandSecret == "" {
+		d.logger.Warn().Msg("no command signing secret configured; commands will not be authenticated. Set security.command_secret or SEKIA_COMMAND_SECRET")
+	}
 	if d.cfg.Workflows.Dir != "" {
-		eng := workflow.New(ns.Conn(), d.cfg.Workflows.Dir, llm, d.cfg.Workflows.HandlerTimeout, d.logger)
+		eng := workflow.New(ns.Conn(), d.cfg.Workflows.Dir, llm, d.cfg.Workflows.HandlerTimeout, d.cfg.Security.CommandSecret, d.logger)
 		if err := eng.Start(); err != nil {
 			reg.Close()
 			ns.Shutdown()

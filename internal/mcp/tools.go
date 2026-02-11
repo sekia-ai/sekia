@@ -98,12 +98,15 @@ func (s *MCPServer) handleSendCommand(ctx context.Context, req mcplib.CallToolRe
 		return textError("missing required parameter: payload"), nil
 	}
 
-	cmdMsg := map[string]any{
-		"command": command,
-		"payload": payload,
-		"source":  "mcp",
+	cmd := &protocol.Command{
+		Command: command,
+		Payload: payload,
+		Source:  "mcp",
 	}
-	data, err := json.Marshal(cmdMsg)
+	if err := protocol.SignCommand(cmd, s.commandSecret); err != nil {
+		return textError("failed to sign command: " + err.Error()), nil
+	}
+	data, err := json.Marshal(cmd)
 	if err != nil {
 		return textError("failed to marshal command: " + err.Error()), nil
 	}

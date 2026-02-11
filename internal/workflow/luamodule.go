@@ -22,11 +22,12 @@ type handlerEntry struct {
 // moduleContext holds the state shared between Lua module functions and the Go engine.
 // Each workflow gets its own moduleContext.
 type moduleContext struct {
-	name     string
-	nc       *nats.Conn
-	logger   zerolog.Logger
-	handlers []handlerEntry
-	llm      ai.LLMClient // nil if AI is not configured
+	name          string
+	nc            *nats.Conn
+	logger        zerolog.Logger
+	handlers      []handlerEntry
+	llm           ai.LLMClient // nil if AI is not configured
+	commandSecret string       // HMAC-SHA256 secret for signing commands (empty = no signing)
 }
 
 // registerSekiaModule creates the global "sekia" table with on/publish/command/log functions.
@@ -107,12 +108,16 @@ func (ctx *moduleContext) luaCommand(L *lua.LState) int {
 		return 0
 	}
 
-	msg := map[string]any{
-		"command": command,
-		"payload": payload,
-		"source":  fmt.Sprintf("workflow:%s", ctx.name),
+	cmd := &protocol.Command{
+		Command: command,
+		Payload: payload,
+		Source:  fmt.Sprintf("workflow:%s", ctx.name),
 	}
-	data, err := json.Marshal(msg)
+	if err := protocol.SignCommand(cmd, ctx.commandSecret); err != nil {
+		L.RaiseError("sign command: %s", err)
+		return 0
+	}
+	data, err := json.Marshal(cmd)
 	if err != nil {
 		L.RaiseError("marshal command: %s", err)
 		return 0

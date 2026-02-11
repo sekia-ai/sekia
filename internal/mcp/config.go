@@ -6,8 +6,14 @@ import (
 
 // Config holds all configuration for the MCP server.
 type Config struct {
-	NATS   NATSConfig   `mapstructure:"nats"`
-	Daemon DaemonConfig `mapstructure:"daemon"`
+	NATS     NATSConfig     `mapstructure:"nats"`
+	Daemon   DaemonConfig   `mapstructure:"daemon"`
+	Security SecurityConfig `mapstructure:"security"`
+}
+
+// SecurityConfig holds application-level security settings.
+type SecurityConfig struct {
+	CommandSecret string `mapstructure:"command_secret"`
 }
 
 // NATSConfig holds NATS connection settings.
@@ -42,6 +48,7 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v.BindEnv("nats.url", "SEKIA_NATS_URL")
 	v.BindEnv("nats.token", "SEKIA_NATS_TOKEN")
 	v.BindEnv("daemon.socket", "SEKIA_DAEMON_SOCKET")
+	v.BindEnv("security.command_secret", "SEKIA_COMMAND_SECRET")
 
 	_ = v.ReadInConfig() // config file is optional
 
