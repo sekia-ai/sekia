@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -29,13 +30,14 @@ type WorkflowInfo struct {
 
 // workflowState tracks a loaded workflow and its isolated Lua VM.
 type workflowState struct {
-	name     string
-	filePath string
-	L        *lua.LState
-	modCtx   *moduleContext
-	loadedAt time.Time
-	events   atomic.Int64
-	errors   atomic.Int64
+	name           string
+	filePath       string
+	L              *lua.LState
+	modCtx         *moduleContext
+	loadedAt       time.Time
+	events         atomic.Int64
+	errors         atomic.Int64
+	handlerTimeout time.Duration
 
 	eventCh chan *nats.Msg
 	done    chan struct{}
@@ -43,24 +45,27 @@ type workflowState struct {
 
 // Engine manages Lua workflow scripts and routes NATS events to Lua handlers.
 type Engine struct {
-	mu        sync.RWMutex
-	workflows map[string]*workflowState
-	nc        *nats.Conn
-	logger    zerolog.Logger
-	dir       string
-	sub       *nats.Subscription
-	llm       ai.LLMClient
+	mu             sync.RWMutex
+	workflows      map[string]*workflowState
+	nc             *nats.Conn
+	logger         zerolog.Logger
+	dir            string
+	sub            *nats.Subscription
+	llm            ai.LLMClient
+	handlerTimeout time.Duration
 }
 
 // New creates a workflow engine. Does not start it.
 // The llm parameter is optional (may be nil if AI is not configured).
-func New(nc *nats.Conn, dir string, llm ai.LLMClient, logger zerolog.Logger) *Engine {
+// handlerTimeout limits how long a single Lua handler call may run (0 = no limit).
+func New(nc *nats.Conn, dir string, llm ai.LLMClient, handlerTimeout time.Duration, logger zerolog.Logger) *Engine {
 	return &Engine{
-		workflows: make(map[string]*workflowState),
-		nc:        nc,
-		logger:    logger.With().Str("component", "workflow").Logger(),
-		dir:       dir,
-		llm:       llm,
+		workflows:      make(map[string]*workflowState),
+		nc:             nc,
+		logger:         logger.With().Str("component", "workflow").Logger(),
+		dir:            dir,
+		llm:            llm,
+		handlerTimeout: handlerTimeout,
 	}
 }
 
@@ -143,13 +148,14 @@ func (e *Engine) LoadWorkflow(name, filePath string) error {
 	}
 
 	ws := &workflowState{
-		name:     name,
-		filePath: filePath,
-		L:        L,
-		modCtx:   modCtx,
-		loadedAt: time.Now(),
-		eventCh:  make(chan *nats.Msg, 256),
-		done:     make(chan struct{}),
+		name:           name,
+		filePath:       filePath,
+		L:              L,
+		modCtx:         modCtx,
+		loadedAt:       time.Now(),
+		handlerTimeout: e.handlerTimeout,
+		eventCh:        make(chan *nats.Msg, 256),
+		done:           make(chan struct{}),
 	}
 
 	go ws.run()
@@ -236,21 +242,49 @@ func (ws *workflowState) run() {
 			if !SubjectMatches(h.Pattern, msg.Subject) {
 				continue
 			}
-
-			if err := ws.L.CallByParam(lua.P{
-				Fn:      h.Fn,
-				NRet:    0,
-				Protect: true,
-			}, eventTable); err != nil {
-				ws.errors.Add(1)
-				ws.modCtx.logger.Error().
-					Err(err).
-					Str("pattern", h.Pattern).
-					Str("event_id", ev.ID).
-					Msg("handler error")
-			}
+			ws.callHandler(h, ev.ID, eventTable)
 		}
 		ws.events.Add(1)
+	}
+}
+
+// callHandler invokes a single Lua handler with an optional execution timeout.
+func (ws *workflowState) callHandler(h handlerEntry, eventID string, eventTable *lua.LTable) {
+	var cancel context.CancelFunc
+	if ws.handlerTimeout > 0 {
+		var ctx context.Context
+		ctx, cancel = context.WithTimeout(context.Background(), ws.handlerTimeout)
+		ws.L.SetContext(ctx)
+	}
+
+	err := ws.L.CallByParam(lua.P{
+		Fn:      h.Fn,
+		NRet:    0,
+		Protect: true,
+	}, eventTable)
+
+	if cancel != nil {
+		timedOut := ws.L.Context() != nil && ws.L.Context().Err() != nil
+		cancel()
+		ws.L.SetContext(nil)
+		if err != nil && timedOut {
+			ws.errors.Add(1)
+			ws.modCtx.logger.Error().
+				Dur("timeout", ws.handlerTimeout).
+				Str("pattern", h.Pattern).
+				Str("event_id", eventID).
+				Msg("handler timed out")
+			return
+		}
+	}
+
+	if err != nil {
+		ws.errors.Add(1)
+		ws.modCtx.logger.Error().
+			Err(err).
+			Str("pattern", h.Pattern).
+			Str("event_id", eventID).
+			Msg("handler error")
 	}
 }
 

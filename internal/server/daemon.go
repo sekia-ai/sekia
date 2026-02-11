@@ -60,10 +60,14 @@ func (d *Daemon) Run() error {
 	d.startedAt = time.Now()
 
 	// 1. Start embedded NATS.
+	if d.cfg.NATS.Host != "" && d.cfg.NATS.Token == "" {
+		d.logger.Warn().Msg("NATS is listening on TCP without authentication; set nats.token or SEKIA_NATS_TOKEN")
+	}
 	ns, err := natsserver.New(natsserver.Config{
 		StoreDir: d.cfg.NATS.DataDir,
 		Host:     d.cfg.NATS.Host,
 		Port:     d.cfg.NATS.Port,
+		Token:    d.cfg.NATS.Token,
 	}, d.logger)
 	if err != nil {
 		return fmt.Errorf("start nats: %w", err)
@@ -90,7 +94,7 @@ func (d *Daemon) Run() error {
 
 	// 4. Start workflow engine.
 	if d.cfg.Workflows.Dir != "" {
-		eng := workflow.New(ns.Conn(), d.cfg.Workflows.Dir, llm, d.logger)
+		eng := workflow.New(ns.Conn(), d.cfg.Workflows.Dir, llm, d.cfg.Workflows.HandlerTimeout, d.logger)
 		if err := eng.Start(); err != nil {
 			reg.Close()
 			ns.Shutdown()
@@ -126,7 +130,14 @@ func (d *Daemon) Run() error {
 	// 6. Start web UI (if configured).
 	var webErrCh chan error
 	if d.cfg.Web.Listen != "" {
-		d.webServer = web.New(d.cfg.Web.Listen, reg, d.engine, ns.Conn(), d.startedAt, d.logger)
+		if d.cfg.Web.Username == "" || d.cfg.Web.Password == "" {
+			d.logger.Warn().Msg("web dashboard has no authentication; set web.username and web.password or SEKIA_WEB_USERNAME/SEKIA_WEB_PASSWORD")
+		}
+		d.webServer = web.New(web.Config{
+			Listen:   d.cfg.Web.Listen,
+			Username: d.cfg.Web.Username,
+			Password: d.cfg.Web.Password,
+		}, reg, d.engine, ns.Conn(), d.startedAt, d.logger)
 		webErrCh = make(chan error, 1)
 		go func() {
 			webErrCh <- d.webServer.Start()
@@ -180,7 +191,11 @@ func (d *Daemon) NATSConnectOpts() []nats.Option {
 	if d.nats == nil {
 		return nil
 	}
-	return []nats.Option{nats.InProcessServer(d.nats.NATSServer())}
+	opts := []nats.Option{nats.InProcessServer(d.nats.NATSServer())}
+	if d.cfg.NATS.Token != "" {
+		opts = append(opts, nats.Token(d.cfg.NATS.Token))
+	}
+	return opts
 }
 
 func (d *Daemon) shutdown() error {

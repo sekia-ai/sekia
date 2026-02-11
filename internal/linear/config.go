@@ -16,7 +16,8 @@ type Config struct {
 
 // NATSConfig holds NATS connection settings.
 type NATSConfig struct {
-	URL string `mapstructure:"url"`
+	URL   string `mapstructure:"url"`
+	Token string `mapstructure:"token"`
 }
 
 // LinearConfig holds Linear API credentials.
@@ -51,6 +52,7 @@ func LoadConfig(cfgFile string) (Config, error) {
 
 	v.BindEnv("linear.api_key", "LINEAR_API_KEY")
 	v.BindEnv("nats.url", "SEKIA_NATS_URL")
+	v.BindEnv("nats.token", "SEKIA_NATS_TOKEN")
 
 	_ = v.ReadInConfig() // config file is optional
 

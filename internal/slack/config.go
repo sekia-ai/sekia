@@ -14,7 +14,8 @@ type Config struct {
 
 // NATSConfig holds NATS connection settings.
 type NATSConfig struct {
-	URL string `mapstructure:"url"`
+	URL   string `mapstructure:"url"`
+	Token string `mapstructure:"token"`
 }
 
 // SlackConfig holds Slack API credentials.
@@ -43,6 +44,7 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v.BindEnv("slack.bot_token", "SLACK_BOT_TOKEN")
 	v.BindEnv("slack.app_token", "SLACK_APP_TOKEN")
 	v.BindEnv("nats.url", "SEKIA_NATS_URL")
+	v.BindEnv("nats.token", "SEKIA_NATS_TOKEN")
 
 	_ = v.ReadInConfig() // config file is optional
 

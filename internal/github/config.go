@@ -17,7 +17,8 @@ type Config struct {
 
 // NATSConfig holds NATS connection settings.
 type NATSConfig struct {
-	URL string `mapstructure:"url"`
+	URL   string `mapstructure:"url"`
+	Token string `mapstructure:"token"`
 }
 
 // GitHubConfig holds GitHub API settings.
@@ -71,6 +72,7 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v.BindEnv("github.token", "GITHUB_TOKEN")
 	v.BindEnv("webhook.secret", "GITHUB_WEBHOOK_SECRET")
 	v.BindEnv("nats.url", "SEKIA_NATS_URL")
+	v.BindEnv("nats.token", "SEKIA_NATS_TOKEN")
 
 	// Config file is optional.
 	_ = v.ReadInConfig()

@@ -5,13 +5,24 @@ socket = "/tmp/sekiad.sock"
 [nats]
 embedded = true
 data_dir = "~/.local/share/sekia/nats"
+# Shared token for NATS authentication. Required when NATS listens on TCP
+# (host/port set). All agents must use the same token. Env: SEKIA_NATS_TOKEN
+# token = ""
 
 [workflows]
 dir = "~/.config/sekia/workflows"
 hot_reload = true
+# Maximum execution time for a single Lua handler invocation.
+# Prevents infinite loops from blocking the workflow goroutine.
+handler_timeout = "30s"
 
 [web]
 listen = ":8080"
+# HTTP Basic Auth credentials for the web dashboard.
+# When set, all dashboard routes require authentication.
+# Env: SEKIA_WEB_USERNAME, SEKIA_WEB_PASSWORD
+# username = ""
+# password = ""
 
 # [ai]
 # provider = "anthropic"

@@ -3,6 +3,7 @@ package server
 import (
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/viper"
 
@@ -20,7 +21,9 @@ type Config struct {
 
 // WebConfig holds web dashboard settings.
 type WebConfig struct {
-	Listen string `mapstructure:"listen"`
+	Listen   string `mapstructure:"listen"`
+	Username string `mapstructure:"username"`
+	Password string `mapstructure:"password"`
 }
 
 // ServerConfig holds HTTP/socket settings.
@@ -35,12 +38,14 @@ type NATSConfig struct {
 	DataDir  string `mapstructure:"data_dir"`
 	Host     string `mapstructure:"host"`
 	Port     int    `mapstructure:"port"`
+	Token    string `mapstructure:"token"`
 }
 
 // WorkflowConfig holds Lua workflow engine settings.
 type WorkflowConfig struct {
-	Dir       string `mapstructure:"dir"`
-	HotReload bool   `mapstructure:"hot_reload"`
+	Dir            string        `mapstructure:"dir"`
+	HotReload      bool          `mapstructure:"hot_reload"`
+	HandlerTimeout time.Duration `mapstructure:"handler_timeout"`
 }
 
 // LoadConfig reads configuration from file, env, and flags.
@@ -56,6 +61,7 @@ func LoadConfig(cfgFile string) (Config, error) {
 
 	v.SetDefault("workflows.dir", filepath.Join(homeDir, ".config", "sekia", "workflows"))
 	v.SetDefault("workflows.hot_reload", true)
+	v.SetDefault("workflows.handler_timeout", 30*time.Second)
 
 	v.SetDefault("ai.provider", "anthropic")
 	v.SetDefault("ai.model", "claude-sonnet-4-20250514")
@@ -75,6 +81,10 @@ func LoadConfig(cfgFile string) (Config, error) {
 
 	v.SetEnvPrefix("SEKIA")
 	v.AutomaticEnv()
+
+	v.BindEnv("nats.token", "SEKIA_NATS_TOKEN")
+	v.BindEnv("web.username", "SEKIA_WEB_USERNAME")
+	v.BindEnv("web.password", "SEKIA_WEB_PASSWORD")
 
 	// Config file is optional.
 	_ = v.ReadInConfig()
