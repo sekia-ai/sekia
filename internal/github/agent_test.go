@@ -3,6 +3,9 @@ package github_test
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -21,6 +24,14 @@ import (
 	"github.com/sekia-ai/sekia/internal/server"
 	"github.com/sekia-ai/sekia/pkg/protocol"
 )
+
+// webhookSignature computes the HMAC-SHA256 signature for a webhook payload
+// using the test agent's webhook secret.
+func webhookSignature(payload []byte) string {
+	mac := hmac.New(sha256.New, []byte(ghagent.TestWebhookSecret))
+	mac.Write(payload)
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+}
 
 // TestGitHubAgentEndToEnd tests the full flow:
 //
@@ -99,6 +110,7 @@ end)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-GitHub-Event", "issues")
 	req.Header.Set("X-GitHub-Delivery", "test-delivery-1")
+	req.Header.Set("X-Hub-Signature-256", webhookSignature(webhookPayload))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("post webhook: %v", err)
