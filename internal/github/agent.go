@@ -165,6 +165,10 @@ func (ga *GitHubAgent) WebhookAddr() string {
 	return ga.webhook.Addr()
 }
 
+// TestWebhookSecret is the HMAC secret used by NewTestAgent. Test code must
+// sign webhook payloads with this value.
+const TestWebhookSecret = "test-webhook-secret"
+
 // NewTestAgent creates a GitHubAgent configured for testing with a mock GitHub API
 // and in-process NATS connection options.
 func NewTestAgent(natsURL string, natsOpts []nats.Option, ghBaseURL, webhookListen string, logger zerolog.Logger) *GitHubAgent {
@@ -174,7 +178,7 @@ func NewTestAgent(natsURL string, natsOpts []nats.Option, ghBaseURL, webhookList
 	return &GitHubAgent{
 		cfg: Config{
 			NATS:    NATSConfig{URL: natsURL},
-			Webhook: WebhookConfig{Listen: webhookListen, Path: "/webhook"},
+			Webhook: WebhookConfig{Listen: webhookListen, Path: "/webhook", Secret: TestWebhookSecret},
 		},
 		ghClient: &realGitHubClient{client: ghc},
 		natsOpts: natsOpts,

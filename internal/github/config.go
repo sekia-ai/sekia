@@ -108,6 +108,10 @@ func LoadConfig(cfgFile string) (Config, error) {
 		return cfg, fmt.Errorf("poll.state must be one of: open, closed, all")
 	}
 
+	if cfg.Webhook.Listen != "" && cfg.Webhook.Secret == "" {
+		return cfg, fmt.Errorf("webhook.secret is required when webhook listener is enabled (set via config file or GITHUB_WEBHOOK_SECRET env var)")
+	}
+
 	if cfg.Webhook.Listen == "" && !cfg.Poll.Enabled {
 		return cfg, fmt.Errorf("at least one of webhook.listen or poll.enabled must be configured")
 	}

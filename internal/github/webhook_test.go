@@ -14,13 +14,20 @@ import (
 	"github.com/sekia-ai/sekia/pkg/protocol"
 )
 
+const testSecret = "mysecret"
+
+// signPayload computes the HMAC-SHA256 signature header for a webhook payload.
+func signPayload(payload []byte, secret string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(payload)
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+}
+
 func TestVerifySignature(t *testing.T) {
-	secret := []byte("mysecret")
+	secret := []byte(testSecret)
 	payload := []byte(`{"action":"opened"}`)
 
-	mac := hmac.New(sha256.New, secret)
-	mac.Write(payload)
-	validSig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	validSig := signPayload(payload, testSecret)
 
 	if !verifySignature(payload, secret, validSig) {
 		t.Error("expected valid signature to pass")
@@ -38,18 +45,16 @@ func TestVerifySignature(t *testing.T) {
 
 func TestWebhookHandlerIssueOpened(t *testing.T) {
 	received := make(chan protocol.Event, 1)
-	ws := NewWebhookServer(WebhookConfig{Path: "/webhook"}, func(ev protocol.Event) {
+	ws := NewWebhookServer(WebhookConfig{Path: "/webhook", Secret: testSecret}, func(ev protocol.Event) {
 		received <- ev
 	}, zerolog.Nop())
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /webhook", ws.handleWebhook)
 
 	payload := issueWebhookJSON("opened", "myorg", "myrepo", 42, "Test issue", "alice")
 
 	req := httptest.NewRequest("POST", "/webhook", strings.NewReader(string(payload)))
 	req.Header.Set("X-GitHub-Event", "issues")
 	req.Header.Set("X-GitHub-Delivery", "test-delivery-1")
+	req.Header.Set("X-Hub-Signature-256", signPayload(payload, testSecret))
 	w := httptest.NewRecorder()
 
 	ws.handleWebhook(w, req)
@@ -75,12 +80,14 @@ func TestWebhookHandlerIssueOpened(t *testing.T) {
 }
 
 func TestWebhookHandlerUnsupportedEvent(t *testing.T) {
-	ws := NewWebhookServer(WebhookConfig{Path: "/webhook"}, func(ev protocol.Event) {
+	ws := NewWebhookServer(WebhookConfig{Path: "/webhook", Secret: testSecret}, func(ev protocol.Event) {
 		t.Error("onEvent should not be called for unsupported events")
 	}, zerolog.Nop())
 
-	req := httptest.NewRequest("POST", "/webhook", strings.NewReader(`{}`))
+	payload := []byte(`{}`)
+	req := httptest.NewRequest("POST", "/webhook", strings.NewReader(string(payload)))
 	req.Header.Set("X-GitHub-Event", "deployment")
+	req.Header.Set("X-Hub-Signature-256", signPayload(payload, testSecret))
 	w := httptest.NewRecorder()
 
 	ws.handleWebhook(w, req)
@@ -99,7 +106,7 @@ func TestWebhookHandlerUnsupportedEvent(t *testing.T) {
 func TestWebhookHandlerInvalidSignature(t *testing.T) {
 	ws := NewWebhookServer(WebhookConfig{
 		Path:   "/webhook",
-		Secret: "mysecret",
+		Secret: testSecret,
 	}, func(ev protocol.Event) {
 		t.Error("onEvent should not be called with invalid signature")
 	}, zerolog.Nop())
@@ -119,21 +126,17 @@ func TestWebhookHandlerInvalidSignature(t *testing.T) {
 }
 
 func TestWebhookHandlerValidSignature(t *testing.T) {
-	secret := "mysecret"
 	received := make(chan protocol.Event, 1)
 
 	ws := NewWebhookServer(WebhookConfig{
 		Path:   "/webhook",
-		Secret: secret,
+		Secret: testSecret,
 	}, func(ev protocol.Event) {
 		received <- ev
 	}, zerolog.Nop())
 
 	payload := issueWebhookJSON("opened", "myorg", "myrepo", 1, "Test", "alice")
-
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(payload)
-	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	sig := signPayload(payload, testSecret)
 
 	req := httptest.NewRequest("POST", "/webhook", strings.NewReader(string(payload)))
 	req.Header.Set("X-GitHub-Event", "issues")
@@ -157,16 +160,34 @@ func TestWebhookHandlerValidSignature(t *testing.T) {
 }
 
 func TestWebhookHandlerMissingEventHeader(t *testing.T) {
-	ws := NewWebhookServer(WebhookConfig{Path: "/webhook"}, func(ev protocol.Event) {
+	ws := NewWebhookServer(WebhookConfig{Path: "/webhook", Secret: testSecret}, func(ev protocol.Event) {
 		t.Error("onEvent should not be called without event header")
 	}, zerolog.Nop())
 
-	req := httptest.NewRequest("POST", "/webhook", strings.NewReader(`{}`))
+	payload := []byte(`{}`)
+	req := httptest.NewRequest("POST", "/webhook", strings.NewReader(string(payload)))
+	req.Header.Set("X-Hub-Signature-256", signPayload(payload, testSecret))
 	w := httptest.NewRecorder()
 
 	ws.handleWebhook(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestWebhookHandlerNoSecret(t *testing.T) {
+	ws := NewWebhookServer(WebhookConfig{Path: "/webhook"}, func(ev protocol.Event) {
+		t.Error("onEvent should not be called when no secret is configured")
+	}, zerolog.Nop())
+
+	req := httptest.NewRequest("POST", "/webhook", strings.NewReader(`{}`))
+	req.Header.Set("X-GitHub-Event", "issues")
+	w := httptest.NewRecorder()
+
+	ws.handleWebhook(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", w.Code)
 	}
 }
