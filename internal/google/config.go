@@ -35,6 +35,7 @@ type GmailConfig struct {
 	PollInterval time.Duration `mapstructure:"poll_interval"`
 	UserID       string        `mapstructure:"user_id"`
 	Query        string        `mapstructure:"query"`
+	MaxMessages  int64         `mapstructure:"max_messages"`
 }
 
 // CalendarConfig holds Calendar polling settings.
@@ -59,6 +60,7 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v.SetDefault("gmail.enabled", true)
 	v.SetDefault("gmail.poll_interval", "30s")
 	v.SetDefault("gmail.user_id", "me")
+	v.SetDefault("gmail.max_messages", 20)
 	v.SetDefault("calendar.enabled", false)
 	v.SetDefault("calendar.poll_interval", "60s")
 	v.SetDefault("calendar.calendar_id", "primary")

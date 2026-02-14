@@ -11,25 +11,30 @@ import (
 
 // GmailPoller periodically queries Gmail for new messages using the History API.
 type GmailPoller struct {
-	client    GmailClient
-	interval  time.Duration
-	userID    string
-	query     string
-	onEvent   func(protocol.Event)
-	logger    zerolog.Logger
-	historyID uint64
-	seeded    bool
+	client      GmailClient
+	interval    time.Duration
+	userID      string
+	query       string
+	maxMessages int64
+	onEvent     func(protocol.Event)
+	logger      zerolog.Logger
+	historyID   uint64
+	seeded      bool
 }
 
 // NewGmailPoller creates a Gmail API poller.
-func NewGmailPoller(client GmailClient, interval time.Duration, userID, query string, onEvent func(protocol.Event), logger zerolog.Logger) *GmailPoller {
+func NewGmailPoller(client GmailClient, interval time.Duration, userID, query string, maxMessages int64, onEvent func(protocol.Event), logger zerolog.Logger) *GmailPoller {
+	if maxMessages <= 0 {
+		maxMessages = 20
+	}
 	return &GmailPoller{
-		client:   client,
-		interval: interval,
-		userID:   userID,
-		query:    query,
-		onEvent:  onEvent,
-		logger:   logger.With().Str("component", "gmail-poller").Logger(),
+		client:      client,
+		interval:    interval,
+		userID:      userID,
+		query:       query,
+		maxMessages: maxMessages,
+		onEvent:     onEvent,
+		logger:      logger.With().Str("component", "gmail-poller").Logger(),
 	}
 }
 
@@ -93,13 +98,8 @@ func (p *GmailPoller) seed(ctx context.Context) {
 	p.historyID = historyID
 	p.seeded = true
 
-	// Fetch initial unread messages.
-	query := "is:unread"
-	if p.query != "" {
-		query = p.query + " is:unread"
-	}
-
-	messages, err := p.client.ListMessages(ctx, p.userID, query, 20)
+	// Fetch initial messages.
+	messages, err := p.client.ListMessages(ctx, p.userID, p.query, p.maxMessages)
 	if err != nil {
 		p.logger.Error().Err(err).Msg("list initial messages failed")
 		return

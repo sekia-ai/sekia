@@ -122,6 +122,22 @@ func cmdGmailArchive(ctx context.Context, gc GmailClient, userID string, payload
 	return gc.Archive(ctx, userID, messageID)
 }
 
+func cmdGmailTrash(ctx context.Context, gc GmailClient, userID string, payload map[string]any) error {
+	messageID, err := extractString(payload, "message_id")
+	if err != nil {
+		return err
+	}
+	return gc.Trash(ctx, userID, messageID)
+}
+
+func cmdGmailDelete(ctx context.Context, gc GmailClient, userID string, payload map[string]any) error {
+	messageID, err := extractString(payload, "message_id")
+	if err != nil {
+		return err
+	}
+	return gc.Delete(ctx, userID, messageID)
+}
+
 // --- Calendar commands ---
 
 func cmdCalendarCreateEvent(ctx context.Context, cc CalendarClient, calendarID string, payload map[string]any) error {

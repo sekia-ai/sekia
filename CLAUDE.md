@@ -190,7 +190,7 @@ Standalone binary (`cmd/sekia-google/`) that bridges Gmail and Google Calendar t
 
 **Calendar event types**: `google.calendar.event.created`, `google.calendar.event.updated`, `google.calendar.event.deleted`, `google.calendar.event.upcoming`
 
-**Gmail commands**: `send_email`, `reply_email`, `add_label`, `remove_label`, `archive`
+**Gmail commands**: `send_email`, `reply_email`, `add_label`, `remove_label`, `archive`, `trash`, `delete`
 
 **Calendar commands**: `create_event`, `update_event`, `delete_event`
 

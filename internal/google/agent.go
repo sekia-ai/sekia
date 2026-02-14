@@ -116,7 +116,7 @@ func (ga *GoogleAgent) Run() error {
 
 	if ga.cfg.Gmail.Enabled {
 		capabilities = append(capabilities, "gmail-api")
-		commands = append(commands, "send_email", "reply_email", "add_label", "remove_label", "archive")
+		commands = append(commands, "send_email", "reply_email", "add_label", "remove_label", "archive", "trash", "delete")
 	}
 	if ga.cfg.Calendar.Enabled {
 		capabilities = append(capabilities, "calendar-api")
@@ -161,6 +161,7 @@ func (ga *GoogleAgent) Run() error {
 			ga.cfg.Gmail.PollInterval,
 			ga.cfg.Gmail.UserID,
 			ga.cfg.Gmail.Query,
+			ga.cfg.Gmail.MaxMessages,
 			ga.publishEvent,
 			ga.logger,
 		)
@@ -275,6 +276,10 @@ func (ga *GoogleAgent) handleCommand(msg *nats.Msg) {
 		err = cmdGmailRemoveLabel(ctx, ga.gmailClient, ga.cfg.Gmail.UserID, cmd.Payload)
 	case "archive":
 		err = cmdGmailArchive(ctx, ga.gmailClient, ga.cfg.Gmail.UserID, cmd.Payload)
+	case "trash":
+		err = cmdGmailTrash(ctx, ga.gmailClient, ga.cfg.Gmail.UserID, cmd.Payload)
+	case "delete":
+		err = cmdGmailDelete(ctx, ga.gmailClient, ga.cfg.Gmail.UserID, cmd.Payload)
 
 	// Calendar commands
 	case "create_event":
