@@ -28,7 +28,7 @@ type EmailMessage struct {
 type GmailClient interface {
 	// Polling
 	GetProfile(ctx context.Context, userID string) (emailAddress string, historyID uint64, err error)
-	ListHistory(ctx context.Context, userID string, startHistoryID uint64) ([]EmailMessage, uint64, error)
+	ListHistory(ctx context.Context, userID string, startHistoryID uint64, maxMessages int64) ([]EmailMessage, uint64, error)
 	ListMessages(ctx context.Context, userID string, query string, maxResults int64) ([]EmailMessage, error)
 
 	// Commands
@@ -62,17 +62,24 @@ func (c *realGmailClient) GetProfile(ctx context.Context, userID string) (string
 	return profile.EmailAddress, uint64(profile.HistoryId), nil
 }
 
-func (c *realGmailClient) ListHistory(ctx context.Context, userID string, startHistoryID uint64) ([]EmailMessage, uint64, error) {
+func (c *realGmailClient) ListHistory(ctx context.Context, userID string, startHistoryID uint64, maxMessages int64) ([]EmailMessage, uint64, error) {
 	call := c.svc.Users.History.List(userID).
 		StartHistoryId(startHistoryID).
 		HistoryTypes("messageAdded").
 		Context(ctx)
 
 	var messages []EmailMessage
-	var highestHistoryID uint64
+	highestHistoryID := startHistoryID
 
-	err := call.Pages(ctx, func(resp *gmail.ListHistoryResponse) error {
-		highestHistoryID = uint64(resp.HistoryId)
+	for {
+		resp, err := call.Do()
+		if err != nil {
+			if len(messages) > 0 {
+				return messages, highestHistoryID, nil
+			}
+			return nil, startHistoryID, fmt.Errorf("list history: %w", err)
+		}
+
 		for _, h := range resp.History {
 			for _, added := range h.MessagesAdded {
 				msg, err := c.getMessage(ctx, userID, added.Message.Id)
@@ -81,15 +88,21 @@ func (c *realGmailClient) ListHistory(ctx context.Context, userID string, startH
 				}
 				messages = append(messages, msg)
 			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, startHistoryID, fmt.Errorf("list history: %w", err)
-	}
+			// Advance per-record so we resume correctly if we stop early.
+			highestHistoryID = uint64(h.Id)
 
-	if highestHistoryID == 0 {
-		highestHistoryID = startHistoryID
+			if maxMessages > 0 && int64(len(messages)) >= maxMessages {
+				return messages, highestHistoryID, nil
+			}
+		}
+
+		if resp.NextPageToken == "" {
+			if uint64(resp.HistoryId) > highestHistoryID {
+				highestHistoryID = uint64(resp.HistoryId)
+			}
+			break
+		}
+		call = call.PageToken(resp.NextPageToken)
 	}
 
 	return messages, highestHistoryID, nil
