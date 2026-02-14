@@ -58,5 +58,19 @@ services:
       - GMAIL_ADDRESS=${GMAIL_ADDRESS:-}
       - GMAIL_APP_PASSWORD=${GMAIL_APP_PASSWORD:-}
 
+  sekia-google:
+    build:
+      context: .
+      target: sekia-google
+    depends_on: [sekiad]
+    volumes:
+      - google-token:/home/sekia/.config/sekia
+    environment:
+      - SEKIA_NATS_URL=nats://sekiad:4222
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - GOOGLE_TOKEN_PATH=/home/sekia/.config/sekia/google-token.json
+
 volumes:
   sekia-nats:
+  google-token:

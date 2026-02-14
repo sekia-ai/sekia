@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Build all binaries
-go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github ./cmd/sekia-slack ./cmd/sekia-linear ./cmd/sekia-gmail ./cmd/sekia-mcp
+go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github ./cmd/sekia-slack ./cmd/sekia-linear ./cmd/sekia-gmail ./cmd/sekia-google ./cmd/sekia-mcp
 
 # Run all tests
 go test ./...
@@ -22,7 +22,7 @@ No Makefile or custom scripts — standard Go toolchain only.
 
 ## Architecture
 
-sekia is a multi-agent event bus. Seven binaries (`sekiad` daemon, `sekiactl` CLI, `sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-gmail` agents, `sekia-mcp` MCP server) communicate over NATS. The daemon and CLI also use a Unix socket.
+sekia is a multi-agent event bus. Eight binaries (`sekiad` daemon, `sekiactl` CLI, `sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-gmail` (deprecated), `sekia-google`, `sekia-mcp` MCP server) communicate over NATS. The daemon and CLI also use a Unix socket.
 
 ### Dependency flow
 
@@ -178,23 +178,40 @@ Standalone binary (`cmd/sekia-linear/`) that polls Linear's GraphQL API and exec
 
 **Config file**: `sekia-linear.toml`. Env vars: `LINEAR_API_KEY`, `SEKIA_NATS_URL`.
 
-### Gmail agent (`internal/gmail/`)
+### Gmail agent (`internal/gmail/`) — DEPRECATED
+
+> **Deprecated**: Use `sekia-google` instead. `sekia-gmail` uses IMAP/SMTP with app passwords, which Google has deprecated. It will be removed in a future release.
 
 Standalone binary (`cmd/sekia-gmail/`) that polls Gmail via IMAP and sends emails via SMTP.
 
-**Flow**: `IMAP poll → sekia-gmail → sekia.events.gmail → Lua workflow → sekia.commands.gmail-agent → sekia-gmail → SMTP/IMAP`
+**Config file**: `sekia-gmail.toml`. Env vars: `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`, `SEKIA_NATS_URL`.
 
-**Event types**: `gmail.message.received`
+### Google agent (`internal/google/`)
 
-**Commands**: `send_email`, `reply_email`, `add_label`, `archive`
+Standalone binary (`cmd/sekia-google/`) that bridges Gmail and Google Calendar to the NATS event bus via Google REST APIs with OAuth2 authentication. Replaces `sekia-gmail`.
+
+**Flow (Gmail)**: `Gmail REST API poll → sekia-google → sekia.events.google → Lua workflow → sekia.commands.google-agent → sekia-google → Gmail API`
+
+**Flow (Calendar)**: `Calendar REST API poll → sekia-google → sekia.events.google → Lua workflow → sekia.commands.google-agent → sekia-google → Calendar API`
+
+**Gmail event types**: `gmail.message.received`
+
+**Calendar event types**: `google.calendar.event.created`, `google.calendar.event.updated`, `google.calendar.event.deleted`, `google.calendar.event.upcoming`
+
+**Gmail commands**: `send_email`, `reply_email`, `add_label`, `remove_label`, `archive`
+
+**Calendar commands**: `create_event`, `update_event`, `delete_event`
 
 **Key design decisions:**
-- **IMAP polling** with UID tracking — polls for unseen messages, tracks highest UID to avoid re-processing.
-- **SMTP for sending** — `net/smtp` with Gmail's SMTP server; Gmail auto-copies to Sent.
-- **GmailClient interface** for testability — abstracts IMAP reads and SMTP writes.
-- **App Password auth** via `GMAIL_APP_PASSWORD` env var.
+- **OAuth2 device authorization grant** — user runs `sekia-google auth` to authorize via browser. Token persisted to disk with auto-refresh.
+- **Gmail History API** — incremental sync via `historyId` (much more efficient than IMAP polling).
+- **Calendar syncToken** — incremental sync, only fetches changed events. Handles 410 Gone (expired token) with automatic reseed.
+- **Upcoming event notifications** — optional polling for events starting within N minutes, with deduplication.
+- **Single binary, shared token** — one OAuth2 token covers both Gmail and Calendar scopes. `PersistentTokenSource` is thread-safe for concurrent pollers.
+- **GmailClient + CalendarClient interfaces** for testability — both are mockable for unit/integration tests.
+- **Services are independently enableable** — `gmail.enabled` and `calendar.enabled` in config.
 
-**Config file**: `sekia-gmail.toml`. Env vars: `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`, `SEKIA_NATS_URL`.
+**Config file**: `sekia-google.toml`. Env vars: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_TOKEN_PATH`, `SEKIA_NATS_URL`.
 
 ### Web dashboard (`internal/web/`)
 

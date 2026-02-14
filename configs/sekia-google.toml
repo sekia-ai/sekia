@@ -1,0 +1,27 @@
+# sekia-google agent configuration
+# First run: sekia-google auth --config configs/sekia-google.toml
+
+[nats]
+url = "nats://127.0.0.1:4222"
+
+[google]
+# Create OAuth credentials at https://console.cloud.google.com/apis/credentials
+# Application type: "TVs and Limited Input devices"
+client_id = ""
+client_secret = ""
+token_path = "~/.config/sekia/google-token.json"
+
+[gmail]
+enabled = true
+poll_interval = "30s"
+user_id = "me"
+# query = "label:important"  # optional: filter polled messages
+
+[calendar]
+enabled = false
+poll_interval = "60s"
+calendar_id = "primary"
+upcoming_mins = 0  # set to e.g. 15 to get notifications 15 min before events
+
+[security]
+# command_secret = ""
