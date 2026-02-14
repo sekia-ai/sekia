@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"golang.org/x/oauth2"
 	googleoauth2 "golang.org/x/oauth2/google"
@@ -135,22 +136,30 @@ func runCallbackServer(ctx context.Context, clientID, clientSecret string, liste
 
 	srv := &http.Server{Handler: mux}
 	go srv.Serve(listener)
-	defer srv.Close()
 
+	var res result
 	select {
 	case <-ctx.Done():
+		srv.Close()
 		return nil, ctx.Err()
-	case res := <-ch:
-		if res.err != nil {
-			return nil, res.err
-		}
-		token, err := cfg.Exchange(ctx, res.code)
-		if err != nil {
-			return nil, fmt.Errorf("exchange code for token: %w", err)
-		}
-		fmt.Println("Authorization successful!")
-		return token, nil
+	case res = <-ch:
 	}
+
+	// Gracefully shut down so the handler's HTTP response is fully flushed
+	// before we close the connection (srv.Close would kill it immediately).
+	shutCtx, shutCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer shutCancel()
+	srv.Shutdown(shutCtx)
+
+	if res.err != nil {
+		return nil, res.err
+	}
+	token, err := cfg.Exchange(ctx, res.code)
+	if err != nil {
+		return nil, fmt.Errorf("exchange code for token: %w", err)
+	}
+	fmt.Println("Authorization successful!")
+	return token, nil
 }
 
 func openBrowser(url string) {
