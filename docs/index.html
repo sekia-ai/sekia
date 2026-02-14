@@ -90,7 +90,7 @@ go install github.com/sekia-ai/sekia/cmd/sekiactl@latest
 go install github.com/sekia-ai/sekia/cmd/sekia-github@latest
 go install github.com/sekia-ai/sekia/cmd/sekia-slack@latest
 go install github.com/sekia-ai/sekia/cmd/sekia-linear@latest
-go install github.com/sekia-ai/sekia/cmd/sekia-gmail@latest
+go install github.com/sekia-ai/sekia/cmd/sekia-google@latest
 go install github.com/sekia-ai/sekia/cmd/sekia-mcp@latest</code></pre>
   </div>
   <div class="tab-content" id="tab-docker">
@@ -102,7 +102,7 @@ docker compose up</code></pre>
     <pre><code>git clone https://github.com/sekia-ai/sekia.git
 cd sekia
 go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github \
-         ./cmd/sekia-slack ./cmd/sekia-linear ./cmd/sekia-gmail \
+         ./cmd/sekia-slack ./cmd/sekia-linear ./cmd/sekia-google \
          ./cmd/sekia-mcp</code></pre>
   </div>
 </section>
@@ -203,9 +203,9 @@ sekiactl agents</code></pre>
       <div class="agent-env">LINEAR_API_KEY</div>
     </div>
     <div class="agent-card">
-      <div class="agent-name">Gmail</div>
-      <div class="agent-desc">IMAP polling for incoming mail, SMTP for sending</div>
-      <div class="agent-env">GMAIL_ADDRESS GMAIL_APP_PASSWORD</div>
+      <div class="agent-name">Google</div>
+      <div class="agent-desc">Gmail REST API and Google Calendar with OAuth2</div>
+      <div class="agent-env">GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET</div>
     </div>
     <div class="agent-card">
       <div class="agent-name">MCP Server</div>

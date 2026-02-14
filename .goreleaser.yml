@@ -46,9 +46,9 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}}
 
-  - id: sekia-gmail
-    main: ./cmd/sekia-gmail
-    binary: sekia-gmail
+  - id: sekia-google
+    main: ./cmd/sekia-google
+    binary: sekia-google
     goos: [linux, darwin]
     goarch: [amd64, arm64]
     env: [CGO_ENABLED=0]
@@ -66,7 +66,7 @@ builds:
 
 archives:
   - id: default
-    builds: [sekiad, sekiactl, sekia-github, sekia-slack, sekia-linear, sekia-gmail, sekia-mcp]
+    builds: [sekiad, sekiactl, sekia-github, sekia-slack, sekia-linear, sekia-google, sekia-mcp]
     name_template: "sekia_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
@@ -100,7 +100,7 @@ brews:
       bin.install "sekia-github"
       bin.install "sekia-slack"
       bin.install "sekia-linear"
-      bin.install "sekia-gmail"
+      bin.install "sekia-google"
       bin.install "sekia-mcp"
     test: |
       system bin/"sekiad", "--help"

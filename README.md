@@ -6,7 +6,7 @@
 
 A multi-agent event bus for automating workflows across GitHub, Gmail, Linear, and Slack. Built on embedded NATS with JetStream.
 
-Seven binaries — `sekiad` (daemon), `sekiactl` (CLI), four agents (`sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-gmail`), and `sekia-mcp` (MCP server) — communicate over NATS. The daemon and CLI also use a Unix socket.
+Seven binaries — `sekiad` (daemon), `sekiactl` (CLI), four agents (`sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-google`), and `sekia-mcp` (MCP server) — communicate over NATS. The daemon and CLI also use a Unix socket.
 
 ## Architecture
 
@@ -63,7 +63,7 @@ go install github.com/sekia-ai/sekia/cmd/sekiactl@latest
 go install github.com/sekia-ai/sekia/cmd/sekia-github@latest
 go install github.com/sekia-ai/sekia/cmd/sekia-slack@latest
 go install github.com/sekia-ai/sekia/cmd/sekia-linear@latest
-go install github.com/sekia-ai/sekia/cmd/sekia-gmail@latest
+go install github.com/sekia-ai/sekia/cmd/sekia-google@latest
 go install github.com/sekia-ai/sekia/cmd/sekia-mcp@latest
 ```
 
@@ -97,7 +97,7 @@ docker build --target sekia-github -t sekia/sekia-github .
 ### Build
 
 ```bash
-go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github ./cmd/sekia-slack ./cmd/sekia-linear ./cmd/sekia-gmail ./cmd/sekia-mcp
+go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github ./cmd/sekia-slack ./cmd/sekia-linear ./cmd/sekia-google ./cmd/sekia-mcp
 ```
 
 ### Run the daemon
@@ -467,57 +467,56 @@ end)
 
 ---
 
-### Gmail Agent
+### Google Agent
 
-Polls Gmail via IMAP for new messages and sends emails via SMTP. No Google Cloud setup required.
+Bridges Gmail and Google Calendar to the NATS event bus via Google REST APIs with OAuth2 authentication.
 
 ```bash
-export GMAIL_ADDRESS=you@gmail.com
-export GMAIL_APP_PASSWORD=abcd-efgh-ijkl-mnop
-./sekia-gmail
+# First time: authorize via browser
+sekia-google auth --config configs/sekia-google.toml
+
+# Run the agent
+./sekia-google
 ```
 
-**Setup**: Generate an App Password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) (requires 2FA enabled). The app password is used for both IMAP reads and SMTP sends.
+**Setup**: Create OAuth credentials at [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials) with application type "TVs and Limited Input devices". Run `sekia-google auth` to complete the device authorization flow.
 
-**Config**: [configs/sekia-gmail.toml](configs/sekia-gmail.toml). Env vars: `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`, `SEKIA_NATS_URL`.
+**Config**: [configs/sekia-google.toml](configs/sekia-google.toml). Env vars: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_TOKEN_PATH`, `SEKIA_NATS_URL`.
 
-| Setting | Default | Description |
-|---|---|---|
-| `poll.interval` | `60s` | How often to check for new emails |
-| `poll.folder` | `INBOX` | IMAP folder to poll |
-| `imap.server` | `imap.gmail.com:993` | IMAP server address |
-| `smtp.server` | `smtp.gmail.com:587` | SMTP server address |
-
-**Events**:
+**Gmail Events**:
 
 | Trigger | sekia Event Type | Payload Fields |
 |---|---|---|
-| New unseen message | `gmail.message.received` | `uid`, `message_id`, `from`, `to`, `subject`, `body`, `date` |
+| New message | `gmail.message.received` | `id`, `thread_id`, `message_id`, `from`, `to`, `subject`, `body`, `date`, `labels` |
 
-**Commands**:
+**Calendar Events**:
+
+| Trigger | sekia Event Type | Payload Fields |
+|---|---|---|
+| New event | `google.calendar.event.created` | `id`, `summary`, `description`, `location`, `start`, `end`, `organizer`, `attendees`, `html_link` |
+| Event updated | `google.calendar.event.updated` | (same as above) |
+| Event deleted | `google.calendar.event.deleted` | `id`, `summary`, `status` |
+| Event starting soon | `google.calendar.event.upcoming` | (same as created) + `minutes_until` |
+
+**Gmail Commands**:
 
 | Command | Required Payload | Action |
 |---|---|---|
 | `send_email` | `to`, `subject`, `body` | Send a new email |
-| `reply_email` | `message_id`, `body` | Reply to an email (sets In-Reply-To header) |
-| `add_label` | `message_uid`, `label` | Copy message to a Gmail label folder |
-| `archive` | `message_uid` | Move message out of inbox to All Mail |
+| `reply_email` | `thread_id`, `in_reply_to`, `to`, `subject`, `body` | Reply to an email |
+| `add_label` | `message_id`, `label` | Add a label to a message |
+| `remove_label` | `message_id`, `label` | Remove a label from a message |
+| `archive` | `message_id` | Archive a message (remove INBOX label) |
 
-**Example workflow**: [configs/workflows/gmail-auto-reply.lua](configs/workflows/gmail-auto-reply.lua)
+**Calendar Commands**:
 
-```lua
-sekia.on("sekia.events.gmail", function(event)
-    if event.type ~= "gmail.message.received" then return end
+| Command | Required Payload | Action |
+|---|---|---|
+| `create_event` | `summary`, `start`, `end` | Create a calendar event |
+| `update_event` | `event_id`, plus optional fields | Update a calendar event |
+| `delete_event` | `event_id` | Delete a calendar event |
 
-    local subject = string.lower(event.payload.subject or "")
-    if string.find(subject, "urgent") then
-        sekia.command("gmail-agent", "reply_email", {
-            message_id = event.payload.message_id,
-            body       = "Acknowledged. This has been flagged as urgent.",
-        })
-    end
-end)
-```
+**Example workflow**: [configs/workflows/google-calendar-notify.lua](configs/workflows/google-calendar-notify.lua)
 
 ---
 
