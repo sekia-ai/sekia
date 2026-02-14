@@ -195,7 +195,7 @@ Standalone binary (`cmd/sekia-google/`) that bridges Gmail and Google Calendar t
 **Calendar commands**: `create_event`, `update_event`, `delete_event`
 
 **Key design decisions:**
-- **OAuth2 device authorization grant** — user runs `sekia-google auth` to authorize via browser. Token persisted to disk with auto-refresh.
+- **OAuth2 authorization code flow with loopback redirect** — user runs `sekia-google auth`, browser opens to Google consent screen, token captured via localhost redirect. Persisted to disk with auto-refresh.
 - **Gmail History API** — incremental sync via `historyId` (much more efficient than IMAP polling).
 - **Calendar syncToken** — incremental sync, only fetches changed events. Handles 410 Gone (expired token) with automatic reseed.
 - **Upcoming event notifications** — optional polling for events starting within N minutes, with deduplication.

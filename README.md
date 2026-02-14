@@ -479,7 +479,7 @@ sekia-google auth --config configs/sekia-google.toml
 ./sekia-google
 ```
 
-**Setup**: Create OAuth credentials at [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials) with application type "TVs and Limited Input devices". Run `sekia-google auth` to complete the device authorization flow.
+**Setup**: Create OAuth credentials at [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials) with application type "Desktop app". Run `sekia-google auth` to authorize via browser.
 
 **Config**: [configs/sekia-google.toml](configs/sekia-google.toml). Env vars: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_TOKEN_PATH`, `SEKIA_NATS_URL`.
 

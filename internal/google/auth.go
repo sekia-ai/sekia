@@ -2,15 +2,17 @@ package google
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
+	"net"
 	"net/http"
-	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
-	"time"
 
 	"golang.org/x/oauth2"
 	googleoauth2 "golang.org/x/oauth2/google"
@@ -23,167 +25,154 @@ var oauthScopes = []string{
 	"https://www.googleapis.com/auth/calendar",
 }
 
-const (
-	deviceCodeURL = "https://oauth2.googleapis.com/device/code"
-	tokenURL      = "https://oauth2.googleapis.com/token"
-)
+// googleoauth2Endpoint is the Google OAuth2 endpoint; overridden in tests.
+var googleoauth2Endpoint = googleoauth2.Endpoint
 
 // OAuthConfig builds an oauth2.Config for the Google agent.
 func OAuthConfig(clientID, clientSecret string) *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
-		Endpoint:     googleoauth2.Endpoint,
+		Endpoint:     googleoauth2Endpoint,
 		Scopes:       oauthScopes,
+		RedirectURL:  "http://localhost", // port appended at runtime
 	}
 }
 
-// deviceCodeResponse is returned by the device code endpoint.
-type deviceCodeResponse struct {
-	DeviceCode      string `json:"device_code"`
-	UserCode        string `json:"user_code"`
-	VerificationURL string `json:"verification_url"`
-	ExpiresIn       int    `json:"expires_in"`
-	Interval        int    `json:"interval"`
+// AuthFlow runs the OAuth2 authorization code flow with a loopback redirect.
+// It starts a temporary localhost HTTP server, opens the user's browser to
+// Google's consent screen, and captures the authorization code via redirect.
+func AuthFlow(ctx context.Context, clientID, clientSecret string) (*oauth2.Token, error) {
+	return authFlowWithListener(ctx, clientID, clientSecret, nil)
 }
 
-// tokenResponse is returned by the token endpoint.
-type tokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	TokenType    string `json:"token_type"`
-	ExpiresIn    int    `json:"expires_in"`
-	RefreshToken string `json:"refresh_token"`
-	Scope        string `json:"scope"`
-	Error        string `json:"error"`
-}
-
-// DeviceAuthFlow runs the OAuth2 device authorization grant flow.
-// It prints the verification URL and user code to stdout, then polls
-// Google's token endpoint until the user authorizes.
-func DeviceAuthFlow(ctx context.Context, clientID, clientSecret string) (*oauth2.Token, error) {
-	return deviceAuthFlowWithURLs(ctx, clientID, clientSecret, deviceCodeURL, tokenURL, 5*time.Second)
-}
-
-// deviceAuthFlowWithURLs is the testable implementation with configurable endpoints.
-func deviceAuthFlowWithURLs(ctx context.Context, clientID, clientSecret, deviceURL, tokenEndpoint string, minInterval time.Duration) (*oauth2.Token, error) {
-	// Step 1: Request device code.
-	resp, err := http.PostForm(deviceURL, url.Values{
-		"client_id": {clientID},
-		"scope":     {joinScopes(oauthScopes)},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("request device code: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read device code response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("device code request failed (%d): %s", resp.StatusCode, body)
-	}
-
-	var dcResp deviceCodeResponse
-	if err := json.Unmarshal(body, &dcResp); err != nil {
-		return nil, fmt.Errorf("parse device code response: %w", err)
-	}
-
-	// Step 2: Show instructions to user.
-	fmt.Printf("\nTo authorize sekia-google, visit:\n\n  %s\n\nAnd enter code: %s\n\nWaiting for authorization...\n", dcResp.VerificationURL, dcResp.UserCode)
-
-	// Step 3: Poll for token.
-	interval := time.Duration(dcResp.Interval) * time.Second
-	if interval < minInterval {
-		interval = minInterval
-	}
-	deadline := time.Now().Add(time.Duration(dcResp.ExpiresIn) * time.Second)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(interval):
-		}
-
-		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("device authorization expired")
-		}
-
-		token, err := pollToken(tokenEndpoint, clientID, clientSecret, dcResp.DeviceCode)
+// authFlowWithListener is the testable version that accepts an optional listener.
+// If listener is nil, a random localhost port is chosen.
+func authFlowWithListener(ctx context.Context, clientID, clientSecret string, listener net.Listener) (*oauth2.Token, error) {
+	var err error
+	if listener == nil {
+		listener, err = net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("listen on localhost: %w", err)
 		}
-		if token != nil {
-			return token, nil
-		}
-		// nil token means authorization_pending — keep polling.
 	}
+
+	// Generate random state for CSRF protection.
+	stateBytes := make([]byte, 16)
+	if _, err := rand.Read(stateBytes); err != nil {
+		listener.Close()
+		return nil, fmt.Errorf("generate state: %w", err)
+	}
+	state := hex.EncodeToString(stateBytes)
+
+	return runCallbackServer(ctx, clientID, clientSecret, listener, state, true)
 }
 
-func pollToken(tokenEndpoint, clientID, clientSecret, deviceCode string) (*oauth2.Token, error) {
-	resp, err := http.PostForm(tokenEndpoint, url.Values{
-		"client_id":     {clientID},
-		"client_secret": {clientSecret},
-		"device_code":   {deviceCode},
-		"grant_type":    {"urn:ietf:params:oauth:grant-type:device_code"},
+// authFlowWithState is the fully testable version with a known state value.
+func authFlowWithState(ctx context.Context, clientID, clientSecret string, listener net.Listener, state string) (*oauth2.Token, error) {
+	return runCallbackServer(ctx, clientID, clientSecret, listener, state, false)
+}
+
+// runCallbackServer starts a temporary HTTP server, waits for the OAuth callback,
+// and exchanges the authorization code for a token.
+func runCallbackServer(ctx context.Context, clientID, clientSecret string, listener net.Listener, state string, showBrowser bool) (*oauth2.Token, error) {
+	defer listener.Close()
+
+	port := listener.Addr().(*net.TCPAddr).Port
+	redirectURL := fmt.Sprintf("http://localhost:%d", port)
+
+	cfg := &oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		Endpoint:     googleoauth2Endpoint,
+		Scopes:       oauthScopes,
+		RedirectURL:  redirectURL,
+	}
+
+	if showBrowser {
+		authURL := cfg.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
+		fmt.Printf("\nOpening browser to authorize sekia-google...\n\n")
+		fmt.Printf("If the browser doesn't open, visit this URL:\n\n  %s\n\n", authURL)
+		openBrowser(authURL)
+	}
+
+	// Wait for the callback.
+	type result struct {
+		code string
+		err  error
+	}
+	ch := make(chan result, 1)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			return
+		}
+
+		if errParam := r.URL.Query().Get("error"); errParam != "" {
+			http.Error(w, "Authorization denied: "+errParam, http.StatusForbidden)
+			ch <- result{err: fmt.Errorf("authorization denied: %s", errParam)}
+			return
+		}
+
+		if r.URL.Query().Get("state") != state {
+			http.Error(w, "Invalid state parameter", http.StatusBadRequest)
+			ch <- result{err: fmt.Errorf("state mismatch")}
+			return
+		}
+
+		code := r.URL.Query().Get("code")
+		if code == "" {
+			http.Error(w, "No authorization code", http.StatusBadRequest)
+			ch <- result{err: fmt.Errorf("no authorization code in callback")}
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, "<html><body><h2>Authorization successful!</h2><p>You can close this tab.</p></body></html>")
+		ch <- result{code: code}
 	})
-	if err != nil {
-		return nil, fmt.Errorf("poll token: %w", err)
-	}
-	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read token response: %w", err)
-	}
+	srv := &http.Server{Handler: mux}
+	go srv.Serve(listener)
+	defer srv.Close()
 
-	var tResp tokenResponse
-	if err := json.Unmarshal(body, &tResp); err != nil {
-		return nil, fmt.Errorf("parse token response: %w", err)
-	}
-
-	switch tResp.Error {
-	case "":
-		// Success.
-		return &oauth2.Token{
-			AccessToken:  tResp.AccessToken,
-			TokenType:    tResp.TokenType,
-			RefreshToken: tResp.RefreshToken,
-			Expiry:       time.Now().Add(time.Duration(tResp.ExpiresIn) * time.Second),
-		}, nil
-	case "authorization_pending":
-		return nil, nil
-	case "slow_down":
-		return nil, nil
-	case "access_denied":
-		return nil, fmt.Errorf("authorization denied by user")
-	case "expired_token":
-		return nil, fmt.Errorf("device code expired")
-	default:
-		return nil, fmt.Errorf("token error: %s", tResp.Error)
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case res := <-ch:
+		if res.err != nil {
+			return nil, res.err
+		}
+		token, err := cfg.Exchange(ctx, res.code)
+		if err != nil {
+			return nil, fmt.Errorf("exchange code for token: %w", err)
+		}
+		fmt.Println("Authorization successful!")
+		return token, nil
 	}
 }
 
-func joinScopes(scopes []string) string {
-	result := ""
-	for i, s := range scopes {
-		if i > 0 {
-			result += " "
-		}
-		result += s
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	default:
+		return
 	}
-	return result
+	cmd.Start()
 }
 
 // PersistentTokenSource wraps an oauth2.TokenSource to persist refreshed
 // tokens to disk. Thread-safe for concurrent use by multiple pollers.
 type PersistentTokenSource struct {
-	mu         sync.Mutex
-	source     oauth2.TokenSource
-	tokenPath  string
-	lastToken  *oauth2.Token
+	mu        sync.Mutex
+	source    oauth2.TokenSource
+	tokenPath string
+	lastToken *oauth2.Token
 }
 
 // NewPersistentTokenSource creates a token source that auto-refreshes and
