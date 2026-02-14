@@ -378,3 +378,194 @@ end)
 		t.Fatal("engine did not process subsequent event after timeout")
 	}
 }
+
+func TestEngine_EventsAfterReload(t *testing.T) {
+	_, nc := startTestNATS(t)
+
+	tmpDir := t.TempDir()
+
+	workflowCode := `
+sekia.on("sekia.events.test", function(event)
+	sekia.command("reload-agent", "handle", {
+		event_type = event.type,
+	})
+end)
+`
+	wfPath := filepath.Join(tmpDir, "reloadable.lua")
+	os.WriteFile(wfPath, []byte(workflowCode), 0644)
+
+	eng := New(nc, tmpDir, nil, 0, "", testLogger())
+	if err := eng.Start(); err != nil {
+		t.Fatalf("engine start: %v", err)
+	}
+	defer eng.Stop()
+
+	if err := eng.LoadWorkflow("reloadable", wfPath); err != nil {
+		t.Fatalf("load workflow: %v", err)
+	}
+
+	// Subscribe to capture commands.
+	received := make(chan []byte, 10)
+	sub, err := nc.Subscribe("sekia.commands.reload-agent", func(msg *nats.Msg) {
+		received <- msg.Data
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Unsubscribe()
+
+	// Helper to publish and wait for command.
+	publishAndExpect := func(label string) {
+		t.Helper()
+		ev := protocol.NewEvent("test.event", "external", map[string]any{"label": label})
+		data, _ := json.Marshal(ev)
+		nc.Publish("sekia.events.test", data)
+		nc.Flush()
+
+		select {
+		case <-received:
+			// OK
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting for command (%s)", label)
+		}
+	}
+
+	// 1. Verify events are processed before reload.
+	publishAndExpect("before-reload")
+
+	// 2. Reload via LoadWorkflow (same path as hot-reload watcher).
+	if err := eng.LoadWorkflow("reloadable", wfPath); err != nil {
+		t.Fatalf("reload workflow: %v", err)
+	}
+
+	// 3. Verify events are processed after reload.
+	publishAndExpect("after-reload")
+
+	// 4. Double-reload (simulates rapid file saves triggering two watcher flushes).
+	if err := eng.LoadWorkflow("reloadable", wfPath); err != nil {
+		t.Fatalf("reload workflow (2): %v", err)
+	}
+	if err := eng.LoadWorkflow("reloadable", wfPath); err != nil {
+		t.Fatalf("reload workflow (3): %v", err)
+	}
+
+	// 5. Verify events still processed after double-reload.
+	publishAndExpect("after-double-reload")
+}
+
+func TestEngine_EventsAfterConcurrentReload(t *testing.T) {
+	_, nc := startTestNATS(t)
+
+	tmpDir := t.TempDir()
+
+	workflowCode := `
+sekia.on("sekia.events.test", function(event)
+	sekia.command("concurrent-agent", "handle", {})
+end)
+`
+	wfPath := filepath.Join(tmpDir, "concurrent.lua")
+	os.WriteFile(wfPath, []byte(workflowCode), 0644)
+
+	eng := New(nc, tmpDir, nil, 0, "", testLogger())
+	if err := eng.Start(); err != nil {
+		t.Fatalf("engine start: %v", err)
+	}
+	defer eng.Stop()
+
+	if err := eng.LoadWorkflow("concurrent", wfPath); err != nil {
+		t.Fatalf("initial load: %v", err)
+	}
+
+	received := make(chan []byte, 100)
+	sub, err := nc.Subscribe("sekia.commands.concurrent-agent", func(msg *nats.Msg) {
+		received <- msg.Data
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Unsubscribe()
+
+	// Simulate two concurrent flush() calls from the watcher.
+	done := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			done <- eng.LoadWorkflow("concurrent", wfPath)
+		}()
+	}
+	for i := 0; i < 2; i++ {
+		if err := <-done; err != nil {
+			t.Fatalf("concurrent reload %d: %v", i, err)
+		}
+	}
+
+	// Verify events are processed after concurrent reloads.
+	for i := 0; i < 5; i++ {
+		ev := protocol.NewEvent("test.event", "external", map[string]any{})
+		data, _ := json.Marshal(ev)
+		nc.Publish("sekia.events.test", data)
+	}
+	nc.Flush()
+
+	for i := 0; i < 5; i++ {
+		select {
+		case <-received:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting for command %d after concurrent reload", i+1)
+		}
+	}
+}
+
+func TestEngine_EventsAfterReloadAll(t *testing.T) {
+	_, nc := startTestNATS(t)
+
+	tmpDir := t.TempDir()
+
+	workflowCode := `
+sekia.on("sekia.events.test", function(event)
+	sekia.command("reloadall-agent", "handle", {})
+end)
+`
+	wfPath := filepath.Join(tmpDir, "wf.lua")
+	os.WriteFile(wfPath, []byte(workflowCode), 0644)
+
+	eng := New(nc, tmpDir, nil, 0, "", testLogger())
+	if err := eng.Start(); err != nil {
+		t.Fatalf("engine start: %v", err)
+	}
+	defer eng.Stop()
+
+	if err := eng.LoadDir(); err != nil {
+		t.Fatalf("load dir: %v", err)
+	}
+
+	received := make(chan []byte, 10)
+	sub, err := nc.Subscribe("sekia.commands.reloadall-agent", func(msg *nats.Msg) {
+		received <- msg.Data
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Unsubscribe()
+
+	publishAndExpect := func(label string) {
+		t.Helper()
+		ev := protocol.NewEvent("test.event", "external", map[string]any{})
+		data, _ := json.Marshal(ev)
+		nc.Publish("sekia.events.test", data)
+		nc.Flush()
+
+		select {
+		case <-received:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting for command (%s)", label)
+		}
+	}
+
+	publishAndExpect("before-reloadall")
+
+	if err := eng.ReloadAll(); err != nil {
+		t.Fatalf("reload all: %v", err)
+	}
+
+	publishAndExpect("after-reloadall")
+}
