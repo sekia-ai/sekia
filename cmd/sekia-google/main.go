@@ -45,7 +45,7 @@ func main() {
 
 	authCmd := &cobra.Command{
 		Use:   "auth",
-		Short: "Authorize sekia-google with your Google account via device flow",
+		Short: "Authorize sekia-google with your Google account",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := googleagent.LoadConfig(cfgFile)
 			if err != nil {
@@ -59,7 +59,7 @@ func main() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 
-			token, err := googleagent.DeviceAuthFlow(ctx, cfg.Google.ClientID, cfg.Google.ClientSecret)
+			token, err := googleagent.AuthFlow(ctx, cfg.Google.ClientID, cfg.Google.ClientSecret)
 			if err != nil {
 				return fmt.Errorf("authorization failed: %w", err)
 			}

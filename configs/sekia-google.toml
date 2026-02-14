@@ -6,7 +6,7 @@ url = "nats://127.0.0.1:4222"
 
 [google]
 # Create OAuth credentials at https://console.cloud.google.com/apis/credentials
-# Application type: "TVs and Limited Input devices"
+# Application type: "Desktop app"
 client_id = ""
 client_secret = ""
 token_path = "~/.config/sekia/google-token.json"
