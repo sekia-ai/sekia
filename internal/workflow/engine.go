@@ -196,6 +196,7 @@ func (e *Engine) handleEvent(msg *nats.Msg) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
+	routed := false
 	for _, ws := range e.workflows {
 		// Self-event guard: skip events published by this workflow.
 		source := extractSource(msg.Data)
@@ -218,6 +219,11 @@ func (e *Engine) handleEvent(msg *nats.Msg) {
 		// Non-blocking send to the workflow's event channel.
 		select {
 		case ws.eventCh <- msg:
+			routed = true
+			e.logger.Debug().
+				Str("workflow", ws.name).
+				Str("subject", msg.Subject).
+				Msg("routed event to workflow")
 		default:
 			ws.errors.Add(1)
 			e.logger.Warn().
@@ -225,6 +231,13 @@ func (e *Engine) handleEvent(msg *nats.Msg) {
 				Str("subject", msg.Subject).
 				Msg("event channel full, dropping event")
 		}
+	}
+
+	if !routed {
+		e.logger.Debug().
+			Str("subject", msg.Subject).
+			Int("workflows", len(e.workflows)).
+			Msg("event matched no workflows")
 	}
 }
 
@@ -239,6 +252,12 @@ func (ws *workflowState) run() {
 			ws.modCtx.logger.Error().Err(err).Msg("unmarshal event")
 			continue
 		}
+
+		ws.modCtx.logger.Debug().
+			Str("event_type", ev.Type).
+			Str("event_id", ev.ID).
+			Str("subject", msg.Subject).
+			Msg("processing event")
 
 		eventTable := EventToLua(ws.L, ev)
 
