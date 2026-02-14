@@ -61,7 +61,7 @@ func (p *GmailPoller) poll(ctx context.Context) {
 		return
 	}
 
-	messages, newHistoryID, err := p.client.ListHistory(ctx, p.userID, p.historyID)
+	messages, newHistoryID, err := p.client.ListHistory(ctx, p.userID, p.historyID, p.maxMessages)
 	if err != nil {
 		p.logger.Error().Err(err).Uint64("history_id", p.historyID).Msg("list history failed")
 		// On history ID too old (404), reseed.

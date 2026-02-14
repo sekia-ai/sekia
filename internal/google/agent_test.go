@@ -272,7 +272,7 @@ func (m *mockGmailClient) GetProfile(_ context.Context, _ string) (string, uint6
 	return m.profileEmail, m.profileHistoryID, nil
 }
 
-func (m *mockGmailClient) ListHistory(_ context.Context, _ string, _ uint64) ([]googleagent.EmailMessage, uint64, error) {
+func (m *mockGmailClient) ListHistory(_ context.Context, _ string, _ uint64, _ int64) ([]googleagent.EmailMessage, uint64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	msgs := m.historyMessages
