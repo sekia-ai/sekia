@@ -8,6 +8,5 @@ sekiactl
 sekia-github
 sekia-slack
 sekia-linear
-sekia-gmail
 .env
 dist/

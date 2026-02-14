@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Build all binaries
-go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github ./cmd/sekia-slack ./cmd/sekia-linear ./cmd/sekia-gmail ./cmd/sekia-google ./cmd/sekia-mcp
+go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github ./cmd/sekia-slack ./cmd/sekia-linear ./cmd/sekia-google ./cmd/sekia-mcp
 
 # Run all tests
 go test ./...
@@ -22,21 +22,21 @@ No Makefile or custom scripts — standard Go toolchain only.
 
 ## Architecture
 
-sekia is a multi-agent event bus. Eight binaries (`sekiad` daemon, `sekiactl` CLI, `sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-gmail` (deprecated), `sekia-google`, `sekia-mcp` MCP server) communicate over NATS. The daemon and CLI also use a Unix socket.
+sekia is a multi-agent event bus. Seven binaries (`sekiad` daemon, `sekiactl` CLI, `sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-google`, `sekia-mcp` MCP server) communicate over NATS. The daemon and CLI also use a Unix socket.
 
 ### Dependency flow
 
 ```
-cmd/sekiad          cmd/sekiactl        cmd/sekia-github  cmd/sekia-slack  cmd/sekia-linear  cmd/sekia-gmail  cmd/sekia-mcp
-    │                    │                    │                  │                 │                 │                │
-    ▼                    ▼                    ▼                  ▼                 ▼                 ▼                ▼
-internal/server     cmd/sekiactl/cmd    internal/github    internal/slack   internal/linear   internal/gmail   internal/mcp
-    │                    │                    │                  │                 │                 │                │
-    ├─► internal/natsserver   (embedded NATS + JetStream)       │                 │                 │                │
-    ├─► internal/registry     (agent tracking)                  │                 │                 │                │
-    ├─► internal/workflow     (Lua workflow engine)              │                 │                 │                │
-    ├─► internal/api          (HTTP-over-Unix-socket API) ◄─────┼─────────────────┼─────────────────┼────────────────┘
-    ├─► internal/web          (embedded web dashboard)          │                 │                 │       (reads via Unix socket)
+cmd/sekiad          cmd/sekiactl        cmd/sekia-github  cmd/sekia-slack  cmd/sekia-linear  cmd/sekia-google  cmd/sekia-mcp
+    │                    │                    │                  │                 │                 │                 │
+    ▼                    ▼                    ▼                  ▼                 ▼                 ▼                 ▼
+internal/server     cmd/sekiactl/cmd    internal/github    internal/slack   internal/linear   internal/google   internal/mcp
+    │                    │                    │                  │                 │                 │                 │
+    ├─► internal/natsserver   (embedded NATS + JetStream)       │                 │                 │                 │
+    ├─► internal/registry     (agent tracking)                  │                 │                 │                 │
+    ├─► internal/workflow     (Lua workflow engine)              │                 │                 │                 │
+    ├─► internal/api          (HTTP-over-Unix-socket API) ◄─────┼─────────────────┼─────────────────┼─────────────────┘
+    ├─► internal/web          (embedded web dashboard)          │                 │                 │        (reads via Unix socket)
     │                    │                    │                  │                 │                 │
     └────────┬───────────┘                    └──────────────────┴─────────────────┴─────────────────┘
              ▼                                                  │
@@ -178,17 +178,9 @@ Standalone binary (`cmd/sekia-linear/`) that polls Linear's GraphQL API and exec
 
 **Config file**: `sekia-linear.toml`. Env vars: `LINEAR_API_KEY`, `SEKIA_NATS_URL`.
 
-### Gmail agent (`internal/gmail/`) — DEPRECATED
-
-> **Deprecated**: Use `sekia-google` instead. `sekia-gmail` uses IMAP/SMTP with app passwords, which Google has deprecated. It will be removed in a future release.
-
-Standalone binary (`cmd/sekia-gmail/`) that polls Gmail via IMAP and sends emails via SMTP.
-
-**Config file**: `sekia-gmail.toml`. Env vars: `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`, `SEKIA_NATS_URL`.
-
 ### Google agent (`internal/google/`)
 
-Standalone binary (`cmd/sekia-google/`) that bridges Gmail and Google Calendar to the NATS event bus via Google REST APIs with OAuth2 authentication. Replaces `sekia-gmail`.
+Standalone binary (`cmd/sekia-google/`) that bridges Gmail and Google Calendar to the NATS event bus via Google REST APIs with OAuth2 authentication.
 
 **Flow (Gmail)**: `Gmail REST API poll → sekia-google → sekia.events.google → Lua workflow → sekia.commands.google-agent → sekia-google → Gmail API`
 

@@ -48,16 +48,6 @@ services:
       - SEKIA_NATS_URL=nats://sekiad:4222
       - LINEAR_API_KEY=${LINEAR_API_KEY:-}
 
-  sekia-gmail:
-    build:
-      context: .
-      target: sekia-gmail
-    depends_on: [sekiad]
-    environment:
-      - SEKIA_NATS_URL=nats://sekiad:4222
-      - GMAIL_ADDRESS=${GMAIL_ADDRESS:-}
-      - GMAIL_APP_PASSWORD=${GMAIL_APP_PASSWORD:-}
-
   sekia-google:
     build:
       context: .

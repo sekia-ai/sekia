@@ -116,7 +116,7 @@ func (s *MCPServer) registerTools(srv *mcpserver.MCPServer) {
 	srv.AddTool(
 		mcplib.NewTool("send_command",
 			mcplib.WithDescription("Send a command to a connected sekia agent (e.g. send Slack message, create GitHub comment, create Linear issue)"),
-			mcplib.WithString("agent", mcplib.Required(), mcplib.Description("Target agent name (e.g. \"github-agent\", \"slack-agent\", \"linear-agent\", \"gmail-agent\")")),
+			mcplib.WithString("agent", mcplib.Required(), mcplib.Description("Target agent name (e.g. \"github-agent\", \"slack-agent\", \"linear-agent\", \"google-agent\")")),
 			mcplib.WithString("command", mcplib.Required(), mcplib.Description("Command name (e.g. \"create_comment\", \"send_message\", \"create_issue\", \"send_email\")")),
 			mcplib.WithObject("payload", mcplib.Required(), mcplib.Description("Command-specific payload")),
 		),

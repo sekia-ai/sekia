@@ -10,7 +10,6 @@ RUN CGO_ENABLED=0 go build -o /out/sekiad          ./cmd/sekiad \
  && CGO_ENABLED=0 go build -o /out/sekia-github     ./cmd/sekia-github \
  && CGO_ENABLED=0 go build -o /out/sekia-slack      ./cmd/sekia-slack \
  && CGO_ENABLED=0 go build -o /out/sekia-linear     ./cmd/sekia-linear \
- && CGO_ENABLED=0 go build -o /out/sekia-gmail      ./cmd/sekia-gmail \
  && CGO_ENABLED=0 go build -o /out/sekia-google     ./cmd/sekia-google \
  && CGO_ENABLED=0 go build -o /out/sekia-mcp        ./cmd/sekia-mcp
 
@@ -38,12 +37,6 @@ FROM alpine:3.23 AS sekia-linear
 RUN apk add --no-cache ca-certificates
 COPY --from=builder /out/sekia-linear /usr/local/bin/sekia-linear
 ENTRYPOINT ["sekia-linear"]
-
-# --- sekia-gmail ---
-FROM alpine:3.23 AS sekia-gmail
-RUN apk add --no-cache ca-certificates
-COPY --from=builder /out/sekia-gmail /usr/local/bin/sekia-gmail
-ENTRYPOINT ["sekia-gmail"]
 
 # --- sekia-google ---
 FROM alpine:3.23 AS sekia-google
