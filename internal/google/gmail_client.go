@@ -37,6 +37,8 @@ type GmailClient interface {
 	AddLabel(ctx context.Context, userID, messageID, labelName string) error
 	RemoveLabel(ctx context.Context, userID, messageID, labelName string) error
 	Archive(ctx context.Context, userID, messageID string) error
+	Trash(ctx context.Context, userID, messageID string) error
+	Delete(ctx context.Context, userID, messageID string) error
 }
 
 // realGmailClient implements GmailClient using the Gmail REST API.
@@ -213,6 +215,22 @@ func (c *realGmailClient) Archive(ctx context.Context, userID, messageID string)
 	_, err := c.svc.Users.Messages.Modify(userID, messageID, mod).Context(ctx).Do()
 	if err != nil {
 		return fmt.Errorf("archive: %w", err)
+	}
+	return nil
+}
+
+func (c *realGmailClient) Trash(ctx context.Context, userID, messageID string) error {
+	_, err := c.svc.Users.Messages.Trash(userID, messageID).Context(ctx).Do()
+	if err != nil {
+		return fmt.Errorf("trash: %w", err)
+	}
+	return nil
+}
+
+func (c *realGmailClient) Delete(ctx context.Context, userID, messageID string) error {
+	err := c.svc.Users.Messages.Delete(userID, messageID).Context(ctx).Do()
+	if err != nil {
+		return fmt.Errorf("delete: %w", err)
 	}
 	return nil
 }

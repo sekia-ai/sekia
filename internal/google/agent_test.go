@@ -338,6 +338,26 @@ func (m *mockGmailClient) Archive(_ context.Context, _, messageID string) error 
 	return nil
 }
 
+func (m *mockGmailClient) Trash(_ context.Context, _, messageID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.gmailCalls = append(m.gmailCalls, mockCommandCall{
+		Method: "Trash",
+		Args:   map[string]string{"message_id": messageID},
+	})
+	return nil
+}
+
+func (m *mockGmailClient) Delete(_ context.Context, _, messageID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.gmailCalls = append(m.gmailCalls, mockCommandCall{
+		Method: "Delete",
+		Args:   map[string]string{"message_id": messageID},
+	})
+	return nil
+}
+
 // --- Mock Calendar client ---
 
 type mockCalendarClient struct {
