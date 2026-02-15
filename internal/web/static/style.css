@@ -42,11 +42,13 @@ nav .logo {
 nav img {
   height: 24px;
   width: 24px;
+  margin-bottom: -5px;
 }
 
 nav .subtitle {
   color: var(--text-muted);
   font-size: 0.875rem;
+  margin-bottom: -2px;
 }
 
 .dashboard {
