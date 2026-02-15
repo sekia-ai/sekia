@@ -76,7 +76,7 @@ func TestEndToEnd(t *testing.T) {
 	testAgent, err := agent.New(agent.Config{
 		NATSUrl:  d.NATSClientURL(),
 		NATSOpts: d.NATSConnectOpts(),
-	}, "test-agent", "0.0.14", []string{"testing"}, []string{"ping"}, logger)
+	}, "test-agent", "0.0.15", []string{"testing"}, []string{"ping"}, logger)
 	if err != nil {
 		t.Fatalf("create test agent: %v", err)
 	}
@@ -108,8 +108,8 @@ func TestEndToEnd(t *testing.T) {
 	if agents.Agents[0].Status != "running" {
 		t.Fatalf("expected agent status running, got %s", agents.Agents[0].Status)
 	}
-	if agents.Agents[0].Version != "0.0.14" {
-		t.Fatalf("expected agent version 0.0.14, got %s", agents.Agents[0].Version)
+	if agents.Agents[0].Version != "0.0.15" {
+		t.Fatalf("expected agent version 0.0.15, got %s", agents.Agents[0].Version)
 	}
 
 	// Stop daemon.
@@ -199,7 +199,7 @@ end)
 	testAgent, err := agent.New(agent.Config{
 		NATSUrl:  d.NATSClientURL(),
 		NATSOpts: d.NATSConnectOpts(),
-	}, "test-agent", "0.0.14", []string{"testing"}, []string{"handle"}, zerolog.New(os.Stderr))
+	}, "test-agent", "0.0.15", []string{"testing"}, []string{"handle"}, zerolog.New(os.Stderr))
 	if err != nil {
 		t.Fatalf("create test agent: %v", err)
 	}
@@ -353,7 +353,7 @@ end)
 	testAgent, err := agent.New(agent.Config{
 		NATSUrl:  d.NATSClientURL(),
 		NATSOpts: d.NATSConnectOpts(),
-	}, "test-agent", "0.0.14", []string{"testing"}, []string{"label"}, logger)
+	}, "test-agent", "0.0.15", []string{"testing"}, []string{"label"}, logger)
 	if err != nil {
 		t.Fatalf("create test agent: %v", err)
 	}
