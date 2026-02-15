@@ -1,0 +1,1401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Documentation — sekia</title>
+  <meta name="description" content="Comprehensive documentation for sekia, the multi-agent event bus for workflow automation.">
+  <link rel="icon" href="../logo.png" type="image/png">
+  <link rel="stylesheet" href="style.css">
+  <script>
+    (function() {
+      var t = localStorage.getItem('theme');
+      if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <div class="nav-inner">
+    <a href="/" class="nav-brand">
+      <img src="../logo.png" alt="sekia">
+      sekia
+    </a>
+    <div class="nav-spacer"></div>
+    <a href="/docs/" class="nav-link active">Docs</a>
+    <button id="theme-toggle" aria-label="Toggle theme">
+      <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+    <a href="https://github.com/sekia-ai/sekia" class="nav-link" aria-label="GitHub">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+    </a>
+  </div>
+</nav>
+
+<div class="docs-layout">
+
+<!-- Sidebar -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-section">
+    <div class="sidebar-heading">Getting Started</div>
+    <a href="#introduction">Introduction</a>
+    <a href="#installation">Installation</a>
+    <a href="#quick-start">Quick Start</a>
+    <a href="#architecture">Architecture</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-heading">Daemon</div>
+    <a href="#sekiad">sekiad</a>
+    <a href="#sekiad-config">Configuration</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-heading">CLI</div>
+    <a href="#sekiactl">sekiactl</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-heading">Workflows</div>
+    <a href="#workflows">Overview</a>
+    <a href="#lua-api">Lua API</a>
+    <a href="#workflow-examples">Examples</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-heading">Agents</div>
+    <a href="#github-agent">GitHub</a>
+    <a href="#slack-agent">Slack</a>
+    <a href="#linear-agent">Linear</a>
+    <a href="#google-agent">Google</a>
+    <a href="#mcp-server">MCP Server</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-heading">Reference</div>
+    <a href="#http-api">HTTP API</a>
+    <a href="#web-dashboard">Web Dashboard</a>
+    <a href="#nats-subjects">NATS Subjects</a>
+    <a href="#security">Security</a>
+  </div>
+</aside>
+
+<!-- Content -->
+<main class="docs-content">
+
+<!-- ================================================================== -->
+<!-- INTRODUCTION -->
+<!-- ================================================================== -->
+<section id="introduction">
+  <h1>sekia Documentation</h1>
+  <p>Complete reference for the multi-agent event bus for workflow automation.</p>
+
+  <h2>What is sekia?</h2>
+  <p>sekia is an event bus that connects external services (GitHub, Slack, Linear, Gmail, Google Calendar) to Lua workflows via embedded NATS messaging. Events from agents flow into the bus, Lua handlers react to them, and commands flow back out to agents.</p>
+  <p>The system follows Unix philosophy: small, composable tools. Seven standalone binaries communicate over NATS:</p>
+  <ul>
+    <li><code>sekiad</code> &mdash; the daemon (embedded NATS, workflow engine, API)</li>
+    <li><code>sekiactl</code> &mdash; CLI to inspect and control the daemon</li>
+    <li><code>sekia-github</code> &mdash; GitHub agent (webhooks + polling)</li>
+    <li><code>sekia-slack</code> &mdash; Slack agent (Socket Mode)</li>
+    <li><code>sekia-linear</code> &mdash; Linear agent (GraphQL polling)</li>
+    <li><code>sekia-google</code> &mdash; Google agent (Gmail + Calendar)</li>
+    <li><code>sekia-mcp</code> &mdash; MCP server for AI assistants</li>
+  </ul>
+</section>
+
+<!-- ================================================================== -->
+<!-- INSTALLATION -->
+<!-- ================================================================== -->
+<section id="installation">
+  <h2>Installation</h2>
+
+  <h3>Homebrew</h3>
+  <pre><code>brew install sekia-ai/tap/sekia</code></pre>
+
+  <h3>Go</h3>
+  <pre><code>go install github.com/sekia-ai/sekia/cmd/sekiad@latest
+go install github.com/sekia-ai/sekia/cmd/sekiactl@latest
+go install github.com/sekia-ai/sekia/cmd/sekia-github@latest
+go install github.com/sekia-ai/sekia/cmd/sekia-slack@latest
+go install github.com/sekia-ai/sekia/cmd/sekia-linear@latest
+go install github.com/sekia-ai/sekia/cmd/sekia-google@latest
+go install github.com/sekia-ai/sekia/cmd/sekia-mcp@latest</code></pre>
+
+  <h3>Docker</h3>
+  <pre><code>git clone https://github.com/sekia-ai/sekia.git
+cd sekia
+docker compose up</code></pre>
+
+  <h3>Build from source</h3>
+  <pre><code>git clone https://github.com/sekia-ai/sekia.git
+cd sekia
+go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github \
+         ./cmd/sekia-slack ./cmd/sekia-linear ./cmd/sekia-google \
+         ./cmd/sekia-mcp</code></pre>
+</section>
+
+<!-- ================================================================== -->
+<!-- QUICK START -->
+<!-- ================================================================== -->
+<section id="quick-start">
+  <h2>Quick Start</h2>
+  <p>Get sekia running in four steps.</p>
+
+  <h3>1. Start the daemon</h3>
+  <pre><code>sekiad</code></pre>
+  <p>This starts the embedded NATS server, workflow engine, and Unix socket API. No configuration file needed for defaults.</p>
+
+  <h3>2. Write a workflow</h3>
+  <p>Create a Lua file in <code>~/.config/sekia/workflows/</code>:</p>
+  <pre><code><span class="cm">-- ~/.config/sekia/workflows/auto-label.lua</span>
+
+sekia.<span class="fn">on</span>(<span class="str">"sekia.events.github"</span>, <span class="kw">function</span>(event)
+    <span class="kw">if</span> event.type ~= <span class="str">"github.issue.opened"</span> <span class="kw">then</span> <span class="kw">return</span> <span class="kw">end</span>
+
+    <span class="kw">local</span> title = string.<span class="fn">lower</span>(event.payload.title <span class="kw">or</span> <span class="str">""</span>)
+
+    <span class="kw">if</span> string.<span class="fn">find</span>(title, <span class="str">"bug"</span>) <span class="kw">then</span>
+        sekia.<span class="fn">command</span>(<span class="str">"github-agent"</span>, <span class="str">"add_label"</span>, {
+            owner  = event.payload.owner,
+            repo   = event.payload.repo,
+            number = event.payload.number,
+            label  = <span class="str">"bug"</span>,
+        })
+    <span class="kw">end</span>
+<span class="kw">end</span>)</code></pre>
+
+  <h3>3. Connect an agent</h3>
+  <pre><code><span class="kw">export</span> GITHUB_TOKEN=ghp_...
+sekia-github</code></pre>
+
+  <h3>4. Check status</h3>
+  <pre><code>sekiactl status
+sekiactl agents
+sekiactl workflows</code></pre>
+</section>
+
+<!-- ================================================================== -->
+<!-- ARCHITECTURE -->
+<!-- ================================================================== -->
+<section id="architecture">
+  <h2>Architecture</h2>
+
+  <h3>Event flow</h3>
+  <p>The core pattern is: <strong>Agent &rarr; NATS event &rarr; Lua workflow &rarr; NATS command &rarr; Agent</strong></p>
+  <pre><code>External Service (GitHub, Slack, etc.)
+    |
+    v
+Agent binary (sekia-github, sekia-slack, etc.)
+    |  publishes to sekia.events.&lt;source&gt;
+    v
+Embedded NATS (inside sekiad)
+    |
+    v
+Lua workflow engine (pattern matching)
+    |  sekia.command("agent-name", "cmd", payload)
+    v
+NATS sekia.commands.&lt;agent-name&gt;
+    |
+    v
+Agent binary executes command via external API</code></pre>
+
+  <h3>NATS runs in-process</h3>
+  <p>By default, NATS is embedded inside <code>sekiad</code> with <code>DontListen: true</code> &mdash; no TCP port is opened. Agents connect using <code>nats.InProcessServer()</code> when running locally, or via a NATS URL when running remotely.</p>
+
+  <h3>Config file search paths</h3>
+  <p>All binaries search for their config file in this order:</p>
+  <ol>
+    <li><code>/etc/sekia/</code></li>
+    <li><code>~/.config/sekia/</code></li>
+    <li>Current directory (<code>./</code>)</li>
+  </ol>
+  <p>Override with the <code>--config</code> flag on any binary. Environment variables always take precedence over config file values.</p>
+</section>
+
+<!-- ================================================================== -->
+<!-- SEKIAD -->
+<!-- ================================================================== -->
+<section id="sekiad">
+  <h2>sekiad (Daemon)</h2>
+  <p>The daemon is the central process. It runs the embedded NATS server, agent registry, Lua workflow engine, Unix socket API, and optional web dashboard.</p>
+
+  <h3>Usage</h3>
+  <pre><code>sekiad [--config /path/to/sekia.toml]</code></pre>
+
+  <h3>Flags</h3>
+  <table>
+    <thead><tr><th>Flag</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>--config</code></td><td>Path to config file (overrides search paths)</td></tr>
+      <tr><td><code>--version</code></td><td>Show version and exit</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Startup sequence</h3>
+  <ol>
+    <li>Start embedded NATS with JetStream</li>
+    <li>Create agent registry (subscribes to <code>sekia.registry</code> and <code>sekia.heartbeat.&gt;</code>)</li>
+    <li>Start workflow engine, load <code>.lua</code> files, optionally start file watcher</li>
+    <li>Start HTTP API on Unix socket</li>
+    <li>Start web dashboard on TCP port (if configured)</li>
+    <li>Block on OS signal or stop channel</li>
+    <li>Shutdown in reverse order</li>
+  </ol>
+</section>
+
+<!-- ================================================================== -->
+<!-- SEKIAD CONFIG -->
+<!-- ================================================================== -->
+<section id="sekiad-config">
+  <h2>Daemon Configuration</h2>
+  <p>Config file: <code>sekia.toml</code>. Environment variable prefix: <code>SEKIA_</code>.</p>
+
+  <h3>[server]</h3>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>socket</td><td>string</td><td><code>/tmp/sekiad.sock</code></td><td>SEKIA_SERVER_SOCKET</td><td>Unix socket path for the API</td></tr>
+    </tbody>
+  </table>
+
+  <h3>[nats]</h3>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>embedded</td><td>bool</td><td><code>true</code></td><td>SEKIA_NATS_EMBEDDED</td><td>Run embedded NATS server (vs connecting to remote)</td></tr>
+      <tr><td>data_dir</td><td>string</td><td><code>~/.local/share/sekia/nats</code></td><td>SEKIA_NATS_DATA_DIR</td><td>JetStream data directory</td></tr>
+      <tr><td>host</td><td>string</td><td>&mdash;</td><td>SEKIA_NATS_HOST</td><td>NATS hostname (if not embedded)</td></tr>
+      <tr><td>port</td><td>int</td><td>&mdash;</td><td>SEKIA_NATS_PORT</td><td>NATS port (if not embedded)</td></tr>
+      <tr><td>token</td><td>string</td><td>&mdash;</td><td>SEKIA_NATS_TOKEN</td><td>NATS authentication token</td></tr>
+    </tbody>
+  </table>
+
+  <h3>[workflows]</h3>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>dir</td><td>string</td><td><code>~/.config/sekia/workflows</code></td><td>SEKIA_WORKFLOWS_DIR</td><td>Directory containing <code>.lua</code> workflow files</td></tr>
+      <tr><td>hot_reload</td><td>bool</td><td><code>true</code></td><td>SEKIA_WORKFLOWS_HOT_RELOAD</td><td>Watch for file changes and auto-reload</td></tr>
+      <tr><td>handler_timeout</td><td>duration</td><td><code>30s</code></td><td>SEKIA_WORKFLOWS_HANDLER_TIMEOUT</td><td>Max execution time for a Lua handler</td></tr>
+    </tbody>
+  </table>
+
+  <h3>[web]</h3>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>listen</td><td>string</td><td>&mdash;</td><td>SEKIA_WEB_LISTEN</td><td>TCP address for web dashboard (e.g. <code>:8080</code>). Empty = disabled</td></tr>
+      <tr><td>username</td><td>string</td><td>&mdash;</td><td>SEKIA_WEB_USERNAME</td><td>HTTP Basic Auth username. Empty = no auth</td></tr>
+      <tr><td>password</td><td>string</td><td>&mdash;</td><td>SEKIA_WEB_PASSWORD</td><td>HTTP Basic Auth password. Empty = no auth</td></tr>
+    </tbody>
+  </table>
+
+  <h3>[ai]</h3>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>provider</td><td>string</td><td><code>anthropic</code></td><td>SEKIA_AI_PROVIDER</td><td>LLM provider (currently only <code>anthropic</code>)</td></tr>
+      <tr><td>api_key</td><td>string</td><td>&mdash;</td><td>SEKIA_AI_API_KEY</td><td>Anthropic API key for <code>sekia.ai()</code> calls</td></tr>
+      <tr><td>model</td><td>string</td><td><code>claude-sonnet-4-20250514</code></td><td>SEKIA_AI_MODEL</td><td>Default Claude model</td></tr>
+      <tr><td>max_tokens</td><td>int</td><td><code>1024</code></td><td>SEKIA_AI_MAX_TOKENS</td><td>Default max tokens for responses</td></tr>
+      <tr><td>temperature</td><td>float</td><td><code>0.0</code></td><td>SEKIA_AI_TEMPERATURE</td><td>Default temperature (0.0&ndash;1.0)</td></tr>
+      <tr><td>system_prompt</td><td>string</td><td>&mdash;</td><td>SEKIA_AI_SYSTEM_PROMPT</td><td>Default system prompt</td></tr>
+    </tbody>
+  </table>
+
+  <h3>[security]</h3>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>command_secret</td><td>string</td><td>&mdash;</td><td>SEKIA_COMMAND_SECRET</td><td>HMAC-SHA256 secret for command authentication</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Example config file</h3>
+  <pre><code><span class="cm"># ~/.config/sekia/sekia.toml</span>
+
+[server]
+socket = <span class="str">"/tmp/sekiad.sock"</span>
+
+[nats]
+embedded = <span class="kw">true</span>
+data_dir = <span class="str">"~/.local/share/sekia/nats"</span>
+
+[workflows]
+dir = <span class="str">"~/.config/sekia/workflows"</span>
+hot_reload = <span class="kw">true</span>
+handler_timeout = <span class="str">"30s"</span>
+
+[web]
+listen = <span class="str">":8080"</span>
+
+[ai]
+api_key = <span class="str">"sk-ant-..."</span>
+model = <span class="str">"claude-sonnet-4-20250514"</span></code></pre>
+</section>
+
+<!-- ================================================================== -->
+<!-- SEKIACTL -->
+<!-- ================================================================== -->
+<section id="sekiactl">
+  <h2>sekiactl (CLI)</h2>
+  <p>Command-line tool to inspect and control the sekiad daemon via Unix socket.</p>
+
+  <h3>Global flags</h3>
+  <table>
+    <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>--socket</code></td><td><code>/tmp/sekiad.sock</code></td><td>Path to sekiad Unix socket</td></tr>
+      <tr><td><code>--version</code></td><td>&mdash;</td><td>Show version and exit</td></tr>
+    </tbody>
+  </table>
+
+  <h3>sekiactl status</h3>
+  <p>Show daemon health and uptime.</p>
+  <pre><code>$ sekiactl status
+Status:       ok
+Uptime:       15m30s
+NATS Running: true
+Started At:   2026-02-15 10:30:45
+Agents:       3</code></pre>
+
+  <h3>sekiactl agents</h3>
+  <p>List all registered agents.</p>
+  <pre><code>$ sekiactl agents
+NAME            VERSION   STATUS   EVENTS   ERRORS   LAST HEARTBEAT
+github-agent    v0.0.16   alive    42       0        2s ago
+slack-agent     v0.0.16   alive    18       0        5s ago
+linear-agent    v0.0.16   alive    7        0        12s ago</code></pre>
+
+  <h3>sekiactl workflows</h3>
+  <p>List loaded workflows. Alias for <code>sekiactl workflows list</code>.</p>
+  <pre><code>$ sekiactl workflows
+NAME                HANDLERS   PATTERNS               EVENTS   ERRORS   LOADED AT
+auto-label          1          sekia.events.github     15       0        10m ago
+ai-classifier       1          sekia.events.github     8        0        10m ago</code></pre>
+
+  <h3>sekiactl workflows reload</h3>
+  <p>Trigger hot-reload of all <code>.lua</code> workflow files from disk.</p>
+  <pre><code>$ sekiactl workflows reload
+Workflows reloaded successfully</code></pre>
+
+  <h3>sekiactl config reload</h3>
+  <p>Broadcast a config reload signal via NATS.</p>
+  <pre><code><span class="cm"># Reload all agents and daemon</span>
+$ sekiactl config reload
+
+<span class="cm"># Reload a specific agent</span>
+$ sekiactl config reload --target github-agent
+
+<span class="cm"># Reload daemon only</span>
+$ sekiactl config reload --target sekiad</code></pre>
+</section>
+
+<!-- ================================================================== -->
+<!-- WORKFLOWS -->
+<!-- ================================================================== -->
+<section id="workflows">
+  <h2>Workflows</h2>
+  <p>Workflows are Lua scripts that react to events and send commands. They live in the workflows directory (default: <code>~/.config/sekia/workflows/</code>) and are loaded automatically when the daemon starts.</p>
+
+  <h3>How it works</h3>
+  <ol>
+    <li>The daemon loads every <code>.lua</code> file from the workflows directory</li>
+    <li>Each workflow gets its own Lua state and goroutine (thread-safe)</li>
+    <li>Workflows register handlers with <code>sekia.on(pattern, fn)</code></li>
+    <li>When an event matches a pattern, the handler function is called</li>
+    <li>Handlers can send commands to agents, publish new events, or call LLMs</li>
+  </ol>
+
+  <h3>Sandboxing</h3>
+  <p>Workflows run in a restricted Lua environment. Only these standard libraries are available:</p>
+  <ul>
+    <li><code>base</code> &mdash; core functions (minus <code>dofile</code>, <code>loadfile</code>, <code>load</code>)</li>
+    <li><code>table</code> &mdash; table manipulation</li>
+    <li><code>string</code> &mdash; string operations</li>
+    <li><code>math</code> &mdash; math functions</li>
+  </ul>
+  <p>The <code>os</code>, <code>io</code>, and <code>debug</code> libraries are <strong>not available</strong>.</p>
+
+  <h3>Self-event guard</h3>
+  <p>When a workflow publishes an event, the event source is set to <code>workflow:&lt;name&gt;</code>. Events from <code>workflow:&lt;name&gt;</code> are automatically skipped by handlers in the same workflow, preventing infinite loops.</p>
+
+  <h3>Hot-reload</h3>
+  <p>When <code>hot_reload = true</code> (the default), the daemon uses fsnotify to watch the workflows directory. File changes trigger a full reload with a 500ms debounce. You can also trigger a manual reload via <code>sekiactl workflows reload</code> or the HTTP API.</p>
+</section>
+
+<!-- ================================================================== -->
+<!-- LUA API -->
+<!-- ================================================================== -->
+<section id="lua-api">
+  <h2>Lua API Reference</h2>
+  <p>The <code>sekia</code> global table is available in all workflows.</p>
+
+  <h3>sekia.on(pattern, handler)</h3>
+  <p>Register an event handler for a NATS subject pattern.</p>
+  <table class="config-table">
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>pattern</td><td>string</td><td>NATS subject pattern. Supports <code>*</code> (single segment) and <code>&gt;</code> (all remaining segments)</td></tr>
+      <tr><td>handler</td><td>function</td><td>Callback receiving an event table</td></tr>
+    </tbody>
+  </table>
+  <pre><code><span class="cm">-- Match all GitHub events</span>
+sekia.<span class="fn">on</span>(<span class="str">"sekia.events.github"</span>, <span class="kw">function</span>(event)
+    sekia.<span class="fn">log</span>(<span class="str">"info"</span>, <span class="str">"Got event: "</span> .. event.type)
+<span class="kw">end</span>)
+
+<span class="cm">-- Match all events from any source</span>
+sekia.<span class="fn">on</span>(<span class="str">"sekia.events.>"</span>, <span class="kw">function</span>(event)
+    <span class="cm">-- handles github, slack, linear, google, etc.</span>
+<span class="kw">end</span>)
+
+<span class="cm">-- Match events from a specific wildcard source</span>
+sekia.<span class="fn">on</span>(<span class="str">"sekia.events.*"</span>, <span class="kw">function</span>(event)
+    <span class="cm">-- matches sekia.events.github, sekia.events.slack, etc.</span>
+<span class="kw">end</span>)</code></pre>
+
+  <h4>Event object shape</h4>
+  <p>The event table passed to handlers has these fields:</p>
+  <table class="config-table">
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>id</td><td>string</td><td>Unique event ID (UUID)</td></tr>
+      <tr><td>type</td><td>string</td><td>Event type (e.g. <code>"github.issue.opened"</code>)</td></tr>
+      <tr><td>source</td><td>string</td><td>Event source (e.g. <code>"github"</code>, <code>"workflow:my-flow"</code>)</td></tr>
+      <tr><td>timestamp</td><td>number</td><td>Unix timestamp</td></tr>
+      <tr><td>payload</td><td>table</td><td>Event-specific data (varies by event type)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>sekia.publish(subject, event_type, payload)</h3>
+  <p>Emit a new event onto the NATS bus.</p>
+  <table class="config-table">
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>subject</td><td>string</td><td>NATS subject (e.g. <code>"sekia.events.custom"</code>)</td></tr>
+      <tr><td>event_type</td><td>string</td><td>Event type string</td></tr>
+      <tr><td>payload</td><td>table</td><td>Arbitrary event data</td></tr>
+    </tbody>
+  </table>
+  <p>Raises a Lua error on failure.</p>
+  <pre><code>sekia.<span class="fn">publish</span>(<span class="str">"sekia.events.custom"</span>, <span class="str">"deploy.started"</span>, {
+    environment = <span class="str">"production"</span>,
+    version = <span class="str">"v1.2.3"</span>,
+})</code></pre>
+
+  <h3>sekia.command(agent, command, payload)</h3>
+  <p>Send a command to a connected agent. The command is published to <code>sekia.commands.&lt;agent&gt;</code>.</p>
+  <table class="config-table">
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>agent</td><td>string</td><td>Target agent name (e.g. <code>"github-agent"</code>, <code>"slack-agent"</code>)</td></tr>
+      <tr><td>command</td><td>string</td><td>Command name (e.g. <code>"add_label"</code>, <code>"send_message"</code>)</td></tr>
+      <tr><td>payload</td><td>table</td><td>Command-specific data</td></tr>
+    </tbody>
+  </table>
+  <p>Raises a Lua error on failure.</p>
+  <pre><code>sekia.<span class="fn">command</span>(<span class="str">"github-agent"</span>, <span class="str">"create_comment"</span>, {
+    owner  = <span class="str">"myorg"</span>,
+    repo   = <span class="str">"myrepo"</span>,
+    number = <span class="num">42</span>,
+    body   = <span class="str">"Automated comment from sekia"</span>,
+})</code></pre>
+
+  <h3>sekia.log(level, message)</h3>
+  <p>Log a message via zerolog.</p>
+  <table class="config-table">
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>level</td><td>string</td><td>Log level: <code>"debug"</code>, <code>"info"</code>, <code>"warn"</code>, <code>"error"</code></td></tr>
+      <tr><td>message</td><td>string</td><td>Log message</td></tr>
+    </tbody>
+  </table>
+  <pre><code>sekia.<span class="fn">log</span>(<span class="str">"info"</span>, <span class="str">"Processing issue #"</span> .. num)</code></pre>
+
+  <h3>sekia.ai(prompt [, opts])</h3>
+  <p>Call an LLM synchronously. Returns the response text. Each workflow has its own goroutine, so this blocks only the current workflow.</p>
+  <table class="config-table">
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>prompt</td><td>string</td><td>The prompt to send to the LLM</td></tr>
+      <tr><td>opts</td><td>table (optional)</td><td>Options: <code>model</code>, <code>max_tokens</code>, <code>temperature</code>, <code>system</code></td></tr>
+    </tbody>
+  </table>
+  <p>Returns: <code>(result, err)</code> &mdash; result is a string or nil, err is nil or a string. Never raises a Lua error. Returns <code>(nil, "AI not configured")</code> if no API key is set. Timeout: 120 seconds.</p>
+  <pre><code><span class="kw">local</span> result, err = sekia.<span class="fn">ai</span>(<span class="str">"Summarize this text: "</span> .. text)
+<span class="kw">if</span> err <span class="kw">then</span>
+    sekia.<span class="fn">log</span>(<span class="str">"error"</span>, <span class="str">"AI failed: "</span> .. err)
+    <span class="kw">return</span>
+<span class="kw">end</span>
+
+<span class="cm">-- With options</span>
+<span class="kw">local</span> result, err = sekia.<span class="fn">ai</span>(<span class="str">"Classify this issue"</span>, {
+    model       = <span class="str">"claude-sonnet-4-20250514"</span>,
+    max_tokens  = <span class="num">100</span>,
+    temperature = <span class="num">0</span>,
+    system      = <span class="str">"Reply with one word only."</span>,
+})</code></pre>
+
+  <h3>sekia.ai_json(prompt [, opts])</h3>
+  <p>Like <code>sekia.ai()</code> but requests a JSON response and parses it into a Lua table.</p>
+  <p>Returns: <code>(table, err)</code> &mdash; result is a Lua table or nil.</p>
+  <pre><code><span class="kw">local</span> data, err = sekia.<span class="fn">ai_json</span>(<span class="str">"Return JSON with keys: label, confidence"</span>)
+<span class="kw">if</span> data <span class="kw">then</span>
+    sekia.<span class="fn">log</span>(<span class="str">"info"</span>, <span class="str">"Label: "</span> .. data.label .. <span class="str">", Confidence: "</span> .. data.confidence)
+<span class="kw">end</span></code></pre>
+
+  <h3>sekia.name</h3>
+  <p>A string containing the current workflow's name (derived from the filename without <code>.lua</code> extension).</p>
+  <pre><code>sekia.<span class="fn">log</span>(<span class="str">"info"</span>, <span class="str">"Running workflow: "</span> .. sekia.name)</code></pre>
+</section>
+
+<!-- ================================================================== -->
+<!-- WORKFLOW EXAMPLES -->
+<!-- ================================================================== -->
+<section id="workflow-examples">
+  <h2>Workflow Examples</h2>
+
+  <h3>Auto-label GitHub issues</h3>
+  <p>Labels issues based on keywords in the title and posts a welcome comment.</p>
+  <pre><code><span class="cm">-- github-auto-label.lua</span>
+
+sekia.<span class="fn">on</span>(<span class="str">"sekia.events.github"</span>, <span class="kw">function</span>(event)
+    <span class="kw">if</span> event.type ~= <span class="str">"github.issue.opened"</span> <span class="kw">then</span> <span class="kw">return</span> <span class="kw">end</span>
+
+    <span class="kw">local</span> title = string.<span class="fn">lower</span>(event.payload.title <span class="kw">or</span> <span class="str">""</span>)
+    <span class="kw">local</span> owner = event.payload.owner
+    <span class="kw">local</span> repo  = event.payload.repo
+    <span class="kw">local</span> num   = event.payload.number
+
+    <span class="kw">if</span> string.<span class="fn">find</span>(title, <span class="str">"bug"</span>) <span class="kw">or</span> string.<span class="fn">find</span>(title, <span class="str">"crash"</span>) <span class="kw">then</span>
+        sekia.<span class="fn">command</span>(<span class="str">"github-agent"</span>, <span class="str">"add_label"</span>, {
+            owner = owner, repo = repo, number = num, label = <span class="str">"bug"</span>,
+        })
+    <span class="kw">end</span>
+
+    <span class="kw">if</span> string.<span class="fn">find</span>(title, <span class="str">"feature"</span>) <span class="kw">or</span> string.<span class="fn">find</span>(title, <span class="str">"request"</span>) <span class="kw">then</span>
+        sekia.<span class="fn">command</span>(<span class="str">"github-agent"</span>, <span class="str">"add_label"</span>, {
+            owner = owner, repo = repo, number = num, label = <span class="str">"enhancement"</span>,
+        })
+    <span class="kw">end</span>
+
+    sekia.<span class="fn">command</span>(<span class="str">"github-agent"</span>, <span class="str">"create_comment"</span>, {
+        owner = owner, repo = repo, number = num,
+        body  = <span class="str">"Thanks for opening this issue! A maintainer will review it shortly."</span>,
+    })
+<span class="kw">end</span>)</code></pre>
+
+  <h3>AI-powered issue classifier</h3>
+  <p>Uses an LLM to classify issues and apply the appropriate label.</p>
+  <pre><code><span class="cm">-- ai-issue-classifier.lua</span>
+
+sekia.<span class="fn">on</span>(<span class="str">"sekia.events.github"</span>, <span class="kw">function</span>(event)
+    <span class="kw">if</span> event.type ~= <span class="str">"github.issue.opened"</span> <span class="kw">then</span> <span class="kw">return</span> <span class="kw">end</span>
+
+    <span class="kw">local</span> prompt = <span class="str">"Classify this GitHub issue. Reply with exactly one word: bug, feature, question, or docs.\n\n"</span>
+        .. <span class="str">"Title: "</span> .. (event.payload.title <span class="kw">or</span> <span class="str">""</span>) .. <span class="str">"\n"</span>
+        .. <span class="str">"Body: "</span> .. (event.payload.body <span class="kw">or</span> <span class="str">""</span>)
+
+    <span class="kw">local</span> result, err = sekia.<span class="fn">ai</span>(prompt, { max_tokens = <span class="num">16</span>, temperature = <span class="num">0</span> })
+
+    <span class="kw">if</span> err <span class="kw">then</span>
+        sekia.<span class="fn">log</span>(<span class="str">"error"</span>, <span class="str">"AI classification failed: "</span> .. err)
+        <span class="kw">return</span>
+    <span class="kw">end</span>
+
+    <span class="kw">local</span> label = string.<span class="fn">lower</span>(string.<span class="fn">gsub</span>(result, <span class="str">"%s+"</span>, <span class="str">""</span>))
+
+    sekia.<span class="fn">command</span>(<span class="str">"github-agent"</span>, <span class="str">"add_label"</span>, {
+        owner  = event.payload.owner,
+        repo   = event.payload.repo,
+        number = event.payload.number,
+        label  = label,
+    })
+<span class="kw">end</span>)</code></pre>
+
+  <h3>Auto-reply to urgent emails</h3>
+  <pre><code><span class="cm">-- gmail-auto-reply.lua</span>
+<span class="cm">-- Requires: sekia-google with gmail.enabled = true</span>
+
+sekia.<span class="fn">on</span>(<span class="str">"sekia.events.google"</span>, <span class="kw">function</span>(event)
+    <span class="kw">if</span> event.type ~= <span class="str">"gmail.message.received"</span> <span class="kw">then</span> <span class="kw">return</span> <span class="kw">end</span>
+
+    <span class="kw">local</span> subject = string.<span class="fn">lower</span>(event.payload.subject <span class="kw">or</span> <span class="str">""</span>)
+
+    <span class="kw">if</span> string.<span class="fn">find</span>(subject, <span class="str">"urgent"</span>) <span class="kw">or</span> string.<span class="fn">find</span>(subject, <span class="str">"critical"</span>) <span class="kw">then</span>
+        sekia.<span class="fn">command</span>(<span class="str">"google-agent"</span>, <span class="str">"reply_email"</span>, {
+            thread_id   = event.payload.thread_id,
+            in_reply_to = event.payload.message_id,
+            to          = event.payload.from,
+            subject     = <span class="str">"Re: "</span> .. (event.payload.subject <span class="kw">or</span> <span class="str">""</span>),
+            body        = <span class="str">"Thank you. This has been flagged as urgent and will be reviewed promptly."</span>,
+        })
+    <span class="kw">end</span>
+<span class="kw">end</span>)</code></pre>
+
+  <h3>Calendar event notifications</h3>
+  <pre><code><span class="cm">-- google-calendar-notify.lua</span>
+<span class="cm">-- Requires: sekia-google with calendar.enabled = true</span>
+
+sekia.<span class="fn">on</span>(<span class="str">"sekia.events.google"</span>, <span class="kw">function</span>(event)
+    <span class="kw">if</span> event.type == <span class="str">"google.calendar.event.created"</span> <span class="kw">then</span>
+        sekia.<span class="fn">log</span>(<span class="str">"info"</span>, <span class="str">"New event: "</span> .. (event.payload.summary <span class="kw">or</span> <span class="str">"untitled"</span>))
+
+        <span class="cm">-- Notify via Slack</span>
+        sekia.<span class="fn">command</span>(<span class="str">"slack-agent"</span>, <span class="str">"send_message"</span>, {
+            channel = <span class="str">"#calendar"</span>,
+            text    = <span class="str">"New event: "</span> .. event.payload.summary .. <span class="str">" at "</span> .. event.payload.start,
+        })
+    <span class="kw">end</span>
+
+    <span class="kw">if</span> event.type == <span class="str">"google.calendar.event.upcoming"</span> <span class="kw">then</span>
+        sekia.<span class="fn">log</span>(<span class="str">"info"</span>, <span class="str">"Starting in "</span> .. event.payload.minutes_until .. <span class="str">"m: "</span> .. (event.payload.summary <span class="kw">or</span> <span class="str">"untitled"</span>))
+    <span class="kw">end</span>
+<span class="kw">end</span>)</code></pre>
+</section>
+
+<!-- ================================================================== -->
+<!-- GITHUB AGENT -->
+<!-- ================================================================== -->
+<section id="github-agent">
+  <h2>GitHub Agent</h2>
+  <p>Standalone binary (<code>sekia-github</code>) that bridges GitHub to the NATS event bus via webhooks and/or REST API polling.</p>
+
+  <h3>Usage</h3>
+  <pre><code>sekia-github [--config /path/to/sekia-github.toml]</code></pre>
+
+  <h3>Configuration</h3>
+  <p>Config file: <code>sekia-github.toml</code>. At least one of webhook or polling must be enabled.</p>
+
+  <h4>[nats]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>url</td><td>string</td><td><code>nats://127.0.0.1:4222</code></td><td>SEKIA_NATS_URL</td><td>NATS server URL</td></tr>
+      <tr><td>token</td><td>string</td><td>&mdash;</td><td>SEKIA_NATS_TOKEN</td><td>NATS auth token</td></tr>
+    </tbody>
+  </table>
+
+  <h4>[github]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>token</td><td>string</td><td>&mdash;</td><td>GITHUB_TOKEN</td><td>GitHub Personal Access Token (required)</td></tr>
+    </tbody>
+  </table>
+
+  <h4>[webhook]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>listen</td><td>string</td><td><code>:8080</code></td><td>SEKIA_WEBHOOK_LISTEN</td><td>HTTP listen address. Empty = disabled</td></tr>
+      <tr><td>secret</td><td>string</td><td>&mdash;</td><td>GITHUB_WEBHOOK_SECRET</td><td>HMAC-SHA256 secret for webhook verification</td></tr>
+      <tr><td>path</td><td>string</td><td><code>/webhook</code></td><td>SEKIA_WEBHOOK_PATH</td><td>HTTP path for the webhook endpoint</td></tr>
+    </tbody>
+  </table>
+
+  <h4>[poll]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>enabled</td><td>bool</td><td><code>false</code></td><td>SEKIA_POLL_ENABLED</td><td>Enable REST API polling</td></tr>
+      <tr><td>interval</td><td>duration</td><td><code>30s</code></td><td>SEKIA_POLL_INTERVAL</td><td>Polling interval</td></tr>
+      <tr><td>repos</td><td>[]string</td><td>&mdash;</td><td>SEKIA_POLL_REPOS</td><td>List of <code>"owner/repo"</code> to poll (required when enabled)</td></tr>
+      <tr><td>per_tick</td><td>int</td><td><code>100</code></td><td>SEKIA_POLL_PER_TICK</td><td>Max items fetched per tick (1&ndash;100)</td></tr>
+      <tr><td>labels</td><td>[]string</td><td>&mdash;</td><td>SEKIA_POLL_LABELS</td><td>Filter issues by labels (enables label-filtered mode)</td></tr>
+      <tr><td>state</td><td>string</td><td><code>open</code></td><td>SEKIA_POLL_STATE</td><td>Issue state filter: <code>open</code>, <code>closed</code>, or <code>all</code></td></tr>
+    </tbody>
+  </table>
+
+  <h4>[security]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>command_secret</td><td>string</td><td>&mdash;</td><td>SEKIA_COMMAND_SECRET</td><td>HMAC-SHA256 secret for command auth</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Webhook vs Polling</h3>
+  <p><strong>Webhooks</strong> provide real-time, fine-grained events (labeled, assigned, reopened) but require a publicly accessible URL. <strong>Polling</strong> works behind firewalls but can only detect opened/closed/updated states. Both can run simultaneously; polled events include <code>payload.polled = true</code>.</p>
+
+  <h3>Label-filtered mode</h3>
+  <p>When <code>poll.labels</code> is set, the poller switches to label-filtered mode: it queries issues by label and state instead of time, skips PRs/comments, and emits <code>github.issue.matched</code> events instead of the standard event types.</p>
+
+  <h3>Rate limits</h3>
+  <p>At startup, the agent logs a warning if the estimated API call rate (3 calls/repo/cycle) exceeds 80% of GitHub's 5,000 requests/hour limit.</p>
+
+  <h3>Event types</h3>
+  <p>All events are published to <code>sekia.events.github</code>. Filter by <code>event.type</code> in your workflow.</p>
+
+  <table>
+    <thead><tr><th>Event Type</th><th>Source</th><th>Payload Fields</th></tr></thead>
+    <tbody>
+      <tr><td><code>github.issue.opened</code></td><td>Webhook + Polling</td><td>owner, repo, number, title, body, author, url, labels</td></tr>
+      <tr><td><code>github.issue.closed</code></td><td>Webhook + Polling</td><td>owner, repo, number, title, body, author, url, labels</td></tr>
+      <tr><td><code>github.issue.reopened</code></td><td>Webhook only</td><td>owner, repo, number, title, body, author, url, labels</td></tr>
+      <tr><td><code>github.issue.labeled</code></td><td>Webhook only</td><td>owner, repo, number, title, body, author, url, labels, label</td></tr>
+      <tr><td><code>github.issue.assigned</code></td><td>Webhook only</td><td>owner, repo, number, title, body, author, url, labels, assignee</td></tr>
+      <tr><td><code>github.issue.updated</code></td><td>Polling only</td><td>owner, repo, number, title, body, author, url, labels</td></tr>
+      <tr><td><code>github.issue.matched</code></td><td>Label-filtered polling</td><td>owner, repo, number, title, body, author, url, state, labels</td></tr>
+      <tr><td><code>github.pr.opened</code></td><td>Webhook + Polling</td><td>owner, repo, number, title, body, author, head_branch, base_branch, url</td></tr>
+      <tr><td><code>github.pr.closed</code></td><td>Webhook + Polling</td><td>owner, repo, number, title, body, author, head_branch, base_branch, url</td></tr>
+      <tr><td><code>github.pr.merged</code></td><td>Webhook + Polling</td><td>owner, repo, number, title, body, author, head_branch, base_branch, url, merge_commit</td></tr>
+      <tr><td><code>github.pr.review_requested</code></td><td>Webhook only</td><td>owner, repo, number, title, body, author, head_branch, base_branch, url, reviewer</td></tr>
+      <tr><td><code>github.pr.updated</code></td><td>Polling only</td><td>owner, repo, number, title, body, author, head_branch, base_branch, url</td></tr>
+      <tr><td><code>github.push</code></td><td>Webhook only</td><td>owner, repo, ref, before, after, commits_count, pusher, head_commit_message</td></tr>
+      <tr><td><code>github.comment.created</code></td><td>Webhook only</td><td>owner, repo, issue_number, comment_id, body, author, url</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Commands</h3>
+  <p>Send commands to <code>"github-agent"</code> via <code>sekia.command()</code>.</p>
+  <table>
+    <thead><tr><th>Command</th><th>Required Payload</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>add_label</code></td><td>owner, repo, number, label</td><td>Add a label to an issue or PR</td></tr>
+      <tr><td><code>remove_label</code></td><td>owner, repo, number, label</td><td>Remove a label from an issue or PR</td></tr>
+      <tr><td><code>create_comment</code></td><td>owner, repo, number, body</td><td>Create a comment on an issue or PR</td></tr>
+      <tr><td><code>close_issue</code></td><td>owner, repo, number</td><td>Close an issue</td></tr>
+      <tr><td><code>reopen_issue</code></td><td>owner, repo, number</td><td>Reopen an issue</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Example config</h3>
+  <pre><code><span class="cm"># sekia-github.toml</span>
+
+[github]
+token = <span class="str">"ghp_..."</span>  <span class="cm"># or set GITHUB_TOKEN env var</span>
+
+[webhook]
+listen = <span class="str">":8080"</span>
+secret = <span class="str">"my-webhook-secret"</span>
+
+[poll]
+enabled  = <span class="kw">true</span>
+interval = <span class="str">"30s"</span>
+repos    = [<span class="str">"myorg/myrepo"</span>, <span class="str">"myorg/other-repo"</span>]</code></pre>
+</section>
+
+<!-- ================================================================== -->
+<!-- SLACK AGENT -->
+<!-- ================================================================== -->
+<section id="slack-agent">
+  <h2>Slack Agent</h2>
+  <p>Standalone binary (<code>sekia-slack</code>) that connects to Slack via Socket Mode (WebSocket). No public URL needed.</p>
+
+  <h3>Usage</h3>
+  <pre><code>sekia-slack [--config /path/to/sekia-slack.toml]</code></pre>
+
+  <h3>Configuration</h3>
+  <p>Config file: <code>sekia-slack.toml</code>.</p>
+
+  <h4>[nats]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>url</td><td>string</td><td><code>nats://127.0.0.1:4222</code></td><td>SEKIA_NATS_URL</td><td>NATS server URL</td></tr>
+      <tr><td>token</td><td>string</td><td>&mdash;</td><td>SEKIA_NATS_TOKEN</td><td>NATS auth token</td></tr>
+    </tbody>
+  </table>
+
+  <h4>[slack]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>bot_token</td><td>string</td><td>&mdash;</td><td>SLACK_BOT_TOKEN</td><td>Slack bot token (required, starts with <code>xoxb-</code>)</td></tr>
+      <tr><td>app_token</td><td>string</td><td>&mdash;</td><td>SLACK_APP_TOKEN</td><td>Slack app token for Socket Mode (required, starts with <code>xapp-</code>)</td></tr>
+    </tbody>
+  </table>
+
+  <h4>[security]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>command_secret</td><td>string</td><td>&mdash;</td><td>SEKIA_COMMAND_SECRET</td><td>HMAC-SHA256 secret for command auth</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Setup</h3>
+  <ol>
+    <li>Create a Slack app at <a href="https://api.slack.com/apps">api.slack.com/apps</a></li>
+    <li>Enable Socket Mode in Settings &rarr; Socket Mode</li>
+    <li>Add bot token scopes: <code>chat:write</code>, <code>reactions:write</code>, <code>channels:history</code>, <code>groups:history</code>, <code>im:history</code>, <code>mpim:history</code></li>
+    <li>Subscribe to events: <code>message.channels</code>, <code>message.groups</code>, <code>message.im</code>, <code>reaction_added</code>, <code>channel_created</code>, <code>app_mention</code></li>
+    <li>Install the app to your workspace</li>
+    <li>Copy the Bot Token (<code>xoxb-...</code>) and App Token (<code>xapp-...</code>)</li>
+  </ol>
+
+  <h3>Event types</h3>
+  <p>All events are published to <code>sekia.events.slack</code>.</p>
+  <table>
+    <thead><tr><th>Event Type</th><th>Payload Fields</th></tr></thead>
+    <tbody>
+      <tr><td><code>slack.message.received</code></td><td>channel, user, text, timestamp, thread_ts (if threaded)</td></tr>
+      <tr><td><code>slack.mention</code></td><td>channel, user, text, timestamp, thread_ts (if threaded)</td></tr>
+      <tr><td><code>slack.reaction.added</code></td><td>user, reaction, channel, timestamp</td></tr>
+      <tr><td><code>slack.channel.created</code></td><td>channel_id, channel_name, creator</td></tr>
+    </tbody>
+  </table>
+  <p>The agent automatically filters out messages from its own bot user.</p>
+
+  <h3>Commands</h3>
+  <p>Send commands to <code>"slack-agent"</code>.</p>
+  <table>
+    <thead><tr><th>Command</th><th>Required Payload</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>send_message</code></td><td>channel, text</td><td>Send a message to a channel</td></tr>
+      <tr><td><code>add_reaction</code></td><td>channel, timestamp, emoji</td><td>Add an emoji reaction to a message</td></tr>
+      <tr><td><code>send_reply</code></td><td>channel, thread_ts, text</td><td>Send a threaded reply</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Example config</h3>
+  <pre><code><span class="cm"># sekia-slack.toml</span>
+
+[slack]
+bot_token = <span class="str">"xoxb-..."</span>  <span class="cm"># or set SLACK_BOT_TOKEN</span>
+app_token = <span class="str">"xapp-..."</span>  <span class="cm"># or set SLACK_APP_TOKEN</span></code></pre>
+</section>
+
+<!-- ================================================================== -->
+<!-- LINEAR AGENT -->
+<!-- ================================================================== -->
+<section id="linear-agent">
+  <h2>Linear Agent</h2>
+  <p>Standalone binary (<code>sekia-linear</code>) that polls the Linear GraphQL API for changes and executes commands.</p>
+
+  <h3>Usage</h3>
+  <pre><code>sekia-linear [--config /path/to/sekia-linear.toml]</code></pre>
+
+  <h3>Configuration</h3>
+  <p>Config file: <code>sekia-linear.toml</code>.</p>
+
+  <h4>[nats]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>url</td><td>string</td><td><code>nats://127.0.0.1:4222</code></td><td>SEKIA_NATS_URL</td><td>NATS server URL</td></tr>
+      <tr><td>token</td><td>string</td><td>&mdash;</td><td>SEKIA_NATS_TOKEN</td><td>NATS auth token</td></tr>
+    </tbody>
+  </table>
+
+  <h4>[linear]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>api_key</td><td>string</td><td>&mdash;</td><td>LINEAR_API_KEY</td><td>Linear API key (required)</td></tr>
+    </tbody>
+  </table>
+
+  <h4>[poll]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>interval</td><td>duration</td><td><code>30s</code></td><td>SEKIA_POLL_INTERVAL</td><td>GraphQL polling interval</td></tr>
+      <tr><td>team_filter</td><td>string</td><td>&mdash;</td><td>SEKIA_POLL_TEAM_FILTER</td><td>Optional team name to filter by</td></tr>
+    </tbody>
+  </table>
+
+  <h4>[security]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>command_secret</td><td>string</td><td>&mdash;</td><td>SEKIA_COMMAND_SECRET</td><td>HMAC-SHA256 secret for command auth</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Event types</h3>
+  <p>All events are published to <code>sekia.events.linear</code>. Event classification is based on <code>createdAt</code> vs the last sync time, and the issue state name.</p>
+  <table>
+    <thead><tr><th>Event Type</th><th>Payload Fields</th></tr></thead>
+    <tbody>
+      <tr><td><code>linear.issue.created</code></td><td>id, identifier, title, state, priority, team, url, description, assignee, labels</td></tr>
+      <tr><td><code>linear.issue.updated</code></td><td>id, identifier, title, state, priority, team, url, description, assignee, labels</td></tr>
+      <tr><td><code>linear.issue.completed</code></td><td>id, identifier, title, state, priority, team, url, description, assignee, labels</td></tr>
+      <tr><td><code>linear.comment.created</code></td><td>id, body, author, issue_id, issue_identifier</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Commands</h3>
+  <p>Send commands to <code>"linear-agent"</code>.</p>
+  <table>
+    <thead><tr><th>Command</th><th>Required Payload</th><th>Optional Payload</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>create_issue</code></td><td>team_id, title</td><td>description</td><td>Create a new issue</td></tr>
+      <tr><td><code>update_issue</code></td><td>issue_id</td><td>state_id, assignee_id, priority</td><td>Update an issue (at least one optional field required)</td></tr>
+      <tr><td><code>create_comment</code></td><td>issue_id, body</td><td>&mdash;</td><td>Add comment to an issue</td></tr>
+      <tr><td><code>add_label</code></td><td>issue_id, label_id</td><td>&mdash;</td><td>Add label to an issue</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Example config</h3>
+  <pre><code><span class="cm"># sekia-linear.toml</span>
+
+[linear]
+api_key = <span class="str">"lin_api_..."</span>  <span class="cm"># or set LINEAR_API_KEY</span>
+
+[poll]
+interval    = <span class="str">"30s"</span>
+team_filter = <span class="str">"Engineering"</span></code></pre>
+</section>
+
+<!-- ================================================================== -->
+<!-- GOOGLE AGENT -->
+<!-- ================================================================== -->
+<section id="google-agent">
+  <h2>Google Agent</h2>
+  <p>Standalone binary (<code>sekia-google</code>) that bridges Gmail and Google Calendar to the NATS event bus via OAuth2-authenticated REST APIs.</p>
+
+  <h3>Usage</h3>
+  <pre><code><span class="cm"># Authorize (one-time setup)</span>
+sekia-google auth [--config /path/to/sekia-google.toml]
+
+<span class="cm"># Run the agent</span>
+sekia-google [--config /path/to/sekia-google.toml]</code></pre>
+
+  <h3>OAuth2 Setup</h3>
+  <ol>
+    <li>Create a project in <a href="https://console.cloud.google.com">Google Cloud Console</a></li>
+    <li>Enable the Gmail API and Google Calendar API</li>
+    <li>Create OAuth2 credentials (Desktop application type)</li>
+    <li>Set <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code></li>
+    <li>Run <code>sekia-google auth</code> &mdash; this opens your browser, you grant permissions, and the token is saved to disk</li>
+    <li>Run <code>sekia-google</code> to start the agent (token auto-refreshes)</li>
+  </ol>
+
+  <h3>Configuration</h3>
+  <p>Config file: <code>sekia-google.toml</code>.</p>
+
+  <h4>[nats]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>url</td><td>string</td><td><code>nats://127.0.0.1:4222</code></td><td>SEKIA_NATS_URL</td><td>NATS server URL</td></tr>
+      <tr><td>token</td><td>string</td><td>&mdash;</td><td>SEKIA_NATS_TOKEN</td><td>NATS auth token</td></tr>
+    </tbody>
+  </table>
+
+  <h4>[google]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>client_id</td><td>string</td><td>&mdash;</td><td>GOOGLE_CLIENT_ID</td><td>OAuth2 client ID (required)</td></tr>
+      <tr><td>client_secret</td><td>string</td><td>&mdash;</td><td>GOOGLE_CLIENT_SECRET</td><td>OAuth2 client secret (required)</td></tr>
+      <tr><td>token_path</td><td>string</td><td><code>~/.config/sekia/google-token.json</code></td><td>GOOGLE_TOKEN_PATH</td><td>Path to store the OAuth2 token</td></tr>
+    </tbody>
+  </table>
+
+  <h4>[gmail]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>enabled</td><td>bool</td><td><code>true</code></td><td>SEKIA_GMAIL_ENABLED</td><td>Enable Gmail polling</td></tr>
+      <tr><td>poll_interval</td><td>duration</td><td><code>30s</code></td><td>SEKIA_GMAIL_POLL_INTERVAL</td><td>Gmail polling interval</td></tr>
+      <tr><td>user_id</td><td>string</td><td><code>me</code></td><td>SEKIA_GMAIL_USER_ID</td><td>Gmail user ID</td></tr>
+      <tr><td>query</td><td>string</td><td>&mdash;</td><td>SEKIA_GMAIL_QUERY</td><td>Gmail search query filter (e.g. <code>"is:unread"</code>)</td></tr>
+      <tr><td>max_messages</td><td>int</td><td><code>20</code></td><td>SEKIA_GMAIL_MAX_MESSAGES</td><td>Max messages to fetch per poll</td></tr>
+    </tbody>
+  </table>
+
+  <h4>[calendar]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>enabled</td><td>bool</td><td><code>false</code></td><td>SEKIA_CALENDAR_ENABLED</td><td>Enable Calendar polling</td></tr>
+      <tr><td>poll_interval</td><td>duration</td><td><code>60s</code></td><td>SEKIA_CALENDAR_POLL_INTERVAL</td><td>Calendar polling interval</td></tr>
+      <tr><td>calendar_id</td><td>string</td><td><code>primary</code></td><td>SEKIA_CALENDAR_CALENDAR_ID</td><td>Calendar ID</td></tr>
+      <tr><td>upcoming_mins</td><td>int</td><td><code>0</code></td><td>SEKIA_CALENDAR_UPCOMING_MINS</td><td>If &gt; 0, emit <code>upcoming</code> events for events starting within N minutes</td></tr>
+    </tbody>
+  </table>
+
+  <h4>[security]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>command_secret</td><td>string</td><td>&mdash;</td><td>SEKIA_COMMAND_SECRET</td><td>HMAC-SHA256 secret for command auth</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Gmail event types</h3>
+  <p>Published to <code>sekia.events.google</code>. Uses the Gmail History API for efficient incremental sync via <code>historyId</code>.</p>
+  <table>
+    <thead><tr><th>Event Type</th><th>Payload Fields</th></tr></thead>
+    <tbody>
+      <tr><td><code>gmail.message.received</code></td><td>id, thread_id, message_id, from, to, subject, body, date, labels</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Gmail commands</h3>
+  <p>Send commands to <code>"google-agent"</code>.</p>
+  <table>
+    <thead><tr><th>Command</th><th>Required Payload</th><th>Optional Payload</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>send_email</code></td><td>to, subject, body</td><td>&mdash;</td><td>Send a new email</td></tr>
+      <tr><td><code>reply_email</code></td><td>thread_id, to, subject, body</td><td>in_reply_to</td><td>Reply to an email thread</td></tr>
+      <tr><td><code>add_label</code></td><td>message_id, label</td><td>&mdash;</td><td>Add label to a message</td></tr>
+      <tr><td><code>remove_label</code></td><td>message_id, label</td><td>&mdash;</td><td>Remove label from a message</td></tr>
+      <tr><td><code>archive</code></td><td>message_id</td><td>&mdash;</td><td>Archive a message</td></tr>
+      <tr><td><code>trash</code></td><td>message_id</td><td>&mdash;</td><td>Move message to trash</td></tr>
+      <tr><td><code>delete</code></td><td>message_id</td><td>&mdash;</td><td>Permanently delete a message</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Calendar event types</h3>
+  <p>Published to <code>sekia.events.google</code>. Uses <code>syncToken</code> for incremental sync. Handles 410 Gone (expired token) with automatic reseed.</p>
+  <table>
+    <thead><tr><th>Event Type</th><th>Payload Fields</th></tr></thead>
+    <tbody>
+      <tr><td><code>google.calendar.event.created</code></td><td>id, summary, description, location, start, end, status, organizer, attendees, html_link, calendar_id</td></tr>
+      <tr><td><code>google.calendar.event.updated</code></td><td>id, summary, description, location, start, end, status, organizer, attendees, html_link, calendar_id</td></tr>
+      <tr><td><code>google.calendar.event.deleted</code></td><td>id, summary, description, location, start, end, status, organizer, attendees, html_link, calendar_id</td></tr>
+      <tr><td><code>google.calendar.event.upcoming</code></td><td>id, summary, start, end, minutes_until, location, html_link, calendar_id</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Calendar commands</h3>
+  <table>
+    <thead><tr><th>Command</th><th>Required Payload</th><th>Optional Payload</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>create_event</code></td><td>summary, start, end</td><td>description, location, attendees</td><td>Create a calendar event. Dates: RFC3339 or YYYY-MM-DD</td></tr>
+      <tr><td><code>update_event</code></td><td>event_id</td><td>summary, description, location, start, end</td><td>Update an event (at least one optional field required)</td></tr>
+      <tr><td><code>delete_event</code></td><td>event_id</td><td>&mdash;</td><td>Delete a calendar event</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Example config</h3>
+  <pre><code><span class="cm"># sekia-google.toml</span>
+
+[google]
+client_id     = <span class="str">"..."</span>  <span class="cm"># or GOOGLE_CLIENT_ID</span>
+client_secret = <span class="str">"..."</span>  <span class="cm"># or GOOGLE_CLIENT_SECRET</span>
+token_path    = <span class="str">"~/.config/sekia/google-token.json"</span>
+
+[gmail]
+enabled       = <span class="kw">true</span>
+poll_interval = <span class="str">"30s"</span>
+query         = <span class="str">"is:unread"</span>
+
+[calendar]
+enabled       = <span class="kw">true</span>
+poll_interval = <span class="str">"60s"</span>
+upcoming_mins = <span class="num">15</span></code></pre>
+</section>
+
+<!-- ================================================================== -->
+<!-- MCP SERVER -->
+<!-- ================================================================== -->
+<section id="mcp-server">
+  <h2>MCP Server</h2>
+  <p>Standalone binary (<code>sekia-mcp</code>) that exposes sekia capabilities to AI assistants via the <a href="https://modelcontextprotocol.io">Model Context Protocol</a>. Uses stdio transport &mdash; MCP clients launch it as a subprocess.</p>
+
+  <h3>Usage</h3>
+  <pre><code>sekia-mcp [--config /path/to/sekia-mcp.toml]</code></pre>
+
+  <h3>Configuration</h3>
+  <p>Config file: <code>sekia-mcp.toml</code>.</p>
+
+  <h4>[nats]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>url</td><td>string</td><td><code>nats://127.0.0.1:4222</code></td><td>SEKIA_NATS_URL</td><td>NATS server URL</td></tr>
+      <tr><td>token</td><td>string</td><td>&mdash;</td><td>SEKIA_NATS_TOKEN</td><td>NATS auth token</td></tr>
+    </tbody>
+  </table>
+
+  <h4>[daemon]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>socket</td><td>string</td><td><code>/tmp/sekiad.sock</code></td><td>SEKIA_DAEMON_SOCKET</td><td>Unix socket path to sekiad</td></tr>
+    </tbody>
+  </table>
+
+  <h4>[security]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>command_secret</td><td>string</td><td>&mdash;</td><td>SEKIA_COMMAND_SECRET</td><td>HMAC-SHA256 secret for command auth</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Setup for Claude Desktop</h3>
+  <p>Add to your Claude Desktop config (<code>~/Library/Application Support/Claude/claude_desktop_config.json</code>):</p>
+  <pre><code>{
+  "mcpServers": {
+    "sekia": {
+      "command": "sekia-mcp"
+    }
+  }
+}</code></pre>
+
+  <h3>Setup for Claude Code</h3>
+  <p>Add to your project's <code>.mcp.json</code>:</p>
+  <pre><code>{
+  "mcpServers": {
+    "sekia": {
+      "command": "sekia-mcp"
+    }
+  }
+}</code></pre>
+
+  <h3>MCP Tools</h3>
+  <table>
+    <thead><tr><th>Tool</th><th>Parameters</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>get_status</code></td><td>(none)</td><td>Daemon health, uptime, NATS status, agent/workflow counts</td></tr>
+      <tr><td><code>list_agents</code></td><td>(none)</td><td>All connected agents with capabilities, commands, heartbeat data</td></tr>
+      <tr><td><code>list_workflows</code></td><td>(none)</td><td>All loaded Lua workflows with handler patterns, event/error counts</td></tr>
+      <tr><td><code>reload_workflows</code></td><td>(none)</td><td>Hot-reload all .lua files from disk</td></tr>
+      <tr><td><code>publish_event</code></td><td>source (string), event_type (string), payload (object, optional)</td><td>Emit a synthetic event onto the NATS bus</td></tr>
+      <tr><td><code>send_command</code></td><td>agent (string), command (string), payload (object)</td><td>Send a command to a connected agent</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ================================================================== -->
+<!-- HTTP API -->
+<!-- ================================================================== -->
+<section id="http-api">
+  <h2>HTTP API</h2>
+  <p>The daemon serves a JSON API over a Unix socket (default: <code>/tmp/sekiad.sock</code>). No authentication is required &mdash; the socket file permissions provide implicit security.</p>
+
+  <h3>Accessing the API</h3>
+  <pre><code><span class="cm"># Using curl</span>
+curl --unix-socket /tmp/sekiad.sock http://localhost/api/v1/status
+
+<span class="cm"># Using sekiactl (recommended)</span>
+sekiactl status</code></pre>
+
+  <h3>GET /api/v1/status</h3>
+  <p>Returns daemon health and metadata.</p>
+  <pre><code>{
+  "status": "ok",
+  "uptime": "15m30s",
+  "nats_running": true,
+  "started_at": "2026-02-15T10:30:45Z",
+  "agent_count": 3,
+  "workflow_count": 2
+}</code></pre>
+
+  <h3>GET /api/v1/agents</h3>
+  <p>Returns all registered agents.</p>
+  <pre><code>{
+  "agents": [
+    {
+      "name": "github-agent",
+      "version": "v0.0.16",
+      "status": "alive",
+      "commands": ["add_label", "remove_label", "create_comment", "close_issue", "reopen_issue"],
+      "events_processed": 42,
+      "errors": 0,
+      "last_heartbeat": "2026-02-15T10:45:30Z"
+    }
+  ]
+}</code></pre>
+
+  <h3>GET /api/v1/workflows</h3>
+  <p>Returns all loaded workflows.</p>
+  <pre><code>{
+  "workflows": [
+    {
+      "name": "github-auto-label",
+      "file_path": "/home/user/.config/sekia/workflows/github-auto-label.lua",
+      "handlers": 1,
+      "patterns": ["sekia.events.github"],
+      "events": 15,
+      "errors": 0,
+      "loaded_at": "2026-02-15T10:30:50Z"
+    }
+  ]
+}</code></pre>
+
+  <h3>POST /api/v1/workflows/reload</h3>
+  <p>Triggers hot-reload of all workflow files.</p>
+  <pre><code>{"status": "reloaded"}</code></pre>
+
+  <h3>POST /api/v1/config/reload</h3>
+  <p>Broadcasts a config reload signal via NATS. Optional query parameter: <code>target</code> (agent name, <code>"sekiad"</code>, or <code>"*"</code> for all).</p>
+  <pre><code><span class="cm"># Reload all</span>
+curl --unix-socket /tmp/sekiad.sock -X POST http://localhost/api/v1/config/reload
+
+<span class="cm"># Reload specific agent</span>
+curl --unix-socket /tmp/sekiad.sock -X POST "http://localhost/api/v1/config/reload?target=github-agent"</code></pre>
+  <pre><code>{"status": "reload_requested", "target": "*"}</code></pre>
+</section>
+
+<!-- ================================================================== -->
+<!-- WEB DASHBOARD -->
+<!-- ================================================================== -->
+<section id="web-dashboard">
+  <h2>Web Dashboard</h2>
+  <p>An embedded web UI served on a configurable TCP port. Disabled by default.</p>
+
+  <h3>Enable the dashboard</h3>
+  <pre><code><span class="cm"># In sekia.toml</span>
+[web]
+listen = <span class="str">":8080"</span>
+
+<span class="cm"># Optional authentication</span>
+username = <span class="str">"admin"</span>
+password = <span class="str">"secret"</span></code></pre>
+  <p>Or via environment: <code>SEKIA_WEB_LISTEN=:8080 sekiad</code></p>
+
+  <h3>Features</h3>
+  <ul>
+    <li>System status, agent table, and workflow table with auto-refresh every 5 seconds (htmx)</li>
+    <li>Live event stream via Server-Sent Events (50-event ring buffer for initial load)</li>
+    <li>Dark mode toggle (persisted in localStorage)</li>
+    <li>All assets embedded in the binary (no CDN dependency)</li>
+    <li>HTTP Basic Auth support (optional)</li>
+  </ul>
+
+  <h3>Routes</h3>
+  <table>
+    <thead><tr><th>Route</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>GET /web</code></td><td>Full dashboard page</td></tr>
+      <tr><td><code>GET /web/partials/status</code></td><td>Status card fragment (htmx)</td></tr>
+      <tr><td><code>GET /web/partials/agents</code></td><td>Agents table fragment (htmx)</td></tr>
+      <tr><td><code>GET /web/partials/workflows</code></td><td>Workflows table fragment (htmx)</td></tr>
+      <tr><td><code>GET /web/events/stream</code></td><td>SSE endpoint for live events</td></tr>
+      <tr><td><code>GET /web/static/*</code></td><td>Vendored CSS/JS assets</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ================================================================== -->
+<!-- NATS SUBJECTS -->
+<!-- ================================================================== -->
+<section id="nats-subjects">
+  <h2>NATS Subjects</h2>
+  <p>All communication between the daemon, agents, and workflows uses these NATS subject patterns.</p>
+  <table>
+    <thead><tr><th>Subject</th><th>Purpose</th><th>Publisher</th></tr></thead>
+    <tbody>
+      <tr><td><code>sekia.registry</code></td><td>Agent registration announcements</td><td>Agents (on startup)</td></tr>
+      <tr><td><code>sekia.heartbeat.&lt;name&gt;</code></td><td>Agent heartbeats (30s interval)</td><td>Agents (periodic)</td></tr>
+      <tr><td><code>sekia.events.github</code></td><td>GitHub events</td><td>sekia-github</td></tr>
+      <tr><td><code>sekia.events.slack</code></td><td>Slack events</td><td>sekia-slack</td></tr>
+      <tr><td><code>sekia.events.linear</code></td><td>Linear events</td><td>sekia-linear</td></tr>
+      <tr><td><code>sekia.events.google</code></td><td>Gmail and Calendar events</td><td>sekia-google</td></tr>
+      <tr><td><code>sekia.events.&lt;custom&gt;</code></td><td>Custom events from workflows or MCP</td><td>Workflows / sekia-mcp</td></tr>
+      <tr><td><code>sekia.commands.github-agent</code></td><td>Commands for GitHub agent</td><td>Workflows / sekia-mcp</td></tr>
+      <tr><td><code>sekia.commands.slack-agent</code></td><td>Commands for Slack agent</td><td>Workflows / sekia-mcp</td></tr>
+      <tr><td><code>sekia.commands.linear-agent</code></td><td>Commands for Linear agent</td><td>Workflows / sekia-mcp</td></tr>
+      <tr><td><code>sekia.commands.google-agent</code></td><td>Commands for Google agent</td><td>Workflows / sekia-mcp</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Pattern matching</h3>
+  <p>NATS supports two wildcard tokens for subscriptions:</p>
+  <ul>
+    <li><code>*</code> &mdash; matches a single token. Example: <code>sekia.events.*</code> matches <code>sekia.events.github</code> but not <code>sekia.events.github.sub</code></li>
+    <li><code>&gt;</code> &mdash; matches one or more tokens (must be last). Example: <code>sekia.events.&gt;</code> matches all events from any source</li>
+  </ul>
+</section>
+
+<!-- ================================================================== -->
+<!-- SECURITY -->
+<!-- ================================================================== -->
+<section id="security">
+  <h2>Security</h2>
+
+  <h3>Command authentication</h3>
+  <p>When <code>command_secret</code> is set on both the daemon and an agent, commands are signed with HMAC-SHA256. The agent verifies the signature before executing any command. This prevents unauthorized command injection via NATS.</p>
+  <p>Set the same secret on the daemon and all agents:</p>
+  <pre><code><span class="cm"># In sekia.toml, sekia-github.toml, sekia-slack.toml, etc.</span>
+[security]
+command_secret = <span class="str">"your-shared-secret"</span>
+
+<span class="cm"># Or via environment</span>
+<span class="kw">export</span> SEKIA_COMMAND_SECRET=your-shared-secret</code></pre>
+
+  <h3>NATS authentication</h3>
+  <p>When using a remote NATS server (not embedded), you can configure a token:</p>
+  <pre><code>[nats]
+token = <span class="str">"your-nats-token"</span></code></pre>
+
+  <h3>Web dashboard authentication</h3>
+  <p>The web dashboard supports HTTP Basic Auth:</p>
+  <pre><code>[web]
+listen   = <span class="str">":8080"</span>
+username = <span class="str">"admin"</span>
+password = <span class="str">"secret"</span></code></pre>
+
+  <h3>GitHub webhook verification</h3>
+  <p>When <code>webhook.secret</code> is configured, the GitHub agent verifies <code>X-Hub-Signature-256</code> headers using HMAC-SHA256.</p>
+
+  <h3>Unix socket security</h3>
+  <p>The daemon API uses a Unix socket (default: <code>/tmp/sekiad.sock</code>), which inherits file system permissions. Only users/processes with access to the socket file can communicate with the daemon.</p>
+</section>
+
+</main>
+</div>
+
+<!-- Footer -->
+<footer>
+  <div>
+    <a href="/">Home</a>
+    &nbsp;&middot;&nbsp;
+    <a href="https://github.com/sekia-ai/sekia">GitHub</a>
+    &nbsp;&middot;&nbsp;
+    Apache 2.0
+  </div>
+</footer>
+
+<button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle navigation">&#9776;</button>
+
+<script>
+// Theme toggle
+(function() {
+  var btn = document.getElementById('theme-toggle');
+  btn.addEventListener('click', function() {
+    var isDark = document.documentElement.dataset.theme === 'dark';
+    document.documentElement.dataset.theme = isDark ? '' : 'dark';
+    localStorage.setItem('theme', isDark ? 'light' : 'dark');
+  });
+})();
+
+// Mobile sidebar toggle
+(function() {
+  var btn = document.getElementById('sidebar-toggle');
+  var sidebar = document.getElementById('sidebar');
+  btn.addEventListener('click', function() {
+    sidebar.classList.toggle('open');
+  });
+  // Close sidebar on link click (mobile)
+  sidebar.querySelectorAll('a').forEach(function(a) {
+    a.addEventListener('click', function() {
+      sidebar.classList.remove('open');
+    });
+  });
+})();
+
+// Active sidebar link tracking
+(function() {
+  var links = document.querySelectorAll('.sidebar a');
+  var sections = [];
+  links.forEach(function(link) {
+    var id = link.getAttribute('href').slice(1);
+    var el = document.getElementById(id);
+    if (el) sections.push({ el: el, link: link });
+  });
+  function update() {
+    var scrollY = window.scrollY + 80;
+    var active = sections[0];
+    for (var i = 0; i < sections.length; i++) {
+      if (sections[i].el.offsetTop <= scrollY) active = sections[i];
+    }
+    links.forEach(function(l) { l.classList.remove('active'); });
+    if (active) active.link.classList.add('active');
+  }
+  window.addEventListener('scroll', update, { passive: true });
+  update();
+})();
+</script>
+
+</body>
+</html>
