@@ -90,13 +90,16 @@ func (e *Engine) Stop() {
 		e.sub.Unsubscribe()
 	}
 
+	// Atomically collect and clear — stop outside the lock to avoid
+	// blocking handleEvent while goroutines drain their channels.
 	e.mu.Lock()
-	defer e.mu.Unlock()
+	old := e.workflows
+	e.workflows = make(map[string]*workflowState)
+	e.mu.Unlock()
 
-	for _, ws := range e.workflows {
+	for _, ws := range old {
 		e.stopWorkflow(ws)
 	}
-	e.workflows = make(map[string]*workflowState)
 
 	e.logger.Info().Msg("workflow engine stopped")
 }
@@ -132,6 +135,20 @@ func (e *Engine) Count() int {
 	return len(e.workflows)
 }
 
+// SetHandlerTimeout updates the handler timeout for all future workflow loads.
+func (e *Engine) SetHandlerTimeout(d time.Duration) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.handlerTimeout = d
+}
+
+// SetLLMClient updates the LLM client for all future workflow loads.
+func (e *Engine) SetLLMClient(llm ai.LLMClient) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.llm = llm
+}
+
 // LoadWorkflow loads a single Lua file as a workflow.
 func (e *Engine) LoadWorkflow(name, filePath string) error {
 	wfLogger := e.logger.With().Str("workflow", name).Logger()
@@ -158,19 +175,22 @@ func (e *Engine) LoadWorkflow(name, filePath string) error {
 		modCtx:         modCtx,
 		loadedAt:       time.Now(),
 		handlerTimeout: e.handlerTimeout,
-		eventCh:        make(chan *nats.Msg, 256),
+		eventCh:        make(chan *nats.Msg, 4096),
 		done:           make(chan struct{}),
 	}
 
 	go ws.run()
 
+	// Atomically swap the map entry — stop old workflow OUTSIDE the lock
+	// to avoid blocking handleEvent while the goroutine drains its channel.
 	e.mu.Lock()
-	// Stop any existing workflow with the same name.
-	if old, ok := e.workflows[name]; ok {
-		e.stopWorkflow(old)
-	}
+	old := e.workflows[name]
 	e.workflows[name] = ws
 	e.mu.Unlock()
+
+	if old != nil {
+		e.stopWorkflow(old)
+	}
 
 	wfLogger.Info().
 		Int("handlers", len(modCtx.handlers)).
@@ -182,11 +202,14 @@ func (e *Engine) LoadWorkflow(name, filePath string) error {
 // UnloadWorkflow stops and removes a workflow by name.
 func (e *Engine) UnloadWorkflow(name string) {
 	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	if ws, ok := e.workflows[name]; ok {
-		e.stopWorkflow(ws)
+	ws, ok := e.workflows[name]
+	if ok {
 		delete(e.workflows, name)
+	}
+	e.mu.Unlock()
+
+	if ok {
+		e.stopWorkflow(ws)
 		e.logger.Info().Str("workflow", name).Msg("unloaded workflow")
 	}
 }

@@ -4,8 +4,14 @@ import "fmt"
 
 // NATS subject constants and helpers.
 const (
-	SubjectRegistry = "sekia.registry"
+	SubjectRegistry     = "sekia.registry"
+	SubjectConfigReload = "sekia.config.reload"
 )
+
+// SubjectConfigReloadAgent returns the subject for a specific agent's config reload.
+func SubjectConfigReloadAgent(agentName string) string {
+	return fmt.Sprintf("sekia.config.reload.%s", agentName)
+}
 
 func SubjectEvents(source string) string {
 	return fmt.Sprintf("sekia.events.%s", source)

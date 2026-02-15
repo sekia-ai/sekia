@@ -45,3 +45,9 @@ type WorkflowInfo struct {
 type WorkflowsResponse struct {
 	Workflows []WorkflowInfo `json:"workflows"`
 }
+
+// ConfigReloadResponse is returned by POST /api/v1/config/reload.
+type ConfigReloadResponse struct {
+	Status string `json:"status"`
+	Target string `json:"target"`
+}

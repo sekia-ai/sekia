@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -35,7 +36,27 @@ type Agent struct {
 
 // New creates an Agent, connects to NATS, registers, and starts heartbeating.
 func New(cfg Config, name, version string, capabilities, commands []string, logger zerolog.Logger) (*Agent, error) {
-	nc, err := nats.Connect(cfg.NATSUrl, cfg.NATSOpts...)
+	agentLogger := logger.With().Str("agent", name).Logger()
+
+	// Resilience: infinite reconnect with logging on state changes.
+	resilienceOpts := []nats.Option{
+		nats.MaxReconnects(-1),
+		nats.ReconnectWait(2 * time.Second),
+		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
+			if err != nil {
+				agentLogger.Warn().Err(err).Msg("NATS disconnected")
+			}
+		}),
+		nats.ReconnectHandler(func(_ *nats.Conn) {
+			agentLogger.Info().Msg("NATS reconnected")
+		}),
+		nats.ClosedHandler(func(_ *nats.Conn) {
+			agentLogger.Warn().Msg("NATS connection closed")
+		}),
+	}
+
+	opts := append(resilienceOpts, cfg.NATSOpts...)
+	nc, err := nats.Connect(cfg.NATSUrl, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +67,7 @@ func New(cfg Config, name, version string, capabilities, commands []string, logg
 		Capabilities: capabilities,
 		Commands:     commands,
 		nc:           nc,
-		logger:       logger.With().Str("agent", name).Logger(),
+		logger:       agentLogger,
 	}
 	a.lastEvent.Store(time.Time{})
 
@@ -119,6 +140,26 @@ func (a *Agent) RecordEvent() {
 // RecordError increments the error counter.
 func (a *Agent) RecordError() {
 	a.errors.Add(1)
+}
+
+// OnConfigReload registers a callback invoked when a config reload message
+// arrives via NATS (broadcast or agent-targeted). Must be called after New().
+func (a *Agent) OnConfigReload(fn func()) error {
+	if _, err := a.nc.Subscribe(protocol.SubjectConfigReload, func(_ *nats.Msg) {
+		a.logger.Info().Msg("config reload requested (broadcast)")
+		fn()
+	}); err != nil {
+		return fmt.Errorf("subscribe config reload broadcast: %w", err)
+	}
+
+	if _, err := a.nc.Subscribe(protocol.SubjectConfigReloadAgent(a.Name), func(_ *nats.Msg) {
+		a.logger.Info().Msg("config reload requested (targeted)")
+		fn()
+	}); err != nil {
+		return fmt.Errorf("subscribe config reload agent: %w", err)
+	}
+
+	return nil
 }
 
 // Close stops heartbeating and disconnects.
