@@ -35,8 +35,13 @@ nav {
 nav .logo {
   font-size: 1.25rem;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--text);
   text-decoration: none;
+}
+
+nav img {
+  height: 24px;
+  width: 24px;
 }
 
 nav .subtitle {
