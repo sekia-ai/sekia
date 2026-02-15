@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 	"github.com/sekia-ai/sekia/internal/registry"
 	"github.com/sekia-ai/sekia/internal/workflow"
@@ -19,17 +20,20 @@ type Server struct {
 	socketPath string
 	registry   *registry.Registry
 	engine     *workflow.Engine
+	nc         *nats.Conn
 	startedAt  time.Time
 	httpServer *http.Server
 	logger     zerolog.Logger
 }
 
 // New creates an API server. The engine parameter may be nil if workflows are disabled.
-func New(socketPath string, reg *registry.Registry, engine *workflow.Engine, startedAt time.Time, logger zerolog.Logger) *Server {
+// The nc parameter is used to publish config reload signals via NATS.
+func New(socketPath string, reg *registry.Registry, engine *workflow.Engine, nc *nats.Conn, startedAt time.Time, logger zerolog.Logger) *Server {
 	s := &Server{
 		socketPath: socketPath,
 		registry:   reg,
 		engine:     engine,
+		nc:         nc,
 		startedAt:  startedAt,
 		logger:     logger.With().Str("component", "api").Logger(),
 	}
@@ -39,6 +43,7 @@ func New(socketPath string, reg *registry.Registry, engine *workflow.Engine, sta
 	mux.HandleFunc("GET /api/v1/agents", s.handleAgents)
 	mux.HandleFunc("GET /api/v1/workflows", s.handleWorkflows)
 	mux.HandleFunc("POST /api/v1/workflows/reload", s.handleWorkflowReload)
+	mux.HandleFunc("POST /api/v1/config/reload", s.handleConfigReload)
 
 	s.httpServer = &http.Server{Handler: mux}
 	return s
@@ -127,4 +132,33 @@ func (s *Server) handleWorkflowReload(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "reloaded"})
+}
+
+func (s *Server) handleConfigReload(w http.ResponseWriter, r *http.Request) {
+	target := r.URL.Query().Get("target")
+	if target == "" {
+		target = "*"
+	}
+
+	// Publish to the appropriate NATS subject.
+	var subject string
+	if target == "*" {
+		subject = protocol.SubjectConfigReload
+	} else {
+		subject = protocol.SubjectConfigReloadAgent(target)
+	}
+
+	if err := s.nc.Publish(subject, nil); err != nil {
+		s.logger.Error().Err(err).Str("target", target).Msg("config reload publish failed")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Info().Str("target", target).Msg("config reload signal sent")
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(protocol.ConfigReloadResponse{
+		Status: "reload_requested",
+		Target: target,
+	})
 }

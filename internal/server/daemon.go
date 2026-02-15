@@ -16,6 +16,7 @@ import (
 	"github.com/sekia-ai/sekia/internal/registry"
 	"github.com/sekia-ai/sekia/internal/web"
 	"github.com/sekia-ai/sekia/internal/workflow"
+	"github.com/sekia-ai/sekia/pkg/protocol"
 )
 
 // Daemon is the sekiad process.
@@ -114,8 +115,16 @@ func (d *Daemon) Run() error {
 		d.engine = eng
 	}
 
+	// 4b. Subscribe to config reload for the daemon.
+	ns.Conn().Subscribe(protocol.SubjectConfigReload, func(_ *nats.Msg) {
+		d.reloadConfig()
+	})
+	ns.Conn().Subscribe(protocol.SubjectConfigReloadAgent("sekiad"), func(_ *nats.Msg) {
+		d.reloadConfig()
+	})
+
 	// 5. Start API server.
-	d.apiServer = api.New(d.cfg.Server.Socket, reg, d.engine, d.startedAt, d.logger)
+	d.apiServer = api.New(d.cfg.Server.Socket, reg, d.engine, ns.Conn(), d.startedAt, d.logger)
 	apiLn, err := d.apiServer.Listen()
 	if err != nil {
 		if d.engine != nil {
@@ -199,6 +208,34 @@ func (d *Daemon) NATSConnectOpts() []nats.Option {
 		opts = append(opts, nats.Token(d.cfg.NATS.Token))
 	}
 	return opts
+}
+
+func (d *Daemon) reloadConfig() {
+	d.logger.Info().Msg("reloading daemon configuration")
+
+	newCfg, err := LoadConfig("")
+	if err != nil {
+		d.logger.Error().Err(err).Msg("failed to reload config")
+		return
+	}
+
+	// Apply reloadable settings.
+	if d.engine != nil {
+		if newCfg.Workflows.HandlerTimeout != d.cfg.Workflows.HandlerTimeout {
+			d.engine.SetHandlerTimeout(newCfg.Workflows.HandlerTimeout)
+			d.logger.Info().Dur("handler_timeout", newCfg.Workflows.HandlerTimeout).Msg("updated handler timeout")
+		}
+
+		if d.llmOverride == nil && newCfg.AI.APIKey != "" &&
+			(newCfg.AI.APIKey != d.cfg.AI.APIKey || newCfg.AI.Model != d.cfg.AI.Model) {
+			newLLM := ai.NewAnthropicClient(newCfg.AI, d.logger)
+			d.engine.SetLLMClient(newLLM)
+			d.logger.Info().Str("model", newCfg.AI.Model).Msg("updated AI client")
+		}
+	}
+
+	d.cfg = newCfg
+	d.logger.Info().Msg("daemon configuration reloaded")
 }
 
 func (d *Daemon) shutdown() error {

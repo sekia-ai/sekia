@@ -36,6 +36,10 @@ type GitHubAgent struct {
 	logger       zerolog.Logger
 	stopCh       chan struct{}
 
+	// Async command processing — NATS callback enqueues, worker goroutine executes.
+	cmdCh   chan *nats.Msg
+	cmdDone chan struct{}
+
 	// Overridable for testing.
 	natsOpts []nats.Option
 	readyCh  chan struct{}
@@ -52,6 +56,8 @@ func NewAgent(cfg Config, logger zerolog.Logger) *GitHubAgent {
 		ghClient: &realGitHubClient{client: ghc},
 		logger:   logger.With().Str("component", "github-agent").Logger(),
 		stopCh:   make(chan struct{}),
+		cmdCh:    make(chan *nats.Msg, 256),
+		cmdDone:  make(chan struct{}),
 		readyCh:  make(chan struct{}),
 	}
 }
@@ -87,12 +93,18 @@ func (ga *GitHubAgent) Run() error {
 	}
 	ga.agent = a
 
-	// 2. Subscribe to commands.
-	_, err = a.Conn().Subscribe(protocol.SubjectCommands(agentName), ga.handleCommand)
+	// Register config reload handler.
+	if err := a.OnConfigReload(ga.reloadConfig); err != nil {
+		ga.logger.Warn().Err(err).Msg("failed to register config reload handler")
+	}
+
+	// 2. Subscribe to commands (non-blocking enqueue; worker goroutine executes).
+	_, err = a.Conn().Subscribe(protocol.SubjectCommands(agentName), ga.enqueueCommand)
 	if err != nil {
 		a.Close()
 		return fmt.Errorf("subscribe commands: %w", err)
 	}
+	go ga.commandLoop()
 
 	// 3. Start webhook server (if configured).
 	var webhookErrCh chan error
@@ -184,6 +196,8 @@ func NewTestAgent(natsURL string, natsOpts []nats.Option, ghBaseURL, webhookList
 		natsOpts: natsOpts,
 		logger:   logger.With().Str("component", "github-agent").Logger(),
 		stopCh:   make(chan struct{}),
+		cmdCh:    make(chan *nats.Msg, 256),
+		cmdDone:  make(chan struct{}),
 		readyCh:  make(chan struct{}),
 	}
 }
@@ -240,6 +254,8 @@ func NewTestAgentWithPolling(natsURL string, natsOpts []nats.Option, ghClient Gi
 		natsOpts: natsOpts,
 		logger:   logger.With().Str("component", "github-agent").Logger(),
 		stopCh:   make(chan struct{}),
+		cmdCh:    make(chan *nats.Msg, 256),
+		cmdDone:  make(chan struct{}),
 		readyCh:  make(chan struct{}),
 	}
 }
@@ -255,10 +271,40 @@ func (ga *GitHubAgent) shutdown() error {
 	if ga.webhook != nil {
 		ga.webhook.Shutdown(ctx)
 	}
+
+	// Drain command channel before closing agent connection.
+	if ga.cmdCh != nil {
+		close(ga.cmdCh)
+		<-ga.cmdDone
+	}
+
 	if ga.agent != nil {
 		ga.agent.Close()
 	}
 	return nil
+}
+
+// reloadConfig re-reads the config file and applies safe-to-change settings.
+func (ga *GitHubAgent) reloadConfig() {
+	ga.logger.Info().Msg("reloading github agent configuration")
+
+	newCfg, err := LoadConfig("")
+	if err != nil {
+		ga.logger.Error().Err(err).Msg("failed to reload config")
+		return
+	}
+
+	// Apply poll settings that are safe to change at runtime.
+	if ga.cfg.Poll.Interval != newCfg.Poll.Interval {
+		ga.logger.Info().Dur("interval", newCfg.Poll.Interval).Msg("updated poll interval (takes effect next cycle)")
+	}
+	ga.cfg.Poll.Interval = newCfg.Poll.Interval
+	ga.cfg.Poll.Repos = newCfg.Poll.Repos
+	ga.cfg.Poll.Labels = newCfg.Poll.Labels
+	ga.cfg.Poll.PerTick = newCfg.Poll.PerTick
+	ga.cfg.Poll.State = newCfg.Poll.State
+
+	ga.logger.Info().Msg("github agent configuration reloaded")
 }
 
 // publishEvent sends a mapped GitHub event onto the NATS bus.
@@ -275,8 +321,28 @@ func (ga *GitHubAgent) publishEvent(ev protocol.Event) {
 	ga.agent.RecordEvent()
 }
 
-// handleCommand processes incoming commands from workflows.
-func (ga *GitHubAgent) handleCommand(msg *nats.Msg) {
+// enqueueCommand is the NATS subscription callback. It does a non-blocking
+// send to the command channel so the NATS delivery goroutine is never blocked
+// by slow GitHub API calls.
+func (ga *GitHubAgent) enqueueCommand(msg *nats.Msg) {
+	select {
+	case ga.cmdCh <- msg:
+	default:
+		ga.agent.RecordError()
+		ga.logger.Warn().Msg("command channel full, dropping command")
+	}
+}
+
+// commandLoop drains the command channel and executes commands sequentially.
+func (ga *GitHubAgent) commandLoop() {
+	defer close(ga.cmdDone)
+	for msg := range ga.cmdCh {
+		ga.executeCommand(msg)
+	}
+}
+
+// executeCommand processes a single command message from workflows.
+func (ga *GitHubAgent) executeCommand(msg *nats.Msg) {
 	var cmd protocol.Command
 	if err := json.Unmarshal(msg.Data, &cmd); err != nil {
 		ga.agent.RecordError()

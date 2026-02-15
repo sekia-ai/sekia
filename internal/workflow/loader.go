@@ -38,12 +38,16 @@ func (e *Engine) LoadDir() error {
 
 // ReloadAll unloads all workflows and reloads from disk.
 func (e *Engine) ReloadAll() error {
+	// Atomically collect and clear — stop outside the lock to avoid
+	// blocking handleEvent while goroutines drain their channels.
 	e.mu.Lock()
-	for _, ws := range e.workflows {
-		e.stopWorkflow(ws)
-	}
+	old := e.workflows
 	e.workflows = make(map[string]*workflowState)
 	e.mu.Unlock()
+
+	for _, ws := range old {
+		e.stopWorkflow(ws)
+	}
 
 	return e.LoadDir()
 }
