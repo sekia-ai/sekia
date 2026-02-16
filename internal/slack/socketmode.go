@@ -49,6 +49,12 @@ func (sl *SocketModeListener) Run(ctx context.Context) error {
 }
 
 func (sl *SocketModeListener) handleEvents(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			sl.logger.Error().Interface("panic", r).Msg("handleEvents goroutine panicked — interactive events will no longer be acknowledged")
+		}
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -63,6 +69,8 @@ func (sl *SocketModeListener) handleEvents(ctx context.Context) {
 }
 
 func (sl *SocketModeListener) processEvent(evt socketmode.Event) {
+	sl.logger.Debug().Str("event_type", string(evt.Type)).Msg("socket mode event received")
+
 	switch evt.Type {
 	case socketmode.EventTypeEventsAPI:
 		sl.smClient.Ack(*evt.Request)
@@ -85,6 +93,8 @@ func (sl *SocketModeListener) processEvent(evt socketmode.Event) {
 		sl.logger.Info().Str("type", ev.Type).Msg("slack event dispatched")
 
 	case socketmode.EventTypeInteractive:
+		sl.logger.Info().Msg("interactive event received, sending ack")
+
 		// Always acknowledge interactive events immediately to prevent
 		// Slack from showing a warning triangle to the user.
 		sl.smClient.Ack(*evt.Request)
@@ -95,7 +105,17 @@ func (sl *SocketModeListener) processEvent(evt socketmode.Event) {
 			return
 		}
 
+		sl.logger.Debug().
+			Str("callback_type", string(callback.Type)).
+			Int("actions", len(callback.ActionCallback.BlockActions)).
+			Msg("interactive callback parsed")
+
 		events := MapInteractionCallback(callback)
+		if len(events) == 0 {
+			sl.logger.Warn().
+				Str("callback_type", string(callback.Type)).
+				Msg("interactive callback produced no events")
+		}
 		for _, ev := range events {
 			sl.onEvent(ev)
 			sl.logger.Info().Str("type", ev.Type).Msg("slack interactive event dispatched")
