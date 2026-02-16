@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - After implementing major features:
   - Update CLAUDE.md
   - Update README.md
-  - Update website (docs/), if required.
-  - Update documentation site (docs/docs/), if required.
+  - Update website (docs/)
+  - Update documentation site (docs/docs/)
 
 ## Build & Test Commands
 
@@ -221,8 +221,10 @@ Embedded web UI served on a configurable TCP port. Uses server-side HTML templat
 - **Separate TCP listener** — does NOT touch the Unix socket API. Both read from the same `*registry.Registry` and `*workflow.Engine`.
 - **`go:embed`** — all static assets (htmx, Alpine.js, SSE extension, CSS) and templates are embedded in the binary. No CDN dependency.
 - **htmx polling** — status/agents/workflows cards use `hx-get` + `hx-trigger="every 5s"` for partial HTML updates.
-- **SSE live events** — `EventBus` subscribes to `sekia.events.>` on NATS and fans out to browser clients via Server-Sent Events. Ring buffer (50 events) for initial page load.
+- **SSE live events** — `EventBus` subscribes to `sekia.events.>` on NATS and fans out to browser clients via Server-Sent Events. Ring buffer (50 events) for initial page load. Capped at 50 concurrent SSE connections to prevent DoS.
 - **Disabled by default** — `web.listen` defaults to empty string. Set to e.g. `:8080` to enable.
+- **Security headers** — middleware sets `Content-Security-Policy` (`script-src 'self' 'unsafe-eval'` for Alpine.js), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, and `Strict-Transport-Security`.
+- **CSRF protection** — double-submit cookie pattern (`sekia_csrf` cookie + `X-CSRF-Token` header). Applied to all non-safe HTTP methods (POST, PUT, DELETE, PATCH). Cookie uses `SameSite=Strict` and `Secure` when TLS is active.
 
 **Config**: `[web]` section in `sekia.toml`. Env var: `SEKIA_WEB_LISTEN`.
 

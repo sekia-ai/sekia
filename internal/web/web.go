@@ -2,8 +2,10 @@ package web
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
 	"embed"
+	"encoding/hex"
 	"html/template"
 	"io/fs"
 	"net"
@@ -84,26 +86,95 @@ func New(cfg Config, reg *registry.Registry, engine *workflow.Engine,
 	return s
 }
 
-// securityMiddleware adds security headers and optional HTTP Basic Auth to all responses.
+// securityMiddleware adds security headers, optional HTTP Basic Auth, and CSRF
+// protection (double-submit cookie) to all responses.
 func (s *Server) securityMiddleware(next http.Handler) http.Handler {
 	authEnabled := s.username != "" && s.password != ""
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
+		setSecurityHeaders(w)
 
-		if authEnabled {
-			user, pass, ok := r.BasicAuth()
-			if !ok ||
-				subtle.ConstantTimeCompare([]byte(user), []byte(s.username)) != 1 ||
-				subtle.ConstantTimeCompare([]byte(pass), []byte(s.password)) != 1 {
-				w.Header().Set("WWW-Authenticate", `Basic realm="sekia"`)
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
+		if authEnabled && !s.checkBasicAuth(w, r) {
+			return
+		}
+
+		csrfToken, ok := ensureCSRFCookie(w, r)
+		if !ok {
+			return
+		}
+		if !validateCSRF(w, r, csrfToken) {
+			return
 		}
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// setSecurityHeaders writes standard security response headers.
+func setSecurityHeaders(w http.ResponseWriter) {
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Content-Security-Policy",
+		"default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self'; img-src 'self'; connect-src 'self'")
+	w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+}
+
+// checkBasicAuth validates HTTP Basic Auth credentials. Returns false (and
+// writes a 401 response) when credentials are missing or wrong.
+func (s *Server) checkBasicAuth(w http.ResponseWriter, r *http.Request) bool {
+	user, pass, ok := r.BasicAuth()
+	if !ok ||
+		subtle.ConstantTimeCompare([]byte(user), []byte(s.username)) != 1 ||
+		subtle.ConstantTimeCompare([]byte(pass), []byte(s.password)) != 1 {
+		w.Header().Set("WWW-Authenticate", `Basic realm="sekia"`)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return false
+	}
+	return true
+}
+
+// ensureCSRFCookie returns the current CSRF token (from cookie or freshly
+// generated) and sets the cookie when needed. Returns ("", false) on error.
+func ensureCSRFCookie(w http.ResponseWriter, r *http.Request) (string, bool) {
+	if c, err := r.Cookie("sekia_csrf"); err == nil && c.Value != "" {
+		return c.Value, true
+	}
+	token, err := generateCSRFToken()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return "", false
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "sekia_csrf",
+		Value:    token,
+		Path:     "/web",
+		HttpOnly: false, // Must be readable by JS to submit as header.
+		SameSite: http.SameSiteStrictMode,
+		Secure:   r.TLS != nil,
+	})
+	return token, true
+}
+
+// validateCSRF checks the X-CSRF-Token header against the cookie value for
+// state-changing HTTP methods. Returns false (and writes 403) on mismatch.
+func validateCSRF(w http.ResponseWriter, r *http.Request, cookieToken string) bool {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+		return true
+	}
+	headerToken := r.Header.Get("X-CSRF-Token")
+	if subtle.ConstantTimeCompare([]byte(headerToken), []byte(cookieToken)) != 1 {
+		http.Error(w, "CSRF token mismatch", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+// generateCSRFToken returns a 32-byte hex-encoded random token.
+func generateCSRFToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // Start begins listening on TCP. Blocks until Shutdown or error.
