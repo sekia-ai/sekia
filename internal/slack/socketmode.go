@@ -24,7 +24,7 @@ type SocketModeListener struct {
 // NewSocketModeListener creates a listener. Call Run() to start processing.
 func NewSocketModeListener(botToken, appToken string, onEvent func(protocol.Event), logger zerolog.Logger) *SocketModeListener {
 	api := slackapi.New(botToken, slackapi.OptionAppLevelToken(appToken))
-	smClient := socketmode.New(api)
+	smClient := socketmode.New(api, socketmode.OptionDebug(true))
 
 	return &SocketModeListener{
 		smClient: smClient,
