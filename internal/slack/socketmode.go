@@ -122,8 +122,10 @@ func (sl *SocketModeListener) processEvent(evt socketmode.Event) {
 		}
 
 	default:
-		// Acknowledge non-EventsAPI types (slash commands, etc.).
-		if evt.Request != nil {
+		// Acknowledge non-EventsAPI types (slash commands, etc.)
+		// but skip internal events (hello, connecting, connected) that
+		// have no envelope ID — sending an empty ack kills the connection.
+		if evt.Request != nil && evt.Request.EnvelopeID != "" {
 			sl.smClient.Ack(*evt.Request)
 		}
 	}
