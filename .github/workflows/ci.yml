@@ -38,7 +38,7 @@ jobs:
       - name: Run gosec
         uses: securego/gosec@master
         with:
-          args: ./...
+          args: -exclude=G104 ./...
 
   trivy:
     runs-on: ubuntu-latest

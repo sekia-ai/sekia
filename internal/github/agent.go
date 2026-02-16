@@ -179,7 +179,7 @@ func (ga *GitHubAgent) WebhookAddr() string {
 
 // TestWebhookSecret is the HMAC secret used by NewTestAgent. Test code must
 // sign webhook payloads with this value.
-const TestWebhookSecret = "test-webhook-secret"
+const TestWebhookSecret = "test-webhook-secret" // #nosec G101 -- test-only constant, not a real credential
 
 // NewTestAgent creates a GitHubAgent configured for testing with a mock GitHub API
 // and in-process NATS connection options.

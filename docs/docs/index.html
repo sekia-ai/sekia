@@ -1384,6 +1384,14 @@ password = <span class="str">"secret"</span></code></pre>
     <li><strong><a href="https://github.com/aquasecurity/trivy">Trivy</a></strong> &mdash; container image vulnerability scanner. Scans the Docker image for known CVEs in OS packages and application dependencies. The CI pipeline fails on any CRITICAL or HIGH severity finding.</li>
   </ul>
   <p>These checks run as separate parallel jobs in CI, so security findings surface immediately without slowing down the test suite.</p>
+
+  <h3>Hardening measures</h3>
+  <p>In addition to runtime security features, the codebase includes several hardening measures identified and enforced by static analysis:</p>
+  <ul>
+    <li><strong>Slowloris protection</strong> &mdash; all HTTP servers set <code>ReadHeaderTimeout</code> to prevent slow-read denial-of-service attacks.</li>
+    <li><strong>Tight directory permissions</strong> &mdash; the workflow directory is created with mode <code>0750</code> and the socket directory with <code>0700</code>, limiting access to the owner and group.</li>
+    <li><strong>Safe integer conversions</strong> &mdash; UID comparisons include bounds checks to prevent integer overflow on 32-bit platforms.</li>
+  </ul>
 </section>
 
 </main>

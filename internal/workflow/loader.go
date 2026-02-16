@@ -12,7 +12,7 @@ import (
 
 // LoadDir scans the workflow directory and loads all .lua files.
 func (e *Engine) LoadDir() error {
-	if err := os.MkdirAll(e.dir, 0755); err != nil {
+	if err := os.MkdirAll(e.dir, 0750); err != nil {
 		return err
 	}
 

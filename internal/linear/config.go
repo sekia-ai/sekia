@@ -28,7 +28,7 @@ type NATSConfig struct {
 
 // LinearConfig holds Linear API credentials.
 type LinearConfig struct {
-	APIKey string `mapstructure:"api_key"`
+	APIKey string `mapstructure:"api_key"` // #nosec G117 -- config deserialization, not hardcoded
 }
 
 // PollConfig holds polling settings.

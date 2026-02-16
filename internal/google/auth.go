@@ -134,7 +134,10 @@ func runCallbackServer(ctx context.Context, clientID, clientSecret string, liste
 		ch <- result{code: code}
 	})
 
-	srv := &http.Server{Handler: mux}
+	srv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	go srv.Serve(listener)
 
 	var res result
@@ -166,9 +169,9 @@ func openBrowser(url string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", url)
+		cmd = exec.Command("open", url) // #nosec G204 -- URL is from OAuth config, not user input
 	case "linux":
-		cmd = exec.Command("xdg-open", url)
+		cmd = exec.Command("xdg-open", url) // #nosec G204 -- URL is from OAuth config, not user input
 	default:
 		return
 	}
@@ -225,7 +228,7 @@ func (p *PersistentTokenSource) Token() (*oauth2.Token, error) {
 
 // LoadTokenFromFile reads an oauth2.Token from a JSON file.
 func LoadTokenFromFile(path string) (*oauth2.Token, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is from configured token_path
 	if err != nil {
 		return nil, err
 	}

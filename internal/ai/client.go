@@ -142,7 +142,7 @@ func (c *anthropicClient) Complete(ctx context.Context, req CompleteRequest) (st
 		Int("max_tokens", maxTokens).
 		Msg("calling Anthropic API")
 
-	resp, err := c.http.Do(httpReq)
+	resp, err := c.http.Do(httpReq) // #nosec G704 -- URL is configured API base, not user input
 	if err != nil {
 		return "", fmt.Errorf("anthropic API request: %w", err)
 	}

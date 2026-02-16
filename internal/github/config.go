@@ -35,7 +35,7 @@ type GitHubConfig struct {
 // WebhookConfig holds webhook HTTP server settings.
 type WebhookConfig struct {
 	Listen string `mapstructure:"listen"`
-	Secret string `mapstructure:"secret"`
+	Secret string `mapstructure:"secret"` // #nosec G117 -- config deserialization, not hardcoded
 	Path   string `mapstructure:"path"`
 }
 
