@@ -65,11 +65,13 @@ func (sl *SocketModeListener) handleEvents(ctx context.Context) {
 func (sl *SocketModeListener) processEvent(evt socketmode.Event) {
 	switch evt.Type {
 	case socketmode.EventTypeEventsAPI:
+		sl.smClient.Ack(*evt.Request)
+
 		eventsAPIEvent, ok := evt.Data.(slackevents.EventsAPIEvent)
 		if !ok {
+			sl.logger.Warn().Msg("unexpected data type for events API event")
 			return
 		}
-		sl.smClient.Ack(*evt.Request)
 
 		ev, mapped := MapSlackEvent(eventsAPIEvent.InnerEvent, sl.botUserID)
 		if !mapped {
@@ -83,11 +85,15 @@ func (sl *SocketModeListener) processEvent(evt socketmode.Event) {
 		sl.logger.Info().Str("type", ev.Type).Msg("slack event dispatched")
 
 	case socketmode.EventTypeInteractive:
+		// Always acknowledge interactive events immediately to prevent
+		// Slack from showing a warning triangle to the user.
+		sl.smClient.Ack(*evt.Request)
+
 		callback, ok := evt.Data.(slackapi.InteractionCallback)
 		if !ok {
+			sl.logger.Warn().Msg("unexpected data type for interactive event")
 			return
 		}
-		sl.smClient.Ack(*evt.Request)
 
 		events := MapInteractionCallback(callback)
 		for _, ev := range events {
