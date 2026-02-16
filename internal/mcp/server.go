@@ -58,7 +58,7 @@ func (s *MCPServer) Run(ctx context.Context, natsURL string) error {
 
 	srv := mcpserver.NewMCPServer(
 		"sekia",
-		"0.0.18",
+		"0.0.19",
 		mcpserver.WithRecovery(),
 	)
 
