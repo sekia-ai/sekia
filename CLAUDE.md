@@ -99,10 +99,21 @@ Lua-based event→handler→command engine using [gopher-lua](https://github.com
 - **Per-workflow goroutine**: each workflow gets its own `*lua.LState` and event channel for thread safety.
 - **Self-event guard**: events from `workflow:<name>` skip handlers in the same workflow to prevent infinite loops.
 - **Hot-reload**: fsnotify watches the workflow directory; file changes trigger reload with 500ms debounce.
+- **Integrity verification** (optional): SHA256 manifest (`workflows.sha256`) checked before loading each `.lua` file. Manifest change via fsnotify triggers `ReloadAll()`.
+
+**Integrity verification:**
+When `workflows.verify_integrity = true`, every `LoadWorkflow()` call reads the `workflows.sha256` manifest from the workflow directory, computes the SHA256 hash of the `.lua` file, and rejects the load if the hash doesn't match or the file is not in the manifest. The manifest uses `sha256sum`-compatible format: `<64-hex>  <filename>`. Generate or update it with `sekiactl workflows sign [--dir <path>]`. During hot-reload, changes to `workflows.sha256` trigger a full `ReloadAll()`.
+
+**Config**: `[workflows]` section in `sekia.toml` — `dir`, `hot_reload`, `handler_timeout`, `verify_integrity`.
 
 **API endpoints:**
 - `GET /api/v1/workflows` — list loaded workflows
 - `POST /api/v1/workflows/reload` — trigger full reload
+
+**CLI:**
+- `sekiactl workflows` / `sekiactl workflows list` — list loaded workflows
+- `sekiactl workflows reload` — reload all workflows from disk
+- `sekiactl workflows sign [--dir <path>]` — generate/update SHA256 manifest
 
 ### AI integration (`internal/ai/`)
 

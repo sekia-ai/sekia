@@ -280,6 +280,7 @@ Agent binary executes command via external API</code></pre>
       <tr><td>dir</td><td>string</td><td><code>~/.config/sekia/workflows</code></td><td>SEKIA_WORKFLOWS_DIR</td><td>Directory containing <code>.lua</code> workflow files</td></tr>
       <tr><td>hot_reload</td><td>bool</td><td><code>true</code></td><td>SEKIA_WORKFLOWS_HOT_RELOAD</td><td>Watch for file changes and auto-reload</td></tr>
       <tr><td>handler_timeout</td><td>duration</td><td><code>30s</code></td><td>SEKIA_WORKFLOWS_HANDLER_TIMEOUT</td><td>Max execution time for a Lua handler</td></tr>
+      <tr><td>verify_integrity</td><td>bool</td><td><code>false</code></td><td>SEKIA_WORKFLOWS_VERIFY_INTEGRITY</td><td>Verify <code>.lua</code> files against SHA256 manifest before loading</td></tr>
     </tbody>
   </table>
 
@@ -328,6 +329,7 @@ data_dir = <span class="str">"~/.local/share/sekia/nats"</span>
 dir = <span class="str">"~/.config/sekia/workflows"</span>
 hot_reload = <span class="kw">true</span>
 handler_timeout = <span class="str">"30s"</span>
+verify_integrity = <span class="kw">false</span>
 
 [web]
 listen = <span class="str">":8080"</span>
@@ -382,6 +384,17 @@ ai-classifier       1          sekia.events.github     8        0        10m ago
   <pre><code>$ sekiactl workflows reload
 Workflows reloaded successfully</code></pre>
 
+  <h3>sekiactl workflows sign</h3>
+  <p>Generate or update the SHA256 manifest (<code>workflows.sha256</code>) for workflow files. Required when <code>verify_integrity</code> is enabled.</p>
+  <pre><code>$ sekiactl workflows sign
+Signed 3 workflow(s) in /Users/me/.config/sekia/workflows
+a1b2c3d4e5...  github-labeler.lua
+f6a7b8c9d0...  slack-responder.lua
+1234567890...  linear-triage.lua
+
+<span class="cm"># Custom directory</span>
+$ sekiactl workflows sign --dir /path/to/workflows</code></pre>
+
   <h3>sekiactl config reload</h3>
   <p>Broadcast a config reload signal via NATS.</p>
   <pre><code><span class="cm"># Reload all agents and daemon</span>
@@ -425,6 +438,13 @@ $ sekiactl config reload --target sekiad</code></pre>
 
   <h3>Hot-reload</h3>
   <p>When <code>hot_reload = true</code> (the default), the daemon uses fsnotify to watch the workflows directory. File changes trigger a full reload with a 500ms debounce. You can also trigger a manual reload via <code>sekiactl workflows reload</code> or the HTTP API.</p>
+
+  <h3>Integrity verification</h3>
+  <p>When <code>verify_integrity = true</code>, the daemon verifies each <code>.lua</code> file against a SHA256 manifest (<code>workflows.sha256</code>) before loading it. Files not in the manifest or with a hash mismatch are rejected.</p>
+  <p>Generate the manifest with the CLI:</p>
+  <pre><code>sekiactl workflows sign [--dir &lt;path&gt;]</code></pre>
+  <p>The manifest uses <code>sha256sum</code>-compatible format (<code>&lt;64-hex&gt;  &lt;filename&gt;</code>). When hot-reload is enabled, changes to <code>workflows.sha256</code> automatically trigger a full reload of all workflows.</p>
+  <p><strong>Workflow:</strong> edit <code>.lua</code> file &rarr; load rejected (hash mismatch) &rarr; run <code>sekiactl workflows sign</code> &rarr; manifest updated &rarr; fsnotify triggers reload &rarr; all files pass verification.</p>
 </section>
 
 <!-- ================================================================== -->

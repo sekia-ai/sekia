@@ -99,6 +99,9 @@ func (d *Daemon) Run() error {
 	}
 	if d.cfg.Workflows.Dir != "" {
 		eng := workflow.New(ns.Conn(), d.cfg.Workflows.Dir, llm, d.cfg.Workflows.HandlerTimeout, d.cfg.Security.CommandSecret, d.logger)
+		if d.cfg.Workflows.VerifyIntegrity {
+			eng.SetVerifyIntegrity(true)
+		}
 		if err := eng.Start(); err != nil {
 			reg.Close()
 			ns.Shutdown()
@@ -224,6 +227,11 @@ func (d *Daemon) reloadConfig() {
 		if newCfg.Workflows.HandlerTimeout != d.cfg.Workflows.HandlerTimeout {
 			d.engine.SetHandlerTimeout(newCfg.Workflows.HandlerTimeout)
 			d.logger.Info().Dur("handler_timeout", newCfg.Workflows.HandlerTimeout).Msg("updated handler timeout")
+		}
+
+		if newCfg.Workflows.VerifyIntegrity != d.cfg.Workflows.VerifyIntegrity {
+			d.engine.SetVerifyIntegrity(newCfg.Workflows.VerifyIntegrity)
+			d.logger.Info().Bool("verify_integrity", newCfg.Workflows.VerifyIntegrity).Msg("updated integrity verification")
 		}
 
 		if d.llmOverride == nil && newCfg.AI.APIKey != "" &&

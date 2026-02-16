@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -45,15 +46,16 @@ type workflowState struct {
 
 // Engine manages Lua workflow scripts and routes NATS events to Lua handlers.
 type Engine struct {
-	mu             sync.RWMutex
-	workflows      map[string]*workflowState
-	nc             *nats.Conn
-	logger         zerolog.Logger
-	dir            string
-	sub            *nats.Subscription
-	llm            ai.LLMClient
-	handlerTimeout time.Duration
-	commandSecret  string
+	mu              sync.RWMutex
+	workflows       map[string]*workflowState
+	nc              *nats.Conn
+	logger          zerolog.Logger
+	dir             string
+	sub             *nats.Subscription
+	llm             ai.LLMClient
+	handlerTimeout  time.Duration
+	commandSecret   string
+	verifyIntegrity bool
 }
 
 // New creates a workflow engine. Does not start it.
@@ -149,9 +151,31 @@ func (e *Engine) SetLLMClient(llm ai.LLMClient) {
 	e.llm = llm
 }
 
+// SetVerifyIntegrity enables or disables SHA256 manifest verification for workflow loading.
+func (e *Engine) SetVerifyIntegrity(v bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.verifyIntegrity = v
+}
+
 // LoadWorkflow loads a single Lua file as a workflow.
 func (e *Engine) LoadWorkflow(name, filePath string) error {
 	wfLogger := e.logger.With().Str("workflow", name).Logger()
+
+	if e.verifyIntegrity {
+		manifest, err := LoadManifest(e.dir)
+		if err != nil {
+			return fmt.Errorf("load manifest: %w", err)
+		}
+		if manifest == nil {
+			return fmt.Errorf("integrity verification enabled but %s not found in %s", ManifestFilename, e.dir)
+		}
+		filename := filepath.Base(filePath)
+		if err := manifest.Verify(filename, filePath); err != nil {
+			return fmt.Errorf("integrity check failed: %w", err)
+		}
+		wfLogger.Debug().Msg("integrity check passed")
+	}
 
 	L := NewSandboxedState(name, wfLogger)
 	modCtx := &moduleContext{

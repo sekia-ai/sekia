@@ -130,6 +130,7 @@ Defaults:
 | `nats.data_dir` | `~/.local/share/sekia/nats` |
 | `workflows.dir` | `~/.config/sekia/workflows` |
 | `workflows.hot_reload` | `true` |
+| `workflows.verify_integrity` | `false` |
 | `ai.provider` | `anthropic` |
 | `ai.model` | `claude-sonnet-4-20250514` |
 | `ai.max_tokens` | `1024` |
@@ -240,6 +241,27 @@ end)
 Workflows run in a sandboxed Lua VM with only `base`, `table`, `string`, and `math` libraries available. Dangerous functions (`os`, `io`, `debug`, `dofile`, `load`) are removed.
 
 When `hot_reload` is enabled (default), editing or adding `.lua` files automatically reloads the affected workflows.
+
+### Workflow Integrity Verification
+
+When `workflows.verify_integrity` is enabled, the daemon verifies each `.lua` file against a SHA256 manifest (`workflows.sha256`) before loading it. This prevents tampered or unsigned workflows from executing.
+
+```toml
+[workflows]
+verify_integrity = true
+```
+
+Generate the manifest with `sekiactl`:
+
+```bash
+sekiactl workflows sign
+# Signed 3 workflow(s) in ~/.config/sekia/workflows
+# a1b2c3...  github-labeler.lua
+# d4e5f6...  slack-responder.lua
+# 789abc...  linear-triage.lua
+```
+
+The manifest uses `sha256sum`-compatible format. When hot-reload is enabled, updating the manifest file automatically triggers a full reload of all workflows.
 
 ### AI-Powered Workflows
 

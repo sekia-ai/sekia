@@ -3,11 +3,13 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
+	"github.com/sekia-ai/sekia/internal/workflow"
 	"github.com/sekia-ai/sekia/pkg/protocol"
 )
 
@@ -19,6 +21,7 @@ func newWorkflowsCmd() *cobra.Command {
 
 	cmd.AddCommand(newWorkflowsListCmd())
 	cmd.AddCommand(newWorkflowsReloadCmd())
+	cmd.AddCommand(newWorkflowsSignCmd())
 
 	// Default to list when no subcommand given.
 	cmd.RunE = newWorkflowsListCmd().RunE
@@ -70,4 +73,38 @@ func newWorkflowsReloadCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func newWorkflowsSignCmd() *cobra.Command {
+	var dir string
+
+	cmd := &cobra.Command{
+		Use:   "sign",
+		Short: "Generate SHA256 manifest for workflow files",
+		Long: `Scans the workflow directory for .lua files, computes SHA256 hashes,
+and writes a workflows.sha256 manifest file. This manifest is checked by the
+daemon when workflows.verify_integrity is enabled.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if dir == "" {
+				homeDir, _ := os.UserHomeDir()
+				dir = filepath.Join(homeDir, ".config", "sekia", "workflows")
+			}
+
+			m, err := workflow.GenerateManifest(dir)
+			if err != nil {
+				return fmt.Errorf("generate manifest: %w", err)
+			}
+
+			if err := m.WriteFile(dir); err != nil {
+				return fmt.Errorf("write manifest: %w", err)
+			}
+
+			fmt.Printf("Signed %d workflow(s) in %s\n", m.Count(), dir)
+			m.WriteTo(os.Stdout)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&dir, "dir", "", "workflow directory (default: ~/.config/sekia/workflows)")
+	return cmd
 }
