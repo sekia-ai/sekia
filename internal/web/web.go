@@ -26,7 +26,7 @@ var content embed.FS
 type Config struct {
 	Listen   string
 	Username string // HTTP Basic Auth username (empty = no auth).
-	Password string // HTTP Basic Auth password (empty = no auth).
+	Password string // #nosec G117 -- HTTP Basic Auth password (empty = no auth).
 }
 
 // Server serves the web dashboard on a TCP port.
@@ -82,7 +82,10 @@ func New(cfg Config, reg *registry.Registry, engine *workflow.Engine,
 	mux.HandleFunc("GET /web/partials/workflows", s.handlePartialWorkflows)
 	mux.HandleFunc("GET /web/events/stream", s.handleEventStream)
 
-	s.httpServer = &http.Server{Handler: s.securityMiddleware(mux)}
+	s.httpServer = &http.Server{
+		Handler:           s.securityMiddleware(mux),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	return s
 }
 

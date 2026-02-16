@@ -25,7 +25,7 @@ type NATSConfig struct {
 // GoogleConfig holds OAuth2 credentials and token path.
 type GoogleConfig struct {
 	ClientID     string `mapstructure:"client_id"`
-	ClientSecret string `mapstructure:"client_secret"`
+	ClientSecret string `mapstructure:"client_secret"` // #nosec G117 -- config deserialization, not hardcoded
 	TokenPath    string `mapstructure:"token_path"`
 }
 

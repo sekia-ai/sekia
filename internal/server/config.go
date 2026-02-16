@@ -30,7 +30,7 @@ type SecurityConfig struct {
 type WebConfig struct {
 	Listen   string `mapstructure:"listen"`
 	Username string `mapstructure:"username"`
-	Password string `mapstructure:"password"`
+	Password string `mapstructure:"password"` // #nosec G117 -- config deserialization, not hardcoded
 }
 
 // ServerConfig holds HTTP/socket settings.

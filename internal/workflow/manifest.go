@@ -24,7 +24,7 @@ type Manifest struct {
 // Returns nil, nil if the file does not exist.
 func LoadManifest(dir string) (*Manifest, error) {
 	path := filepath.Join(dir, ManifestFilename)
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- path is constructed from configured workflow dir + constant filename
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -80,7 +80,7 @@ func (m *Manifest) Count() int {
 
 // HashFile computes the SHA256 hash of a file and returns the lowercase hex string.
 func HashFile(path string) (string, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- path is from configured workflow dir
 	if err != nil {
 		return "", err
 	}
@@ -122,7 +122,7 @@ func (m *Manifest) WriteTo(w io.Writer) (int64, error) {
 
 	var total int64
 	for _, name := range names {
-		n, err := fmt.Fprintf(w, "%s  %s\n", m.entries[name], name)
+		n, err := fmt.Fprintf(w, "%s  %s\n", m.entries[name], name) // #nosec G705 -- writing to file, not HTTP response
 		total += int64(n)
 		if err != nil {
 			return total, err
@@ -134,7 +134,7 @@ func (m *Manifest) WriteTo(w io.Writer) (int64, error) {
 // WriteFile writes the manifest to the standard location in the given directory.
 func (m *Manifest) WriteFile(dir string) error {
 	path := filepath.Join(dir, ManifestFilename)
-	f, err := os.Create(path)
+	f, err := os.Create(path) // #nosec G304 -- path is constructed from configured workflow dir + constant filename
 	if err != nil {
 		return err
 	}

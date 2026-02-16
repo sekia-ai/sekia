@@ -66,7 +66,7 @@ func (c *APIClient) ReloadWorkflows(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	resp, err := c.client.Do(req)
+	resp, err := c.client.Do(req) // #nosec G704 -- URL is hardcoded to local Unix socket
 	if err != nil {
 		return fmt.Errorf("reload request: %w", err)
 	}
@@ -82,7 +82,7 @@ func (c *APIClient) getJSON(ctx context.Context, path string, dst any) error {
 	if err != nil {
 		return err
 	}
-	resp, err := c.client.Do(req)
+	resp, err := c.client.Do(req) // #nosec G704 -- URL is hardcoded to local Unix socket
 	if err != nil {
 		return fmt.Errorf("request %s: %w", path, err)
 	}

@@ -48,7 +48,10 @@ func New(socketPath string, reg *registry.Registry, engine *workflow.Engine, nc 
 	mux.HandleFunc("POST /api/v1/workflows/reload", s.handleWorkflowReload)
 	mux.HandleFunc("POST /api/v1/config/reload", s.handleConfigReload)
 
-	s.httpServer = &http.Server{Handler: mux}
+	s.httpServer = &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	return s
 }
 
@@ -71,7 +74,8 @@ func (s *Server) Listen() (net.Listener, error) {
 		return nil, fmt.Errorf("stat socket directory: %w", err)
 	}
 	stat, ok := dirInfo.Sys().(*syscall.Stat_t)
-	if ok && stat.Uid != uint32(os.Getuid()) {
+	uid := os.Getuid()
+	if ok && uid >= 0 && stat.Uid != uint32(uid) { // #nosec G115 -- UIDs are non-negative on Unix
 		return nil, fmt.Errorf("socket directory %s not owned by current user (owner uid=%d, current uid=%d)", dir, stat.Uid, os.Getuid())
 	}
 

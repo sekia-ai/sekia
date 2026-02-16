@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/sekia-ai/sekia/pkg/protocol"
@@ -53,7 +54,10 @@ func (ws *WebhookServer) Listen() error {
 func (ws *WebhookServer) Serve() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST "+ws.path, ws.handleWebhook)
-	ws.httpServer = &http.Server{Handler: mux}
+	ws.httpServer = &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	ws.logger.Info().Str("addr", ws.listener.Addr().String()).Msg("webhook server listening")
 	return ws.httpServer.Serve(ws.listener)
 }

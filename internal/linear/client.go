@@ -93,7 +93,7 @@ func (c *realLinearClient) graphql(ctx context.Context, query string, variables 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", c.apiKey)
 
-	resp, err := c.http.Do(req)
+	resp, err := c.http.Do(req) // #nosec G704 -- URL is configured API base, not user input
 	if err != nil {
 		return nil, err
 	}
