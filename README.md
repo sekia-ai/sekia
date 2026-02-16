@@ -383,7 +383,7 @@ export SLACK_APP_TOKEN=xapp-...
 ./sekia-slack
 ```
 
-**Setup**: Create a Slack app at [api.slack.com/apps](https://api.slack.com/apps) with Socket Mode enabled. Required bot token scopes: `chat:write`, `reactions:write`, `channels:history`, `groups:history`, `im:history`. Generate an app-level token with `connections:write` scope.
+**Setup**: Create a Slack app at [api.slack.com/apps](https://api.slack.com/apps) with Socket Mode enabled. Required bot token scopes: `chat:write`, `reactions:write`, `channels:history`, `groups:history`, `im:history`. Generate an app-level token with `connections:write` scope. Enable **Interactivity** in your app settings to receive button click events (no Request URL needed with Socket Mode).
 
 **Config**: [configs/sekia-slack.toml](configs/sekia-slack.toml). Env vars: `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SEKIA_NATS_URL`.
 
@@ -395,12 +395,13 @@ export SLACK_APP_TOKEN=xapp-...
 | Reaction added | `slack.reaction.added` | `user`, `reaction`, `channel`, `timestamp` |
 | Channel created | `slack.channel.created` | `channel_id`, `channel_name`, `creator` |
 | Message mentioning the bot | `slack.mention` | `channel`, `user`, `text`, `timestamp` |
+| Button clicked | `slack.action.button_clicked` | `action_id`, `value`, `block_id`, `user`, `user_name`, `channel`, `message_ts`, `trigger_id` |
 
 **Commands**:
 
 | Command | Required Payload | Action |
 |---|---|---|
-| `send_message` | `channel`, `text` | Post a message to a channel |
+| `send_message` | `channel`, `text`, `blocks` (optional) | Post a message. When `blocks` is provided (array of [Block Kit](https://api.slack.com/block-kit) objects), sends a rich message with `text` as notification fallback |
 | `add_reaction` | `channel`, `timestamp`, `emoji` | Add a reaction to a message |
 | `send_reply` | `channel`, `thread_ts`, `text` | Reply in a thread |
 

@@ -156,9 +156,13 @@ Standalone binary (`cmd/sekia-slack/`) that connects to Slack via Socket Mode (W
 
 **Flow**: `Slack Socket Mode → sekia-slack → sekia.events.slack → Lua workflow → sekia.commands.slack-agent → sekia-slack → Slack API`
 
-**Event types**: `slack.message.received`, `slack.reaction.added`, `slack.channel.created`, `slack.mention`
+**Event types**: `slack.message.received`, `slack.reaction.added`, `slack.channel.created`, `slack.mention`, `slack.action.button_clicked`
 
 **Commands**: `send_message`, `add_reaction`, `send_reply`
+
+**Block Kit support**: `send_message` accepts an optional `blocks` field (array of Block Kit block objects) alongside `text`. When `blocks` is present, the message is sent with `MsgOptionBlocks()` and `text` serves as the notification fallback. Blocks are passed as raw JSON through `slack.Blocks` custom unmarshaler — Lua workflows write Block Kit structures as nested tables directly.
+
+**Interactive messages**: Button clicks and other `block_actions` interactions arrive via Socket Mode as `EventTypeInteractive`, are mapped by `MapInteractionCallback()` to `slack.action.button_clicked` events (or `slack.action.<type>` for non-button actions), and published to NATS. Event payload includes `action_id`, `value`, `block_id`, `user`, `channel`, `message_ts`. Requires **Interactivity** enabled in the Slack app settings (no Request URL needed with Socket Mode).
 
 **Key design decisions:**
 - **Socket Mode** — WebSocket connection to Slack, no public URL needed.

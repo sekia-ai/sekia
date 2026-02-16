@@ -3,8 +3,10 @@ package slack
 import (
 	"strings"
 
-	"github.com/sekia-ai/sekia/pkg/protocol"
+	slackapi "github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
+
+	"github.com/sekia-ai/sekia/pkg/protocol"
 )
 
 // MapSlackEvent converts a Slack Events API inner event to a sekia Event.
@@ -72,4 +74,40 @@ func mapChannelCreatedEvent(ev *slackevents.ChannelCreatedEvent) protocol.Event 
 // Slack formats mentions as <@U12345>.
 func containsMention(text, userID string) bool {
 	return strings.Contains(text, "<@"+userID+">")
+}
+
+// MapInteractionCallback converts a Slack InteractionCallback to sekia Events.
+// For block_actions, each action in the callback produces a separate event.
+func MapInteractionCallback(callback slackapi.InteractionCallback) []protocol.Event {
+	if callback.Type != slackapi.InteractionTypeBlockActions {
+		return nil
+	}
+
+	var events []protocol.Event
+	for _, action := range callback.ActionCallback.BlockActions {
+		if action == nil {
+			continue
+		}
+
+		payload := map[string]any{
+			"action_id":   action.ActionID,
+			"value":       action.Value,
+			"block_id":    action.BlockID,
+			"action_type": string(action.Type),
+			"user":        callback.User.ID,
+			"user_name":   callback.User.Name,
+			"channel":     callback.Channel.ID,
+			"message_ts":  callback.Container.MessageTs,
+			"trigger_id":  callback.TriggerID,
+		}
+
+		eventType := "slack.action.button_clicked"
+		if action.Type != slackapi.ActionType("button") {
+			eventType = "slack.action." + string(action.Type)
+		}
+
+		events = append(events, protocol.NewEvent(eventType, "slack", payload))
+	}
+
+	return events
 }

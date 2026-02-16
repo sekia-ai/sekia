@@ -82,8 +82,21 @@ func (sl *SocketModeListener) processEvent(evt socketmode.Event) {
 		sl.onEvent(ev)
 		sl.logger.Info().Str("type", ev.Type).Msg("slack event dispatched")
 
+	case socketmode.EventTypeInteractive:
+		callback, ok := evt.Data.(slackapi.InteractionCallback)
+		if !ok {
+			return
+		}
+		sl.smClient.Ack(*evt.Request)
+
+		events := MapInteractionCallback(callback)
+		for _, ev := range events {
+			sl.onEvent(ev)
+			sl.logger.Info().Str("type", ev.Type).Msg("slack interactive event dispatched")
+		}
+
 	default:
-		// Acknowledge non-EventsAPI types (interactive, slash commands, etc.).
+		// Acknowledge non-EventsAPI types (slash commands, etc.).
 		if evt.Request != nil {
 			sl.smClient.Ack(*evt.Request)
 		}
