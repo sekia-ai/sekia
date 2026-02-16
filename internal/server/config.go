@@ -49,9 +49,10 @@ type NATSConfig struct {
 
 // WorkflowConfig holds Lua workflow engine settings.
 type WorkflowConfig struct {
-	Dir            string        `mapstructure:"dir"`
-	HotReload      bool          `mapstructure:"hot_reload"`
-	HandlerTimeout time.Duration `mapstructure:"handler_timeout"`
+	Dir             string        `mapstructure:"dir"`
+	HotReload       bool          `mapstructure:"hot_reload"`
+	HandlerTimeout  time.Duration `mapstructure:"handler_timeout"`
+	VerifyIntegrity bool          `mapstructure:"verify_integrity"`
 }
 
 // LoadConfig reads configuration from file, env, and flags.
@@ -68,6 +69,7 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v.SetDefault("workflows.dir", filepath.Join(homeDir, ".config", "sekia", "workflows"))
 	v.SetDefault("workflows.hot_reload", true)
 	v.SetDefault("workflows.handler_timeout", 30*time.Second)
+	v.SetDefault("workflows.verify_integrity", false)
 
 	v.SetDefault("ai.provider", "anthropic")
 	v.SetDefault("ai.model", "claude-sonnet-4-20250514")

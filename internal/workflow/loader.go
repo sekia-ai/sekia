@@ -84,24 +84,7 @@ func (e *Engine) watchLoop(watcher *fsnotify.Watcher) {
 		pending = make(map[string]fsnotify.Op)
 		mu.Unlock()
 
-		for path, op := range batch {
-			base := filepath.Base(path)
-			if !strings.HasSuffix(base, ".lua") {
-				continue
-			}
-			name := strings.TrimSuffix(base, ".lua")
-
-			if op&(fsnotify.Remove|fsnotify.Rename) != 0 {
-				e.UnloadWorkflow(name)
-				continue
-			}
-			// Create or Write: (re)load the workflow.
-			if err := e.LoadWorkflow(name, path); err != nil {
-				e.logger.Error().Err(err).Str("file", base).Msg("failed to reload workflow")
-			} else {
-				e.logger.Info().Str("file", base).Msg("reloaded workflow")
-			}
-		}
+		e.processBatch(batch)
 	}
 
 	for {
@@ -123,6 +106,40 @@ func (e *Engine) watchLoop(watcher *fsnotify.Watcher) {
 				return
 			}
 			e.logger.Error().Err(err).Msg("watcher error")
+		}
+	}
+}
+
+// processBatch handles a debounced batch of file change events.
+func (e *Engine) processBatch(batch map[string]fsnotify.Op) {
+	// If the manifest file changed, do a full reload (re-verifies everything).
+	manifestPath := filepath.Join(e.dir, ManifestFilename)
+	for path := range batch {
+		if path == manifestPath {
+			e.logger.Info().Msg("manifest file changed, reloading all workflows")
+			if err := e.ReloadAll(); err != nil {
+				e.logger.Error().Err(err).Msg("failed to reload workflows after manifest change")
+			}
+			return
+		}
+	}
+
+	for path, op := range batch {
+		base := filepath.Base(path)
+		if !strings.HasSuffix(base, ".lua") {
+			continue
+		}
+		name := strings.TrimSuffix(base, ".lua")
+
+		if op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+			e.UnloadWorkflow(name)
+			continue
+		}
+		// Create or Write: (re)load the workflow.
+		if err := e.LoadWorkflow(name, path); err != nil {
+			e.logger.Error().Err(err).Str("file", base).Msg("failed to reload workflow")
+		} else {
+			e.logger.Info().Str("file", base).Msg("reloaded workflow")
 		}
 	}
 }
