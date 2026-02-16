@@ -827,6 +827,7 @@ repos    = [<span class="str">"myorg/myrepo"</span>, <span class="str">"myorg/ot
     <li>Subscribe to events: <code>message.channels</code>, <code>message.groups</code>, <code>message.im</code>, <code>reaction_added</code>, <code>channel_created</code>, <code>app_mention</code></li>
     <li>Install the app to your workspace</li>
     <li>Copy the Bot Token (<code>xoxb-...</code>) and App Token (<code>xapp-...</code>)</li>
+    <li>Enable Interactivity in Settings &rarr; Interactivity &amp; Shortcuts (no Request URL needed with Socket Mode)</li>
   </ol>
 
   <h3>Event types</h3>
@@ -838,16 +839,17 @@ repos    = [<span class="str">"myorg/myrepo"</span>, <span class="str">"myorg/ot
       <tr><td><code>slack.mention</code></td><td>channel, user, text, timestamp, thread_ts (if threaded)</td></tr>
       <tr><td><code>slack.reaction.added</code></td><td>user, reaction, channel, timestamp</td></tr>
       <tr><td><code>slack.channel.created</code></td><td>channel_id, channel_name, creator</td></tr>
+      <tr><td><code>slack.action.button_clicked</code></td><td>action_id, value, block_id, action_type, user, user_name, channel, message_ts, trigger_id</td></tr>
     </tbody>
   </table>
-  <p>The agent automatically filters out messages from its own bot user.</p>
+  <p>The agent automatically filters out messages from its own bot user. Interactive events (button clicks) require Interactivity to be enabled in the Slack app settings.</p>
 
   <h3>Commands</h3>
   <p>Send commands to <code>"slack-agent"</code>.</p>
   <table>
     <thead><tr><th>Command</th><th>Required Payload</th><th>Description</th></tr></thead>
     <tbody>
-      <tr><td><code>send_message</code></td><td>channel, text</td><td>Send a message to a channel</td></tr>
+      <tr><td><code>send_message</code></td><td>channel, text, blocks (optional)</td><td>Send a message to a channel. When <code>blocks</code> is provided (array of <a href="https://api.slack.com/block-kit">Block Kit</a> objects), sends a rich message with <code>text</code> as notification fallback</td></tr>
       <tr><td><code>add_reaction</code></td><td>channel, timestamp, emoji</td><td>Add an emoji reaction to a message</td></tr>
       <tr><td><code>send_reply</code></td><td>channel, thread_ts, text</td><td>Send a threaded reply</td></tr>
     </tbody>

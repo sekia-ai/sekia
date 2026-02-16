@@ -2,6 +2,7 @@ package slack
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	slackapi "github.com/slack-go/slack"
@@ -10,6 +11,7 @@ import (
 // SlackClient abstracts the Slack API methods used by commands.
 type SlackClient interface {
 	PostMessage(ctx context.Context, channel, text string) error
+	PostMessageWithBlocks(ctx context.Context, channel, text string, blocksJSON []byte) error
 	PostReply(ctx context.Context, channel, threadTS, text string) error
 	AddReaction(ctx context.Context, channel, timestamp, emoji string) error
 }
@@ -22,6 +24,17 @@ type realSlackClient struct {
 func (c *realSlackClient) PostMessage(ctx context.Context, channel, text string) error {
 	_, _, err := c.client.PostMessageContext(ctx, channel,
 		slackapi.MsgOptionText(text, false))
+	return err
+}
+
+func (c *realSlackClient) PostMessageWithBlocks(ctx context.Context, channel, text string, blocksJSON []byte) error {
+	var blocks slackapi.Blocks
+	if err := json.Unmarshal(blocksJSON, &blocks); err != nil {
+		return fmt.Errorf("parse blocks JSON: %w", err)
+	}
+	_, _, err := c.client.PostMessageContext(ctx, channel,
+		slackapi.MsgOptionText(text, false),
+		slackapi.MsgOptionBlocks(blocks.BlockSet...))
 	return err
 }
 
@@ -57,6 +70,13 @@ func cmdSendMessage(ctx context.Context, sc SlackClient, payload map[string]any)
 	text, err := extractString(payload, "text")
 	if err != nil {
 		return err
+	}
+	if blocksRaw, ok := payload["blocks"]; ok {
+		blocksJSON, err := json.Marshal(blocksRaw)
+		if err != nil {
+			return fmt.Errorf("marshal blocks: %w", err)
+		}
+		return sc.PostMessageWithBlocks(ctx, channel, text, blocksJSON)
 	}
 	return sc.PostMessage(ctx, channel, text)
 }
