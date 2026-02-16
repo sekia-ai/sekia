@@ -14,6 +14,8 @@ type SlackClient interface {
 	PostMessageWithBlocks(ctx context.Context, channel, text string, blocksJSON []byte) error
 	PostReply(ctx context.Context, channel, threadTS, text string) error
 	AddReaction(ctx context.Context, channel, timestamp, emoji string) error
+	UpdateMessage(ctx context.Context, channel, timestamp, text string) error
+	UpdateMessageWithBlocks(ctx context.Context, channel, timestamp, text string, blocksJSON []byte) error
 }
 
 // realSlackClient wraps the slack-go/slack client.
@@ -49,6 +51,23 @@ func (c *realSlackClient) AddReaction(ctx context.Context, channel, timestamp, e
 	return c.client.AddReactionContext(ctx, emoji, slackapi.NewRefToMessage(channel, timestamp))
 }
 
+func (c *realSlackClient) UpdateMessage(ctx context.Context, channel, timestamp, text string) error {
+	_, _, _, err := c.client.UpdateMessageContext(ctx, channel, timestamp,
+		slackapi.MsgOptionText(text, false))
+	return err
+}
+
+func (c *realSlackClient) UpdateMessageWithBlocks(ctx context.Context, channel, timestamp, text string, blocksJSON []byte) error {
+	var blocks slackapi.Blocks
+	if err := json.Unmarshal(blocksJSON, &blocks); err != nil {
+		return fmt.Errorf("parse blocks JSON: %w", err)
+	}
+	_, _, _, err := c.client.UpdateMessageContext(ctx, channel, timestamp,
+		slackapi.MsgOptionText(text, false),
+		slackapi.MsgOptionBlocks(blocks.BlockSet...))
+	return err
+}
+
 // extractString extracts a required string field from the payload.
 func extractString(payload map[string]any, key string) (string, error) {
 	val, ok := payload[key]
@@ -79,6 +98,29 @@ func cmdSendMessage(ctx context.Context, sc SlackClient, payload map[string]any)
 		return sc.PostMessageWithBlocks(ctx, channel, text, blocksJSON)
 	}
 	return sc.PostMessage(ctx, channel, text)
+}
+
+func cmdUpdateMessage(ctx context.Context, sc SlackClient, payload map[string]any) error {
+	channel, err := extractString(payload, "channel")
+	if err != nil {
+		return err
+	}
+	timestamp, err := extractString(payload, "timestamp")
+	if err != nil {
+		return err
+	}
+	text, err := extractString(payload, "text")
+	if err != nil {
+		return err
+	}
+	if blocksRaw, ok := payload["blocks"]; ok {
+		blocksJSON, err := json.Marshal(blocksRaw)
+		if err != nil {
+			return fmt.Errorf("marshal blocks: %w", err)
+		}
+		return sc.UpdateMessageWithBlocks(ctx, channel, timestamp, text, blocksJSON)
+	}
+	return sc.UpdateMessage(ctx, channel, timestamp, text)
 }
 
 func cmdAddReaction(ctx context.Context, sc SlackClient, payload map[string]any) error {

@@ -348,6 +348,16 @@ func (m *mockGmailClient) Trash(_ context.Context, _, messageID string) error {
 	return nil
 }
 
+func (m *mockGmailClient) Untrash(_ context.Context, _, messageID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.gmailCalls = append(m.gmailCalls, mockCommandCall{
+		Method: "Untrash",
+		Args:   map[string]string{"message_id": messageID},
+	})
+	return nil
+}
+
 func (m *mockGmailClient) Delete(_ context.Context, _, messageID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

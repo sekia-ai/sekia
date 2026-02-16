@@ -260,6 +260,92 @@ func TestSlackAgentBlockKitMessage(t *testing.T) {
 	_ = sa
 }
 
+// TestSlackAgentUpdateMessage tests that update_message with blocks
+// dispatches to UpdateMessageWithBlocks.
+func TestSlackAgentUpdateMessage(t *testing.T) {
+	mock := &mockSlackClient{}
+	d, _ := newTestDaemon(t, "")
+	sa := newTestSlackAgent(t, d, mock)
+	time.Sleep(800 * time.Millisecond)
+
+	nc, err := nats.Connect(d.NATSClientURL(), d.NATSConnectOpts()...)
+	if err != nil {
+		t.Fatalf("connect nats: %v", err)
+	}
+	defer nc.Drain()
+
+	cmd := map[string]any{
+		"command": "update_message",
+		"source":  "test",
+		"payload": map[string]any{
+			"channel":   "C12345",
+			"timestamp": "1234567890.123456",
+			"text":      "updated fallback",
+			"blocks": []any{
+				map[string]any{
+					"type": "section",
+					"text": map[string]any{"type": "mrkdwn", "text": "*Subject* (from sender)\nSummary"},
+				},
+				map[string]any{
+					"type":     "actions",
+					"block_id": "email_actions",
+					"elements": []any{
+						map[string]any{
+							"type":      "button",
+							"text":      map[string]any{"type": "plain_text", "text": ":wastebasket: Trashed"},
+							"action_id": "untrash_email",
+							"value":     "msg_123|0|1",
+							"style":     "danger",
+						},
+						map[string]any{
+							"type":      "button",
+							"text":      map[string]any{"type": "plain_text", "text": "Star"},
+							"action_id": "star_email",
+							"value":     "msg_123|0|1",
+						},
+					},
+				},
+			},
+		},
+	}
+	cmdData, _ := json.Marshal(cmd)
+	nc.Publish(protocol.SubjectCommands("slack-agent"), cmdData)
+	nc.Flush()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		mock.mu.Lock()
+		n := len(mock.calls)
+		mock.mu.Unlock()
+		if n > 0 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+
+	if len(mock.calls) == 0 {
+		t.Fatal("no API calls received; expected UpdateMessageWithBlocks")
+	}
+	call := mock.calls[0]
+	if call.Method != "UpdateMessageWithBlocks" {
+		t.Errorf("method = %s, want UpdateMessageWithBlocks", call.Method)
+	}
+	if call.Args["channel"] != "C12345" {
+		t.Errorf("channel = %s, want C12345", call.Args["channel"])
+	}
+	if call.Args["timestamp"] != "1234567890.123456" {
+		t.Errorf("timestamp = %s, want 1234567890.123456", call.Args["timestamp"])
+	}
+	if !strings.Contains(call.Args["blocks"], "untrash_email") {
+		t.Error("blocks JSON missing untrash_email action_id")
+	}
+
+	_ = sa
+}
+
 // TestMapInteractionCallback tests that Slack interactive payloads
 // are correctly mapped to sekia events.
 func TestMapInteractionCallback(t *testing.T) {
@@ -271,6 +357,7 @@ func TestMapInteractionCallback(t *testing.T) {
 	callback.User.ID = "U12345"
 	callback.User.Name = "testuser"
 	callback.Channel.ID = "C67890"
+	callback.Message.Text = "*Subject* (from sender)\nSummary text"
 	callback.ActionCallback.BlockActions = []*slackapi.BlockAction{
 		{
 			ActionID: "trash_email",
@@ -303,6 +390,9 @@ func TestMapInteractionCallback(t *testing.T) {
 	}
 	if ev.Payload["message_ts"] != "1234567890.123456" {
 		t.Errorf("message_ts = %v, want 1234567890.123456", ev.Payload["message_ts"])
+	}
+	if ev.Payload["message_text"] != "*Subject* (from sender)\nSummary text" {
+		t.Errorf("message_text = %v, want '*Subject* (from sender)\\nSummary text'", ev.Payload["message_text"])
 	}
 }
 
@@ -355,6 +445,20 @@ func (m *mockSlackClient) AddReaction(_ context.Context, channel, timestamp, emo
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls = append(m.calls, mockCall{"AddReaction", map[string]string{"channel": channel, "timestamp": timestamp, "emoji": emoji}})
+	return nil
+}
+
+func (m *mockSlackClient) UpdateMessage(_ context.Context, channel, timestamp, text string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.calls = append(m.calls, mockCall{"UpdateMessage", map[string]string{"channel": channel, "timestamp": timestamp, "text": text}})
+	return nil
+}
+
+func (m *mockSlackClient) UpdateMessageWithBlocks(_ context.Context, channel, timestamp, text string, blocksJSON []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.calls = append(m.calls, mockCall{"UpdateMessageWithBlocks", map[string]string{"channel": channel, "timestamp": timestamp, "text": text, "blocks": string(blocksJSON)}})
 	return nil
 }
 

@@ -417,7 +417,7 @@ export SLACK_APP_TOKEN=xapp-...
 | Reaction added | `slack.reaction.added` | `user`, `reaction`, `channel`, `timestamp` |
 | Channel created | `slack.channel.created` | `channel_id`, `channel_name`, `creator` |
 | Message mentioning the bot | `slack.mention` | `channel`, `user`, `text`, `timestamp` |
-| Button clicked | `slack.action.button_clicked` | `action_id`, `value`, `block_id`, `user`, `user_name`, `channel`, `message_ts`, `trigger_id` |
+| Button clicked | `slack.action.button_clicked` | `action_id`, `value`, `block_id`, `user`, `user_name`, `channel`, `message_ts`, `message_text`, `trigger_id` |
 
 **Commands**:
 
@@ -426,6 +426,7 @@ export SLACK_APP_TOKEN=xapp-...
 | `send_message` | `channel`, `text`, `blocks` (optional) | Post a message. When `blocks` is provided (array of [Block Kit](https://api.slack.com/block-kit) objects), sends a rich message with `text` as notification fallback |
 | `add_reaction` | `channel`, `timestamp`, `emoji` | Add a reaction to a message |
 | `send_reply` | `channel`, `thread_ts`, `text` | Reply in a thread |
+| `update_message` | `channel`, `timestamp`, `text`, `blocks` (optional) | Update an existing message. When `blocks` is provided, updates with rich Block Kit content |
 
 **Example workflow**: [configs/workflows/slack-auto-reply.lua](configs/workflows/slack-auto-reply.lua)
 
@@ -534,6 +535,9 @@ sekia-google auth --config configs/sekia-google.toml
 | `add_label` | `message_id`, `label` | Add a label to a message |
 | `remove_label` | `message_id`, `label` | Remove a label from a message |
 | `archive` | `message_id` | Archive a message (remove INBOX label) |
+| `trash` | `message_id` | Move a message to trash |
+| `untrash` | `message_id` | Move a trashed message back to inbox |
+| `delete` | `message_id` | Permanently delete a message |
 
 **Calendar Commands**:
 
