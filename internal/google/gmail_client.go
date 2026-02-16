@@ -38,6 +38,7 @@ type GmailClient interface {
 	RemoveLabel(ctx context.Context, userID, messageID, labelName string) error
 	Archive(ctx context.Context, userID, messageID string) error
 	Trash(ctx context.Context, userID, messageID string) error
+	Untrash(ctx context.Context, userID, messageID string) error
 	Delete(ctx context.Context, userID, messageID string) error
 }
 
@@ -236,6 +237,14 @@ func (c *realGmailClient) Trash(ctx context.Context, userID, messageID string) e
 	_, err := c.svc.Users.Messages.Trash(userID, messageID).Context(ctx).Do()
 	if err != nil {
 		return fmt.Errorf("trash: %w", err)
+	}
+	return nil
+}
+
+func (c *realGmailClient) Untrash(ctx context.Context, userID, messageID string) error {
+	_, err := c.svc.Users.Messages.Untrash(userID, messageID).Context(ctx).Do()
+	if err != nil {
+		return fmt.Errorf("untrash: %w", err)
 	}
 	return nil
 }

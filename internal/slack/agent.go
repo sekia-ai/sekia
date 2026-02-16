@@ -62,7 +62,7 @@ func (sa *SlackAgent) Run() error {
 	a, err := agent.New(
 		agentCfg, agentName, agentVersion,
 		[]string{"slack-socketmode", "slack-api"},
-		[]string{"send_message", "add_reaction", "send_reply"},
+		[]string{"send_message", "update_message", "add_reaction", "send_reply"},
 		sa.logger,
 	)
 	if err != nil {
@@ -188,6 +188,8 @@ func (sa *SlackAgent) handleCommand(msg *nats.Msg) {
 		err = cmdSendMessage(ctx, sa.slClient, cmd.Payload)
 	case "add_reaction":
 		err = cmdAddReaction(ctx, sa.slClient, cmd.Payload)
+	case "update_message":
+		err = cmdUpdateMessage(ctx, sa.slClient, cmd.Payload)
 	case "send_reply":
 		err = cmdSendReply(ctx, sa.slClient, cmd.Payload)
 	default:

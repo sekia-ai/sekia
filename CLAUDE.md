@@ -169,11 +169,11 @@ Standalone binary (`cmd/sekia-slack/`) that connects to Slack via Socket Mode (W
 
 **Event types**: `slack.message.received`, `slack.reaction.added`, `slack.channel.created`, `slack.mention`, `slack.action.button_clicked`
 
-**Commands**: `send_message`, `add_reaction`, `send_reply`
+**Commands**: `send_message`, `add_reaction`, `send_reply`, `update_message`
 
-**Block Kit support**: `send_message` accepts an optional `blocks` field (array of Block Kit block objects) alongside `text`. When `blocks` is present, the message is sent with `MsgOptionBlocks()` and `text` serves as the notification fallback. Blocks are passed as raw JSON through `slack.Blocks` custom unmarshaler — Lua workflows write Block Kit structures as nested tables directly.
+**Block Kit support**: `send_message` and `update_message` accept an optional `blocks` field (array of Block Kit block objects) alongside `text`. When `blocks` is present, the message is sent with `MsgOptionBlocks()` and `text` serves as the notification fallback. Blocks are passed as raw JSON through `slack.Blocks` custom unmarshaler — Lua workflows write Block Kit structures as nested tables directly.
 
-**Interactive messages**: Button clicks and other `block_actions` interactions arrive via Socket Mode as `EventTypeInteractive`, are mapped by `MapInteractionCallback()` to `slack.action.button_clicked` events (or `slack.action.<type>` for non-button actions), and published to NATS. Event payload includes `action_id`, `value`, `block_id`, `user`, `channel`, `message_ts`. Requires **Interactivity** enabled in the Slack app settings (no Request URL needed with Socket Mode).
+**Interactive messages**: Button clicks and other `block_actions` interactions arrive via Socket Mode as `EventTypeInteractive`, are mapped by `MapInteractionCallback()` to `slack.action.button_clicked` events (or `slack.action.<type>` for non-button actions), and published to NATS. Event payload includes `action_id`, `value`, `block_id`, `user`, `channel`, `message_ts`, `message_text`. Requires **Interactivity** enabled in the Slack app settings (no Request URL needed with Socket Mode).
 
 **Key design decisions:**
 - **Socket Mode** — WebSocket connection to Slack, no public URL needed.
@@ -213,7 +213,7 @@ Standalone binary (`cmd/sekia-google/`) that bridges Gmail and Google Calendar t
 
 **Calendar event types**: `google.calendar.event.created`, `google.calendar.event.updated`, `google.calendar.event.deleted`, `google.calendar.event.upcoming`
 
-**Gmail commands**: `send_email`, `reply_email`, `add_label`, `remove_label`, `archive`, `trash`, `delete`
+**Gmail commands**: `send_email`, `reply_email`, `add_label`, `remove_label`, `archive`, `trash`, `untrash`, `delete`
 
 **Calendar commands**: `create_event`, `update_event`, `delete_event`
 

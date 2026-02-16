@@ -860,7 +860,7 @@ repos    = [<span class="str">"myorg/myrepo"</span>, <span class="str">"myorg/ot
       <tr><td><code>slack.mention</code></td><td>channel, user, text, timestamp, thread_ts (if threaded)</td></tr>
       <tr><td><code>slack.reaction.added</code></td><td>user, reaction, channel, timestamp</td></tr>
       <tr><td><code>slack.channel.created</code></td><td>channel_id, channel_name, creator</td></tr>
-      <tr><td><code>slack.action.button_clicked</code></td><td>action_id, value, block_id, action_type, user, user_name, channel, message_ts, trigger_id</td></tr>
+      <tr><td><code>slack.action.button_clicked</code></td><td>action_id, value, block_id, action_type, user, user_name, channel, message_ts, message_text, trigger_id</td></tr>
     </tbody>
   </table>
   <p>The agent automatically filters out messages from its own bot user. Interactive events (button clicks) require Interactivity to be enabled in the Slack app settings.</p>
@@ -873,6 +873,7 @@ repos    = [<span class="str">"myorg/myrepo"</span>, <span class="str">"myorg/ot
       <tr><td><code>send_message</code></td><td>channel, text, blocks (optional)</td><td>Send a message to a channel. When <code>blocks</code> is provided (array of <a href="https://api.slack.com/block-kit">Block Kit</a> objects), sends a rich message with <code>text</code> as notification fallback</td></tr>
       <tr><td><code>add_reaction</code></td><td>channel, timestamp, emoji</td><td>Add an emoji reaction to a message</td></tr>
       <tr><td><code>send_reply</code></td><td>channel, thread_ts, text</td><td>Send a threaded reply</td></tr>
+      <tr><td><code>update_message</code></td><td>channel, timestamp, text, blocks (optional)</td><td>Update an existing message. When <code>blocks</code> is provided, updates with rich Block Kit content</td></tr>
     </tbody>
   </table>
 
@@ -1063,6 +1064,7 @@ sekia-google [--config /path/to/sekia-google.toml]</code></pre>
       <tr><td><code>remove_label</code></td><td>message_id, label</td><td>&mdash;</td><td>Remove label from a message</td></tr>
       <tr><td><code>archive</code></td><td>message_id</td><td>&mdash;</td><td>Archive a message</td></tr>
       <tr><td><code>trash</code></td><td>message_id</td><td>&mdash;</td><td>Move message to trash</td></tr>
+      <tr><td><code>untrash</code></td><td>message_id</td><td>&mdash;</td><td>Move a trashed message back to inbox</td></tr>
       <tr><td><code>delete</code></td><td>message_id</td><td>&mdash;</td><td>Permanently delete a message</td></tr>
     </tbody>
   </table>

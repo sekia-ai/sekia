@@ -90,15 +90,16 @@ func MapInteractionCallback(callback slackapi.InteractionCallback) []protocol.Ev
 		}
 
 		payload := map[string]any{
-			"action_id":   action.ActionID,
-			"value":       action.Value,
-			"block_id":    action.BlockID,
-			"action_type": string(action.Type),
-			"user":        callback.User.ID,
-			"user_name":   callback.User.Name,
-			"channel":     callback.Channel.ID,
-			"message_ts":  callback.Container.MessageTs,
-			"trigger_id":  callback.TriggerID,
+			"action_id":    action.ActionID,
+			"value":        action.Value,
+			"block_id":     action.BlockID,
+			"action_type":  string(action.Type),
+			"user":         callback.User.ID,
+			"user_name":    callback.User.Name,
+			"channel":      callback.Channel.ID,
+			"message_ts":   callback.Container.MessageTs,
+			"trigger_id":   callback.TriggerID,
+			"message_text": callback.Message.Text,
 		}
 
 		eventType := "slack.action.button_clicked"
