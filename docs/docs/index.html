@@ -369,9 +369,9 @@ Agents:       3</code></pre>
   <p>List all registered agents.</p>
   <pre><code>$ sekiactl agents
 NAME            VERSION   STATUS   EVENTS   ERRORS   LAST HEARTBEAT
-github-agent    v0.0.21   alive    42       0        2s ago
-slack-agent     v0.0.21   alive    18       0        5s ago
-linear-agent    v0.0.21   alive    7        0        12s ago</code></pre>
+github-agent    v0.0.22   alive    42       0        2s ago
+slack-agent     v0.0.22   alive    18       0        5s ago
+linear-agent    v0.0.22   alive    7        0        12s ago</code></pre>
 
   <h3>sekiactl workflows</h3>
   <p>List loaded workflows. Alias for <code>sekiactl workflows list</code>.</p>
@@ -1213,7 +1213,7 @@ sekiactl status</code></pre>
   "agents": [
     {
       "name": "github-agent",
-      "version": "v0.0.21",
+      "version": "v0.0.22",
       "status": "alive",
       "commands": ["add_label", "remove_label", "create_comment", "close_issue", "reopen_issue"],
       "events_processed": 42,
@@ -1375,6 +1375,15 @@ password = <span class="str">"secret"</span></code></pre>
 
   <h3>Unix socket security</h3>
   <p>The daemon API uses a Unix socket (default: <code>~/.config/sekia/sekiad.sock</code>), which inherits file system permissions. The daemon creates the parent directory with mode 0700, verifies it is owned by the current user, rejects symlinks at the socket path, and sets the socket file to mode 0600. This prevents symlink attacks that could occur with world-writable directories like <code>/tmp</code>.</p>
+
+  <h3>CI security scanning</h3>
+  <p>Every push and pull request runs three layers of automated security analysis:</p>
+  <ul>
+    <li><strong><a href="https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck">govulncheck</a></strong> &mdash; the official Go vulnerability checker. Scans all dependencies against the Go vulnerability database and reports only vulnerabilities that affect code paths actually used by sekia.</li>
+    <li><strong><a href="https://github.com/securego/gosec">gosec</a></strong> &mdash; static analysis for Go security issues. Detects common mistakes like SQL injection, command injection, hardcoded credentials, weak crypto, and unhandled errors in security-sensitive code.</li>
+    <li><strong><a href="https://github.com/aquasecurity/trivy">Trivy</a></strong> &mdash; container image vulnerability scanner. Scans the Docker image for known CVEs in OS packages and application dependencies. The CI pipeline fails on any CRITICAL or HIGH severity finding.</li>
+  </ul>
+  <p>These checks run as separate parallel jobs in CI, so security findings surface immediately without slowing down the test suite.</p>
 </section>
 
 </main>
