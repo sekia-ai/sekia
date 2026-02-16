@@ -11,6 +11,9 @@ import (
 	"github.com/sekia-ai/sekia/pkg/protocol"
 )
 
+// maxSSEClients is the maximum number of concurrent SSE connections.
+const maxSSEClients = 50
+
 // EventBus fans NATS events out to SSE clients and keeps a ring buffer of recent events.
 type EventBus struct {
 	mu       sync.RWMutex
@@ -53,17 +56,25 @@ func (eb *EventBus) Publish(data []byte) {
 	}
 }
 
+// ErrTooManyClients is returned when the SSE connection limit is reached.
+var ErrTooManyClients = fmt.Errorf("too many SSE clients (max %d)", maxSSEClients)
+
 // Subscribe returns a channel that receives events and an unsubscribe function.
-func (eb *EventBus) Subscribe() (chan []byte, func()) {
+// Returns ErrTooManyClients if the connection limit is reached.
+func (eb *EventBus) Subscribe() (chan []byte, func(), error) {
 	ch := make(chan []byte, 64)
 	eb.mu.Lock()
+	if len(eb.clients) >= maxSSEClients {
+		eb.mu.Unlock()
+		return nil, nil, ErrTooManyClients
+	}
 	eb.clients[ch] = struct{}{}
 	eb.mu.Unlock()
 	return ch, func() {
 		eb.mu.Lock()
 		delete(eb.clients, ch)
 		eb.mu.Unlock()
-	}
+	}, nil
 }
 
 // Recent returns the ring buffer contents in chronological order.
@@ -93,7 +104,11 @@ func (s *Server) handleEventStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	ch, unsub := s.eventBus.Subscribe()
+	ch, unsub, err := s.eventBus.Subscribe()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
 	defer unsub()
 
 	for {

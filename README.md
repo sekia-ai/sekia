@@ -155,6 +155,8 @@ Then open `http://localhost:8080/web` in your browser. The dashboard shows:
 
 Status and agent/workflow panels auto-refresh every 5–10 seconds via htmx. The event stream updates in real-time. No external dependencies — htmx and Alpine.js are vendored and embedded in the binary.
 
+Security hardening is built in: `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, and `Strict-Transport-Security` headers are set on every response. SSE connections are capped at 50 to prevent DoS. CSRF protection via double-submit cookie is enforced on all state-changing requests.
+
 ## API
 
 The daemon exposes an HTTP API over its Unix socket.

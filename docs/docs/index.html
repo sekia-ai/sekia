@@ -1250,6 +1250,9 @@ password = <span class="str">"secret"</span></code></pre>
     <li>Dark mode toggle (persisted in localStorage)</li>
     <li>All assets embedded in the binary (no CDN dependency)</li>
     <li>HTTP Basic Auth support (optional)</li>
+    <li>Security headers on every response (CSP, X-Frame-Options, X-Content-Type-Options, HSTS)</li>
+    <li>SSE connection limit (max 50 concurrent clients) to prevent DoS</li>
+    <li>CSRF protection via double-submit cookie for state-changing requests</li>
   </ul>
 
   <h3>Routes</h3>
@@ -1324,6 +1327,21 @@ token = <span class="str">"your-nats-token"</span></code></pre>
 listen   = <span class="str">":8080"</span>
 username = <span class="str">"admin"</span>
 password = <span class="str">"secret"</span></code></pre>
+
+  <h3>Web dashboard hardening</h3>
+  <p>The dashboard sets the following security headers on every response:</p>
+  <ul>
+    <li><code>Content-Security-Policy</code> &mdash; restricts scripts, styles, images, and connections to same-origin only (<code>'unsafe-eval'</code> is allowed for Alpine.js reactive expressions)</li>
+    <li><code>X-Frame-Options: DENY</code> &mdash; prevents clickjacking via iframes</li>
+    <li><code>X-Content-Type-Options: nosniff</code> &mdash; prevents MIME-type sniffing</li>
+    <li><code>Strict-Transport-Security</code> &mdash; enforces HTTPS when accessed over TLS</li>
+  </ul>
+  <p><strong>SSE connection limit:</strong> The live event stream endpoint caps concurrent SSE connections at 50. Additional connections receive <code>503 Service Unavailable</code>. Slots are freed when clients disconnect.</p>
+  <p><strong>CSRF protection:</strong> A double-submit cookie (<code>sekia_csrf</code>) is set on every response. State-changing requests (POST, PUT, DELETE, PATCH) must include a matching <code>X-CSRF-Token</code> header. The cookie uses <code>SameSite=Strict</code> and <code>Secure</code> when TLS is active. For htmx, configure the CSRF header globally:</p>
+  <pre><code>document.body.addEventListener(<span class="str">'htmx:configRequest'</span>, <span class="kw">function</span>(e) {
+  e.detail.headers[<span class="str">'X-CSRF-Token'</span>] = document.cookie
+    .split(<span class="str">'; '</span>).find(c =&gt; c.startsWith(<span class="str">'sekia_csrf='</span>))?.split(<span class="str">'='</span>)[1] || <span class="str">''</span>;
+});</code></pre>
 
   <h3>GitHub webhook verification</h3>
   <p>When <code>webhook.secret</code> is configured, the GitHub agent verifies <code>X-Hub-Signature-256</code> headers using HMAC-SHA256.</p>

@@ -186,7 +186,10 @@ func TestStaticAssets(t *testing.T) {
 func TestEventBus(t *testing.T) {
 	eb := NewEventBus(5)
 
-	ch, unsub := eb.Subscribe()
+	ch, unsub, err := eb.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer unsub()
 
 	eb.Publish([]byte(`{"type":"test"}`))
@@ -266,10 +269,106 @@ func TestSecurityHeaders(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	if resp.Header.Get("X-Content-Type-Options") != "nosniff" {
-		t.Error("expected X-Content-Type-Options: nosniff")
+	checks := map[string]string{
+		"X-Content-Type-Options":    "nosniff",
+		"X-Frame-Options":          "DENY",
+		"Content-Security-Policy":  "default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self'; img-src 'self'; connect-src 'self'",
+		"Strict-Transport-Security": "max-age=63072000; includeSubDomains",
 	}
-	if resp.Header.Get("X-Frame-Options") != "DENY" {
-		t.Error("expected X-Frame-Options: DENY")
+	for header, want := range checks {
+		if got := resp.Header.Get(header); got != want {
+			t.Errorf("%s = %q, want %q", header, got, want)
+		}
+	}
+}
+
+func TestCSRFCookieSet(t *testing.T) {
+	srv, _ := setupTest(t)
+
+	ts := httptest.NewServer(srv.httpServer.Handler)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	var csrfCookie *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == "sekia_csrf" {
+			csrfCookie = c
+			break
+		}
+	}
+	if csrfCookie == nil {
+		t.Fatal("expected sekia_csrf cookie to be set")
+	}
+	if len(csrfCookie.Value) != 64 { // 32 bytes hex-encoded
+		t.Errorf("expected 64-char token, got %d chars", len(csrfCookie.Value))
+	}
+}
+
+func TestCSRFRejectsPostWithoutToken(t *testing.T) {
+	srv, _ := setupTest(t)
+
+	ts := httptest.NewServer(srv.httpServer.Handler)
+	defer ts.Close()
+
+	// POST without CSRF token → 403.
+	req, _ := http.NewRequest("POST", ts.URL+"/web", nil)
+	req.AddCookie(&http.Cookie{Name: "sekia_csrf", Value: "sometoken"})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 403 {
+		t.Fatalf("expected 403 without CSRF header, got %d", resp.StatusCode)
+	}
+
+	// POST with matching CSRF header → passes CSRF check (may 404 since no POST route).
+	req, _ = http.NewRequest("POST", ts.URL+"/web", nil)
+	req.AddCookie(&http.Cookie{Name: "sekia_csrf", Value: "sometoken"})
+	req.Header.Set("X-CSRF-Token", "sometoken")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode == 403 {
+		t.Fatal("expected CSRF check to pass with matching token")
+	}
+}
+
+func TestSSEConnectionLimit(t *testing.T) {
+	eb := NewEventBus(5)
+
+	// Fill up to the limit.
+	unsubs := make([]func(), 0, maxSSEClients)
+	for i := 0; i < maxSSEClients; i++ {
+		_, unsub, err := eb.Subscribe()
+		if err != nil {
+			t.Fatalf("subscribe %d: unexpected error: %v", i, err)
+		}
+		unsubs = append(unsubs, unsub)
+	}
+
+	// Next subscribe should fail.
+	_, _, err := eb.Subscribe()
+	if err != ErrTooManyClients {
+		t.Fatalf("expected ErrTooManyClients, got %v", err)
+	}
+
+	// Unsubscribe one → should be able to subscribe again.
+	unsubs[0]()
+	_, unsub, err := eb.Subscribe()
+	if err != nil {
+		t.Fatalf("expected subscribe to succeed after unsub: %v", err)
+	}
+	unsub()
+
+	for _, fn := range unsubs[1:] {
+		fn()
 	}
 }
