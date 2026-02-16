@@ -4,7 +4,9 @@
 
 # sekia
 
-A multi-agent event bus for automating workflows across GitHub, Gmail, Linear, and Slack. Built on embedded NATS with JetStream.
+A multi-agent event bus for automating workflows across GitHub, Gmail, Google Calendar, Linear, and Slack. Built on embedded NATS with JetStream.
+
+**[Documentation](https://sekia.ai/docs/)** &middot; **[Website](https://sekia.ai)**
 
 Seven binaries — `sekiad` (daemon), `sekiactl` (CLI), four agents (`sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-google`), and `sekia-mcp` (MCP server) — communicate over NATS. The daemon and CLI also use a Unix socket.
 

@@ -2,6 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Principal Instructions
+
+- After implementing major features:
+  - Update CLAUDE.md
+  - Update README.md
+  - Update website (docs/), if required.
+  - Update documentation site (docs/docs/), if required.
+
 ## Build & Test Commands
 
 ```bash
@@ -249,6 +257,21 @@ Standalone binary (`cmd/sekia-mcp/`) that exposes sekia capabilities to AI assis
 
 **Config file**: `sekia-mcp.toml`. Env vars: `SEKIA_NATS_URL`, `SEKIA_DAEMON_SOCKET`.
 
+### Website and documentation (`docs/`)
+
+Static website at `sekia.ai` with comprehensive documentation at `sekia.ai/docs/`. Plain HTML + CSS, no build step, hosted on GitHub Pages.
+
+**Key files:**
+- `docs/index.html` — landing page
+- `docs/style.css` — landing page styles
+- `docs/docs/index.html` — comprehensive documentation (single page, sidebar nav)
+- `docs/docs/style.css` — documentation styles
+
+**Design decisions:**
+- **Plain HTML** — no static site generator, no framework, no build step.
+- **Single-page docs** — all documentation in one page for easy Cmd+F search. Sidebar navigation with scroll tracking.
+- **Same design system** — shared CSS variables, fonts, colors, dark mode.
+
 ## Project status
 
-All phases complete. Docker, goreleaser, GitHub Actions CI/CD, web dashboard, and MCP server are in place.
+All phases complete. Docker, goreleaser, GitHub Actions CI/CD, web dashboard, MCP server, and documentation site are in place.
