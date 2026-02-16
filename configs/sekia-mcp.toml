@@ -7,4 +7,6 @@ url = "nats://127.0.0.1:4222"
 # token = ""
 
 [daemon]
-socket = "/tmp/sekiad.sock"
+# Socket path defaults to $XDG_RUNTIME_DIR/sekia/sekiad.sock or ~/.config/sekia/sekiad.sock.
+# Must match the daemon's server.socket setting.
+# socket = "/tmp/sekiad.sock"  # override for Docker or custom setups

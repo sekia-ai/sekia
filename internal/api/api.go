@@ -3,9 +3,12 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -51,8 +54,34 @@ func New(socketPath string, reg *registry.Registry, engine *workflow.Engine, nc 
 
 // Listen creates the Unix socket listener without serving.
 // Call Serve after to begin accepting connections.
+//
+// Security: creates the parent directory with 0700, verifies it is owned by the
+// current user, and rejects symlinks at the socket path to prevent symlink attacks.
 func (s *Server) Listen() (net.Listener, error) {
-	os.Remove(s.socketPath)
+	dir := filepath.Dir(s.socketPath)
+
+	// Create parent directory if needed (owner-only permissions).
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, fmt.Errorf("creating socket directory: %w", err)
+	}
+
+	// Verify the parent directory is owned by the current user.
+	dirInfo, err := os.Lstat(dir)
+	if err != nil {
+		return nil, fmt.Errorf("stat socket directory: %w", err)
+	}
+	stat, ok := dirInfo.Sys().(*syscall.Stat_t)
+	if ok && stat.Uid != uint32(os.Getuid()) {
+		return nil, fmt.Errorf("socket directory %s not owned by current user (owner uid=%d, current uid=%d)", dir, stat.Uid, os.Getuid())
+	}
+
+	// If something already exists at the socket path, reject symlinks then remove.
+	if fi, err := os.Lstat(s.socketPath); err == nil {
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("socket path %s is a symlink, refusing to bind", s.socketPath)
+		}
+		os.Remove(s.socketPath)
+	}
 
 	ln, err := net.Listen("unix", s.socketPath)
 	if err != nil {
