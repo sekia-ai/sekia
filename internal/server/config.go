@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/sekia-ai/sekia/internal/ai"
+	"github.com/sekia-ai/sekia/pkg/sockpath"
 )
 
 // Config is the top-level daemon configuration.
@@ -60,7 +61,7 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v := viper.New()
 
 	v.SetDefault("server.listen", "127.0.0.1:7600")
-	v.SetDefault("server.socket", "/tmp/sekiad.sock")
+	v.SetDefault("server.socket", sockpath.DefaultSocketPath())
 	v.SetDefault("nats.embedded", true)
 
 	homeDir, _ := os.UserHomeDir()

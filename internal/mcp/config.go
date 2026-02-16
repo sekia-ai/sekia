@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"github.com/spf13/viper"
+
+	"github.com/sekia-ai/sekia/pkg/sockpath"
 )
 
 // Config holds all configuration for the MCP server.
@@ -32,7 +34,7 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v := viper.New()
 
 	v.SetDefault("nats.url", "nats://127.0.0.1:4222")
-	v.SetDefault("daemon.socket", "/tmp/sekiad.sock")
+	v.SetDefault("daemon.socket", sockpath.DefaultSocketPath())
 
 	v.SetConfigType("toml")
 

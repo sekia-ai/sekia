@@ -22,7 +22,7 @@ Seven binaries — `sekiad` (daemon), `sekiactl` (CLI), four agents (`sekia-gith
 │  └───────────────┘  └──────────┘  └───────────┘  └────────┘  │
 │         ▲                           ▲    │           ▲       │
 └─────────┼───────────────────────────┼────┼───────────┼───────┘
-          │ NATS (in-process)         │    │           │ /tmp/sekiad.sock
+          │ NATS (in-process)         │    │           │ Unix socket
     ┌─────┴─────┐              ┌──────┴──┐ │     ┌─────┴──────┐
     │  Agent A  │◄─────────────│ *.lua   │ │     │  sekiactl  │
     │  Agent B  │   commands   │ scripts │◄┘     └────────────┘
@@ -124,7 +124,7 @@ Defaults:
 
 | Key | Default |
 |---|---|
-| `server.socket` | `/tmp/sekiad.sock` |
+| `server.socket` | `~/.config/sekia/sekiad.sock` (or `$XDG_RUNTIME_DIR/sekia/sekiad.sock`) |
 | `server.listen` | `127.0.0.1:7600` |
 | `nats.embedded` | `true` |
 | `nats.data_dir` | `~/.local/share/sekia/nats` |
@@ -185,7 +185,7 @@ func main() {
 	a, err := agent.New(agent.Config{
 		Registration: protocol.Registration{
 			Name:         "my-agent",
-			Version:      "0.0.20",
+			Version:      "0.0.21",
 			Capabilities: []string{"read", "write"},
 			Commands:     []string{"sync"},
 		},
@@ -577,7 +577,7 @@ Exposes sekia capabilities to AI assistants (Claude Desktop, Claude Code, Cursor
       "command": "sekia-mcp",
       "env": {
         "SEKIA_NATS_URL": "nats://127.0.0.1:4222",
-        "SEKIA_DAEMON_SOCKET": "/tmp/sekiad.sock"
+        "SEKIA_DAEMON_SOCKET": "~/.config/sekia/sekiad.sock"
       }
     }
   }

@@ -1,6 +1,10 @@
 package cmd
 
-import "github.com/spf13/cobra"
+import (
+	"github.com/spf13/cobra"
+
+	"github.com/sekia-ai/sekia/pkg/sockpath"
+)
 
 var (
 	socketPath string
@@ -17,7 +21,7 @@ func NewRootCmd() *cobra.Command {
 		Version: Version,
 	}
 
-	rootCmd.PersistentFlags().StringVar(&socketPath, "socket", "/tmp/sekiad.sock", "sekiad Unix socket path")
+	rootCmd.PersistentFlags().StringVar(&socketPath, "socket", sockpath.DefaultSocketPath(), "sekiad Unix socket path")
 
 	rootCmd.AddCommand(newStatusCmd())
 	rootCmd.AddCommand(newAgentsCmd())

@@ -1,6 +1,8 @@
 [server]
 listen = "127.0.0.1:7600"
-socket = "/tmp/sekiad.sock"
+# Socket path defaults to $XDG_RUNTIME_DIR/sekia/sekiad.sock or ~/.config/sekia/sekiad.sock.
+# The daemon creates the parent directory (0700) and verifies ownership before binding.
+# socket = "/tmp/sekiad.sock"  # override for Docker or custom setups
 
 [nats]
 embedded = true
