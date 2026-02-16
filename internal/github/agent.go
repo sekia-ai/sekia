@@ -21,7 +21,7 @@ import (
 
 const (
 	agentName    = "github-agent"
-	agentVersion = "0.0.17"
+	agentVersion = "0.0.18"
 )
 
 // GitHubAgent bridges GitHub webhooks and/or REST API polling to the sekia
