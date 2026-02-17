@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -43,6 +44,9 @@ type workflowState struct {
 	eventCh chan *nats.Msg
 	done    chan struct{}
 }
+
+// ErrIntegrityViolation is returned when a workflow file fails SHA256 manifest verification.
+var ErrIntegrityViolation = errors.New("integrity violation")
 
 // Engine manages Lua workflow scripts and routes NATS events to Lua handlers.
 type Engine struct {
@@ -165,14 +169,14 @@ func (e *Engine) LoadWorkflow(name, filePath string) error {
 	if e.verifyIntegrity {
 		manifest, err := LoadManifest(e.dir)
 		if err != nil {
-			return fmt.Errorf("load manifest: %w", err)
+			return fmt.Errorf("%w: load manifest: %v", ErrIntegrityViolation, err)
 		}
 		if manifest == nil {
-			return fmt.Errorf("integrity verification enabled but %s not found in %s", ManifestFilename, e.dir)
+			return fmt.Errorf("%w: %s not found in %s", ErrIntegrityViolation, ManifestFilename, e.dir)
 		}
 		filename := filepath.Base(filePath)
 		if err := manifest.Verify(filename, filePath); err != nil {
-			return fmt.Errorf("integrity check failed: %w", err)
+			return fmt.Errorf("%w: %v", ErrIntegrityViolation, err)
 		}
 		wfLogger.Debug().Msg("integrity check passed")
 	}
