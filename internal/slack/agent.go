@@ -70,6 +70,11 @@ func (sa *SlackAgent) Run() error {
 	}
 	sa.agent = a
 
+	// Register config reload handler.
+	if err := a.OnConfigReload(sa.reloadConfig); err != nil {
+		sa.logger.Warn().Err(err).Msg("failed to register config reload handler")
+	}
+
 	// 2. Subscribe to commands.
 	_, err = a.Conn().Subscribe(protocol.SubjectCommands(agentName), sa.handleCommand)
 	if err != nil {
@@ -142,6 +147,24 @@ func (sa *SlackAgent) shutdown() error {
 		sa.agent.Close()
 	}
 	return nil
+}
+
+// reloadConfig re-reads the config file and applies safe-to-change settings.
+func (sa *SlackAgent) reloadConfig() {
+	sa.logger.Info().Msg("reloading slack agent configuration")
+
+	newCfg, err := LoadConfig("")
+	if err != nil {
+		sa.logger.Error().Err(err).Msg("failed to reload config")
+		return
+	}
+
+	// Apply settings that are safe to change at runtime.
+	// Note: Slack tokens (bot_token, app_token) require a restart — Socket Mode
+	// connection is long-lived and cannot be swapped without reconnecting.
+	sa.cfg.Security.CommandSecret = newCfg.Security.CommandSecret
+
+	sa.logger.Info().Msg("slack agent configuration reloaded")
 }
 
 func (sa *SlackAgent) publishEvent(ev protocol.Event) {

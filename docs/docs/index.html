@@ -397,7 +397,7 @@ f6a7b8c9d0...  slack-responder.lua
 $ sekiactl workflows sign --dir /path/to/workflows</code></pre>
 
   <h3>sekiactl config reload</h3>
-  <p>Broadcast a config reload signal via NATS.</p>
+  <p>Broadcast a config reload signal via NATS. All agents re-read their config files and apply settings that are safe to change at runtime. Credentials and connection settings (tokens, API keys, listen addresses) require a restart.</p>
   <pre><code><span class="cm"># Reload all agents and daemon</span>
 $ sekiactl config reload
 
@@ -406,6 +406,18 @@ $ sekiactl config reload --target github-agent
 
 <span class="cm"># Reload daemon only</span>
 $ sekiactl config reload --target sekiad</code></pre>
+
+  <h4>Hot-reloadable settings per agent</h4>
+  <table>
+    <thead><tr><th>Agent</th><th>Reloadable settings</th><th>Requires restart</th></tr></thead>
+    <tbody>
+      <tr><td>github-agent</td><td>poll.interval, poll.repos, poll.labels, poll.per_tick, poll.state</td><td>github.token, webhook.listen, webhook.secret</td></tr>
+      <tr><td>slack-agent</td><td>security.command_secret</td><td>slack.bot_token, slack.app_token</td></tr>
+      <tr><td>linear-agent</td><td>poll.interval, poll.team_filter</td><td>linear.api_key</td></tr>
+      <tr><td>google-agent</td><td>gmail.poll_interval, gmail.query, gmail.max_messages, calendar.poll_interval, calendar.upcoming_mins</td><td>google.client_id, google.client_secret, google.token_path</td></tr>
+    </tbody>
+  </table>
+  <p>All agents also hot-reload <code>security.command_secret</code>.</p>
 </section>
 
 <!-- ================================================================== -->
