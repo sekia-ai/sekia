@@ -185,7 +185,7 @@ func main() {
 	a, err := agent.New(agent.Config{
 		Registration: protocol.Registration{
 			Name:         "my-agent",
-			Version:      "0.1.0",
+			Version:      "0.1.1",
 			Capabilities: []string{"read", "write"},
 			Commands:     []string{"sync"},
 		},

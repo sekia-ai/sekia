@@ -19,7 +19,7 @@ import (
 
 const (
 	agentName    = "slack-agent"
-	agentVersion = "0.1.0"
+	agentVersion = "0.1.1"
 )
 
 // SlackAgent bridges Slack events to the sekia event bus
