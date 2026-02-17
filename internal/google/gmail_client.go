@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 
+	"golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/option"
 )
@@ -168,21 +170,53 @@ func (c *realGmailClient) getMessage(ctx context.Context, userID, messageID stri
 }
 
 func extractPlainTextBody(payload *gmail.MessagePart) string {
-	if payload.MimeType == "text/plain" && payload.Body != nil && payload.Body.Data != "" {
+	if text := findMIMEPart(payload, "text/plain"); text != "" {
+		return text
+	}
+	// Fallback: extract text from HTML part for HTML-only emails.
+	if rawHTML := findMIMEPart(payload, "text/html"); rawHTML != "" {
+		return extractTextFromHTML(rawHTML)
+	}
+	return ""
+}
+
+func findMIMEPart(payload *gmail.MessagePart, mimeType string) string {
+	if payload.MimeType == mimeType && payload.Body != nil && payload.Body.Data != "" {
 		data, err := base64.URLEncoding.DecodeString(payload.Body.Data)
 		if err == nil {
 			return string(data)
 		}
 	}
-
 	for _, part := range payload.Parts {
-		if text := extractPlainTextBody(part); text != "" {
+		if text := findMIMEPart(part, mimeType); text != "" {
 			return text
 		}
 	}
-
-	// Fallback: use snippet if no plain text part found.
 	return ""
+}
+
+func extractTextFromHTML(rawHTML string) string {
+	doc, err := html.Parse(strings.NewReader(rawHTML))
+	if err != nil {
+		return ""
+	}
+	var b strings.Builder
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && (n.DataAtom == atom.Style || n.DataAtom == atom.Script) {
+			return
+		}
+		if n.Type == html.TextNode {
+			b.WriteString(n.Data)
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+	// Collapse whitespace.
+	fields := strings.Fields(b.String())
+	return strings.Join(fields, " ")
 }
 
 func (c *realGmailClient) SendEmail(ctx context.Context, userID, to, subject, body string) error {
