@@ -14,6 +14,7 @@ func MapGmailEvent(msg EmailMessage) protocol.Event {
 		"to":         msg.To,
 		"subject":    msg.Subject,
 		"body":       msg.Body,
+		"snippet":    msg.Snippet,
 		"date":       msg.Date,
 		"labels":     msg.Labels,
 	}

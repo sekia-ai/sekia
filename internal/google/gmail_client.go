@@ -19,7 +19,8 @@ type EmailMessage struct {
 	From      string
 	To        string
 	Subject   string
-	Body      string
+	Body      string   // Plain-text body (extracted from text/plain MIME part)
+	Snippet   string   // Gmail API snippet (plain-text preview, always available)
 	Date      string
 	Labels    []string
 }
@@ -142,6 +143,7 @@ func (c *realGmailClient) getMessage(ctx context.Context, userID, messageID stri
 	em := EmailMessage{
 		ID:       msg.Id,
 		ThreadID: msg.ThreadId,
+		Snippet:  msg.Snippet,
 		Labels:   msg.LabelIds,
 	}
 
