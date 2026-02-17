@@ -87,6 +87,9 @@ signs:
     artifacts: checksum
     output: true
 
+sboms:
+  - artifacts: archive
+
 changelog:
   sort: asc
   filters:
