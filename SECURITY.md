@@ -1,0 +1,58 @@
+# Security Policy
+
+## Supported Versions
+
+| Version | Supported          |
+| ------- | ------------------ |
+| latest  | :white_check_mark: |
+
+## Reporting a Vulnerability
+
+**Do not open a public issue for security vulnerabilities.**
+
+Please report security vulnerabilities via [GitHub Security Advisories](https://github.com/sekia-ai/sekia/security/advisories/new). This allows us to assess and address the issue privately before public disclosure.
+
+Include as much of the following as possible:
+
+- Description of the vulnerability
+- Steps to reproduce
+- Affected versions
+- Potential impact
+- Suggested fix (if any)
+
+You should receive an acknowledgment within 48 hours. We will work with you to understand the scope and coordinate a fix and disclosure timeline.
+
+## Security Model
+
+sekia is a multi-agent event bus that handles credentials and automates actions across external services. The following security considerations apply:
+
+### Authentication & Secrets
+
+- **Never commit secrets.** API keys, OAuth tokens, and webhook secrets are configured via environment variables or config files outside the repository.
+- Agent tokens (`GITHUB_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `LINEAR_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) should follow the principle of least privilege.
+- The Google agent stores OAuth2 tokens on disk (`GOOGLE_TOKEN_PATH`). Ensure the token file has restrictive permissions (`600`).
+
+### Lua Workflow Sandboxing
+
+- Lua workflows run in a restricted sandbox: only `base` (minus `dofile`/`loadfile`/`load`), `table`, `string`, and `math` modules are available. `os`, `io`, and `debug` are excluded.
+- **Workflow integrity verification** is available: set `workflows.verify_integrity = true` and maintain a `workflows.sha256` manifest generated with `sekiactl workflows sign`. The engine will reject any `.lua` file whose hash does not match the manifest.
+
+### Network Exposure
+
+- The embedded NATS server runs in-process with `DontListen: true` by default — no TCP port is opened for NATS.
+- The Unix socket API is local-only (filesystem permissions).
+- The web dashboard is disabled by default (`web.listen = ""`). If enabled, it includes CSRF protection (double-submit cookie), security headers (`CSP`, `X-Frame-Options`, `X-Content-Type-Options`, `HSTS`), and a cap of 50 concurrent SSE connections.
+- The GitHub webhook server validates payloads via HMAC-SHA256 (`X-Hub-Signature-256`) when a `webhook.secret` is configured.
+
+### Supply Chain
+
+- Dependencies are tracked with Dependabot.
+- CI runs `go vet` and tests on every pull request.
+
+## Disclosure Policy
+
+We follow coordinated disclosure. After a fix is available, we will:
+
+1. Release a patched version
+2. Publish a GitHub Security Advisory
+3. Credit the reporter (unless they prefer anonymity)

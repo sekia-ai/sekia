@@ -2,13 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Principal Instructions
+## Core Instructions
 
-- After implementing major features:
-  - Update CLAUDE.md
-  - Update README.md
-  - Update website (docs/)
-  - Update documentation site (docs/docs/)
+- Update CLAUDE.md
+- Update README.md
+- Update website (docs/)
+- Update documentation site (docs/docs/)
+- Update SECURITY.md if relevant to security features
 
 ## Build & Test Commands
 
