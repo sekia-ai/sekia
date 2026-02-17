@@ -183,6 +183,8 @@ Standalone binary (`cmd/sekia-slack/`) that connects to Slack via Socket Mode (W
 
 **Config file**: `sekia-slack.toml`. Env vars: `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SEKIA_NATS_URL`.
 
+**Config reload**: Supports `sekiactl config reload`. Hot-reloads `security.command_secret`. Slack tokens require a restart (Socket Mode connection is long-lived).
+
 ### Linear agent (`internal/linear/`)
 
 Standalone binary (`cmd/sekia-linear/`) that polls Linear's GraphQL API and executes Linear API commands.
@@ -200,6 +202,8 @@ Standalone binary (`cmd/sekia-linear/`) that polls Linear's GraphQL API and exec
 - **Created vs updated vs completed** — determined by `createdAt` vs `lastSyncTime` and state name.
 
 **Config file**: `sekia-linear.toml`. Env vars: `LINEAR_API_KEY`, `SEKIA_NATS_URL`.
+
+**Config reload**: Supports `sekiactl config reload`. Hot-reloads `poll.interval`, `poll.team_filter`, `security.command_secret`. API key requires a restart.
 
 ### Google agent (`internal/google/`)
 
@@ -227,6 +231,8 @@ Standalone binary (`cmd/sekia-google/`) that bridges Gmail and Google Calendar t
 - **Services are independently enableable** — `gmail.enabled` and `calendar.enabled` in config.
 
 **Config file**: `sekia-google.toml`. Env vars: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_TOKEN_PATH`, `SEKIA_NATS_URL`.
+
+**Config reload**: Supports `sekiactl config reload`. Hot-reloads `gmail.poll_interval`, `gmail.query`, `gmail.max_messages`, `calendar.poll_interval`, `calendar.upcoming_mins`, `security.command_secret`. OAuth2 credentials require a restart.
 
 ### Web dashboard (`internal/web/`)
 

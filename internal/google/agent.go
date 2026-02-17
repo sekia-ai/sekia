@@ -142,6 +142,11 @@ func (ga *GoogleAgent) Run() error {
 	}
 	ga.agent = a
 
+	// Register config reload handler.
+	if err := a.OnConfigReload(ga.reloadConfig); err != nil {
+		ga.logger.Warn().Err(err).Msg("failed to register config reload handler")
+	}
+
 	// 3. Subscribe to commands.
 	_, err = a.Conn().Subscribe(protocol.SubjectCommands(agentName), ga.handleCommand)
 	if err != nil {
@@ -223,6 +228,36 @@ func (ga *GoogleAgent) shutdown() error {
 		ga.agent.Close()
 	}
 	return nil
+}
+
+// reloadConfig re-reads the config file and applies safe-to-change settings.
+func (ga *GoogleAgent) reloadConfig() {
+	ga.logger.Info().Msg("reloading google agent configuration")
+
+	newCfg, err := LoadConfig("")
+	if err != nil {
+		ga.logger.Error().Err(err).Msg("failed to reload config")
+		return
+	}
+
+	// Apply settings that are safe to change at runtime.
+	// Note: OAuth2 credentials and tokens require a restart.
+	if ga.cfg.Gmail.PollInterval != newCfg.Gmail.PollInterval {
+		ga.logger.Info().Dur("interval", newCfg.Gmail.PollInterval).Msg("updated gmail poll interval (takes effect next cycle)")
+	}
+	ga.cfg.Gmail.PollInterval = newCfg.Gmail.PollInterval
+	ga.cfg.Gmail.Query = newCfg.Gmail.Query
+	ga.cfg.Gmail.MaxMessages = newCfg.Gmail.MaxMessages
+
+	if ga.cfg.Calendar.PollInterval != newCfg.Calendar.PollInterval {
+		ga.logger.Info().Dur("interval", newCfg.Calendar.PollInterval).Msg("updated calendar poll interval (takes effect next cycle)")
+	}
+	ga.cfg.Calendar.PollInterval = newCfg.Calendar.PollInterval
+	ga.cfg.Calendar.UpcomingMins = newCfg.Calendar.UpcomingMins
+
+	ga.cfg.Security.CommandSecret = newCfg.Security.CommandSecret
+
+	ga.logger.Info().Msg("google agent configuration reloaded")
 }
 
 func (ga *GoogleAgent) publishEvent(ev protocol.Event) {

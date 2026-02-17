@@ -69,6 +69,11 @@ func (la *LinearAgent) Run() error {
 	}
 	la.agent = a
 
+	// Register config reload handler.
+	if err := a.OnConfigReload(la.reloadConfig); err != nil {
+		la.logger.Warn().Err(err).Msg("failed to register config reload handler")
+	}
+
 	// 2. Subscribe to commands.
 	_, err = a.Conn().Subscribe(protocol.SubjectCommands(agentName), la.handleCommand)
 	if err != nil {
@@ -137,6 +142,28 @@ func (la *LinearAgent) shutdown() error {
 		la.agent.Close()
 	}
 	return nil
+}
+
+// reloadConfig re-reads the config file and applies safe-to-change settings.
+func (la *LinearAgent) reloadConfig() {
+	la.logger.Info().Msg("reloading linear agent configuration")
+
+	newCfg, err := LoadConfig("")
+	if err != nil {
+		la.logger.Error().Err(err).Msg("failed to reload config")
+		return
+	}
+
+	// Apply poll settings that are safe to change at runtime.
+	// Note: linear.api_key requires a restart — the GraphQL client holds a reference.
+	if la.cfg.Poll.Interval != newCfg.Poll.Interval {
+		la.logger.Info().Dur("interval", newCfg.Poll.Interval).Msg("updated poll interval (takes effect next cycle)")
+	}
+	la.cfg.Poll.Interval = newCfg.Poll.Interval
+	la.cfg.Poll.TeamFilter = newCfg.Poll.TeamFilter
+	la.cfg.Security.CommandSecret = newCfg.Security.CommandSecret
+
+	la.logger.Info().Msg("linear agent configuration reloaded")
 }
 
 func (la *LinearAgent) publishEvent(ev protocol.Event) {
