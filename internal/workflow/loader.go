@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -125,21 +126,33 @@ func (e *Engine) processBatch(batch map[string]fsnotify.Op) {
 	}
 
 	for path, op := range batch {
-		base := filepath.Base(path)
-		if !strings.HasSuffix(base, ".lua") {
-			continue
-		}
-		name := strings.TrimSuffix(base, ".lua")
+		e.processFileEvent(path, op)
+	}
+}
 
-		if op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+// processFileEvent handles a single file change event within a batch.
+func (e *Engine) processFileEvent(path string, op fsnotify.Op) {
+	base := filepath.Base(path)
+	if !strings.HasSuffix(base, ".lua") {
+		return
+	}
+	name := strings.TrimSuffix(base, ".lua")
+
+	if op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+		e.UnloadWorkflow(name)
+		return
+	}
+
+	// Create or Write: (re)load the workflow.
+	if err := e.LoadWorkflow(name, path); err != nil {
+		e.logger.Error().Err(err).Str("file", base).Msg("failed to reload workflow")
+		// If integrity verification failed, unload the old workflow —
+		// a tampered file means the workflow directory is compromised.
+		if errors.Is(err, ErrIntegrityViolation) {
 			e.UnloadWorkflow(name)
-			continue
+			e.logger.Warn().Str("file", base).Msg("unloaded workflow due to integrity violation")
 		}
-		// Create or Write: (re)load the workflow.
-		if err := e.LoadWorkflow(name, path); err != nil {
-			e.logger.Error().Err(err).Str("file", base).Msg("failed to reload workflow")
-		} else {
-			e.logger.Info().Str("file", base).Msg("reloaded workflow")
-		}
+	} else {
+		e.logger.Info().Str("file", base).Msg("reloaded workflow")
 	}
 }
