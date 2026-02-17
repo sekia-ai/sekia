@@ -1397,6 +1397,20 @@ password = <span class="str">"secret"</span></code></pre>
   </ul>
   <p>These checks run as separate parallel jobs in CI, so security findings surface immediately without slowing down the test suite.</p>
 
+  <h3>Release signing</h3>
+  <p>All release checksums are signed with <a href="https://www.sigstore.dev/">cosign (Sigstore)</a> using keyless signing via GitHub Actions OIDC. This proves that artifacts were built by the official CI pipeline &mdash; no private key management required.</p>
+  <p>Each release includes <code>checksums.txt</code>, <code>checksums.txt.sig</code> (signature), and <code>checksums.txt.pem</code> (certificate). To verify:</p>
+  <pre><code># Verify the checksum signature
+cosign verify-blob \
+  --certificate checksums.txt.pem \
+  --signature checksums.txt.sig \
+  --certificate-identity-regexp "^https://github\.com/sekia-ai/sekia/" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  checksums.txt
+
+# Verify your archive against the signed checksums
+sha256sum --check checksums.txt --ignore-missing</code></pre>
+
   <h3>Hardening measures</h3>
   <p>In addition to runtime security features, the codebase includes several hardening measures identified and enforced by static analysis:</p>
   <ul>

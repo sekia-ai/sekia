@@ -46,8 +46,26 @@ sekia is a multi-agent event bus that handles credentials and automates actions 
 
 ### Supply Chain
 
+- **Release signing**: All release checksums are signed with [cosign (Sigstore)](https://www.sigstore.dev/) using keyless signing via GitHub Actions OIDC. This proves artifacts were built by the official CI pipeline. Each release includes `checksums.txt`, `checksums.txt.sig` (signature), and `checksums.txt.pem` (certificate).
 - Dependencies are tracked with Dependabot.
 - CI runs `go vet` and tests on every pull request.
+
+### Verifying Release Signatures
+
+Download the release archive, `checksums.txt`, `checksums.txt.sig`, and `checksums.txt.pem` from the [GitHub Releases](https://github.com/sekia-ai/sekia/releases) page, then:
+
+```bash
+# Verify the checksum signature
+cosign verify-blob \
+  --certificate checksums.txt.pem \
+  --signature checksums.txt.sig \
+  --certificate-identity-regexp "^https://github\.com/sekia-ai/sekia/" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  checksums.txt
+
+# Verify your archive against the signed checksums
+sha256sum --check checksums.txt --ignore-missing
+```
 
 ## Disclosure Policy
 
