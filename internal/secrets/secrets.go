@@ -83,7 +83,7 @@ func GenerateKeyPair() (*age.X25519Identity, error) {
 
 // LoadIdentity loads age identities from a key file.
 func LoadIdentity(keyPath string) ([]age.Identity, error) {
-	f, err := os.Open(keyPath)
+	f, err := os.Open(filepath.Clean(keyPath)) // #nosec G304 -- path comes from user config or env var, not untrusted input
 	if err != nil {
 		return nil, fmt.Errorf("open identity file: %w", err)
 	}
