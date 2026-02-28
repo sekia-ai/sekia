@@ -280,6 +280,33 @@ Standalone binary (`cmd/sekia-mcp/`) that exposes sekia capabilities to AI assis
 
 **Config file**: `sekia-mcp.toml`. Env vars: `SEKIA_NATS_URL`, `SEKIA_DAEMON_SOCKET`.
 
+### Secrets encryption (`internal/secrets/`)
+
+Native config encryption using [age](https://age-encryption.org/) (`filippo.io/age`). Secret values in TOML config files are encrypted inline as `ENC[<base64(age-ciphertext)>]`. Each binary decrypts independently at startup. Plaintext values continue to work — encryption is fully opt-in.
+
+**Flow**: `sekiactl secrets encrypt <value> → ENC[...] in config → LoadConfig() → ResolveIdentity() → DecryptViperConfig() → plaintext in memory`
+
+**Identity resolution** (priority order):
+1. `SEKIA_AGE_KEY` env var — raw `AGE-SECRET-KEY-1...` string (for off-machine injection via Vault, AWS Secrets Manager, etc.)
+2. `SEKIA_AGE_KEY_FILE` env var — path to age identity file
+3. `secrets.identity` config key — path in TOML config
+4. `~/.config/sekia/age.key` — default location (if exists)
+5. None found → encryption disabled (no error unless `ENC[...]` values exist in config)
+
+**Key design decisions:**
+- **age encryption** — modern, simple, SOPS-compatible. Supports off-machine keys (env var injection, `age-plugin-yubikey`).
+- **Inline encrypted values** — `ENC[...]` strings in TOML, not a separate secrets store.
+- **Per-process decryption** — each binary resolves identity and decrypts its own config. No daemon dependency for secrets.
+- **Viper integration** — `DecryptViperConfig()` walks `v.AllKeys()`, decrypts `ENC[...]` values via `v.Set()`, so `Unmarshal()` sees plaintext. Zero changes to config structs.
+- **Fail-fast** — any decryption failure aborts startup. Clear error if `ENC[...]` values found but no identity configured.
+
+**CLI:**
+- `sekiactl secrets keygen [--output <path>]` — generate age keypair (default `~/.config/sekia/age.key`)
+- `sekiactl secrets encrypt <value> [--recipient <pubkey>]` — encrypt a value, output `ENC[...]`
+- `sekiactl secrets decrypt <ENC[...]>` — decrypt a value (for debugging)
+
+**Config**: `[secrets]` section — `identity` (path to age key file). Env vars: `SEKIA_AGE_KEY`, `SEKIA_AGE_KEY_FILE`.
+
 ### Website and documentation (`docs/`)
 
 Static website at `sekia.ai` with comprehensive documentation at `sekia.ai/docs/`. Plain HTML + CSS, no build step, hosted on GitHub Pages.

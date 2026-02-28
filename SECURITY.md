@@ -32,6 +32,27 @@ sekia is a multi-agent event bus that handles credentials and automates actions 
 - Agent tokens (`GITHUB_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `LINEAR_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) should follow the principle of least privilege.
 - The Google agent stores OAuth2 tokens on disk (`GOOGLE_TOKEN_PATH`). Ensure the token file has restrictive permissions (`600`).
 
+### Config Encryption
+
+sekia supports native encryption of secret values in TOML config files using [age](https://age-encryption.org/) (X25519). Encrypted values are stored inline as `ENC[<base64>]` strings and decrypted transparently at startup.
+
+```bash
+# Generate a keypair
+sekiactl secrets keygen
+# Public key: age1abc...
+
+# Encrypt a token
+sekiactl secrets encrypt "ghp_mytoken123"
+# ENC[YWdlLWVuY3J5cHRpb24...]
+
+# Use in config
+# github.token = "ENC[YWdlLWVuY3J5cHRpb24...]"
+```
+
+**Off-machine key support:** The decryption key does not need to reside on the same machine as the encrypted config. Set `SEKIA_AGE_KEY` (raw key string) or `SEKIA_AGE_KEY_FILE` (path to key file) via your secrets manager, CI/CD pipeline, or orchestration tool. Hardware keys are supported via `age-plugin-yubikey`.
+
+Key files are stored with `0600` permissions and their parent directories with `0700`.
+
 ### Lua Workflow Sandboxing
 
 - Lua workflows run in a restricted sandbox: only `base` (minus `dofile`/`loadfile`/`load`), `table`, `string`, and `math` modules are available. `os`, `io`, and `debug` are excluded.
