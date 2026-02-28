@@ -16,7 +16,7 @@ require (
 	github.com/yuin/gopher-lua v1.1.1
 	golang.org/x/net v0.49.0
 	golang.org/x/oauth2 v0.35.0
-	google.golang.org/api v0.266.0
+	google.golang.org/api v0.267.0
 )
 
 require (
