@@ -418,6 +418,29 @@ $ sekiactl config reload --target sekiad</code></pre>
     </tbody>
   </table>
   <p>All agents also hot-reload <code>security.command_secret</code>.</p>
+
+  <h3>sekiactl secrets keygen</h3>
+  <p>Generate a new <a href="https://age-encryption.org/">age</a> X25519 keypair for encrypting config secrets. The private key is written to a file (default <code>~/.config/sekia/age.key</code> with mode 0600) and the public key is printed to stdout.</p>
+  <pre><code>$ sekiactl secrets keygen
+Key file written to: /home/user/.config/sekia/age.key
+Public key: age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p
+
+<span class="cm"># Custom path</span>
+$ sekiactl secrets keygen --output /path/to/key.age</code></pre>
+
+  <h3>sekiactl secrets encrypt</h3>
+  <p>Encrypt a plaintext value and output an <code>ENC[...]</code> string for pasting into a TOML config file.</p>
+  <pre><code><span class="cm"># Uses the default key file's public key</span>
+$ sekiactl secrets encrypt <span class="str">"ghp_mytoken123"</span>
+ENC[YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IF...]
+
+<span class="cm"># Explicit recipient</span>
+$ sekiactl secrets encrypt --recipient age1abc... <span class="str">"xoxb-slack-token"</span></code></pre>
+
+  <h3>sekiactl secrets decrypt</h3>
+  <p>Decrypt an <code>ENC[...]</code> value using the configured identity. Useful for debugging.</p>
+  <pre><code>$ sekiactl secrets decrypt <span class="str">"ENC[YWdlLWVuY3J5cHRpb24...]"</span>
+ghp_mytoken123</code></pre>
 </section>
 
 <!-- ================================================================== -->
@@ -1384,6 +1407,22 @@ password = <span class="str">"secret"</span></code></pre>
 
   <h3>GitHub webhook verification</h3>
   <p>When <code>webhook.secret</code> is configured, the GitHub agent verifies <code>X-Hub-Signature-256</code> headers using HMAC-SHA256.</p>
+
+  <h3>Secrets encryption</h3>
+  <p>sekia supports native encryption of secret values in config files using <a href="https://age-encryption.org/">age</a> (X25519). Encrypted values are stored inline as <code>ENC[...]</code> strings and decrypted transparently at startup by every binary.</p>
+  <pre><code><span class="cm"># Generate a keypair</span>
+sekiactl secrets keygen
+<span class="cm"># Key file written to: ~/.config/sekia/age.key</span>
+<span class="cm"># Public key: age1abc...</span>
+
+<span class="cm"># Encrypt a secret</span>
+sekiactl secrets encrypt <span class="str">"ghp_mytoken123"</span>
+<span class="cm"># ENC[YWdlLWVuY3J5cHRpb24...]</span></code></pre>
+  <p>Use the <code>ENC[...]</code> value in any config file:</p>
+  <pre><code>[github]
+token = <span class="str">"ENC[YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IF...]"</span></code></pre>
+  <p>The decryption identity is resolved from (in order): <code>SEKIA_AGE_KEY</code> env var (raw key string), <code>SEKIA_AGE_KEY_FILE</code> env var (path), <code>secrets.identity</code> config key, or the default <code>~/.config/sekia/age.key</code>.</p>
+  <p><strong>Off-machine keys:</strong> The decryption key does not need to reside on the same machine. Inject it via <code>SEKIA_AGE_KEY</code> from your secrets manager (Vault, AWS Secrets Manager, etc.), CI/CD pipeline, or use <code>age-plugin-yubikey</code> for hardware-backed keys.</p>
 
   <h3>Unix socket security</h3>
   <p>The daemon API uses a Unix socket (default: <code>~/.config/sekia/sekiad.sock</code>), which inherits file system permissions. The daemon creates the parent directory with mode 0700, verifies it is owned by the current user, rejects symlinks at the socket path, and sets the socket file to mode 0600. This prevents symlink attacks that could occur with world-writable directories like <code>/tmp</code>.</p>

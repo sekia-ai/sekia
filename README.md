@@ -138,6 +138,28 @@ Defaults:
 
 See [configs/sekia.toml](configs/sekia.toml) for an example.
 
+### Secrets Encryption
+
+Secret values in config files can be encrypted using [age](https://age-encryption.org/). Encrypted values are stored inline and decrypted transparently at startup.
+
+```bash
+# Generate a keypair (writes to ~/.config/sekia/age.key)
+sekiactl secrets keygen
+
+# Encrypt a value
+sekiactl secrets encrypt "ghp_mytoken123"
+# Output: ENC[YWdlLWVuY3J5cHRpb24...]
+```
+
+Paste the `ENC[...]` value into your config file:
+
+```toml
+[github]
+token = "ENC[YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IF...]"
+```
+
+The decryption key can live off-machine — set `SEKIA_AGE_KEY` (raw key) or `SEKIA_AGE_KEY_FILE` (path) via your secrets manager or CI/CD pipeline. See [SECURITY.md](SECURITY.md) for details.
+
 ## Web Dashboard
 
 sekia includes an embedded web dashboard for monitoring agents, workflows, and live events. Enable it by setting `web.listen`:

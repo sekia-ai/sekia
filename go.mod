@@ -23,6 +23,8 @@ require (
 	cloud.google.com/go/auth v0.18.1 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
+	filippo.io/age v1.3.1 // indirect
+	filippo.io/hpke v0.4.0 // indirect
 	github.com/antithesishq/antithesis-sdk-go v0.5.0-default-no-op // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect

@@ -1,8 +1,11 @@
 package mcp
 
 import (
+	"fmt"
+
 	"github.com/spf13/viper"
 
+	"github.com/sekia-ai/sekia/internal/secrets"
 	"github.com/sekia-ai/sekia/pkg/sockpath"
 )
 
@@ -53,6 +56,19 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v.BindEnv("security.command_secret", "SEKIA_COMMAND_SECRET")
 
 	_ = v.ReadInConfig() // config file is optional
+
+	// Decrypt any ENC[...] values in config.
+	identities, err := secrets.ResolveIdentity(v)
+	if err != nil {
+		return Config{}, fmt.Errorf("resolve encryption identity: %w", err)
+	}
+	if identities != nil {
+		if err := secrets.DecryptViperConfig(v, identities); err != nil {
+			return Config{}, fmt.Errorf("decrypt config: %w", err)
+		}
+	} else if secrets.HasEncryptedValues(v) {
+		return Config{}, fmt.Errorf("config contains encrypted values but no age identity is configured; set SEKIA_AGE_KEY, SEKIA_AGE_KEY_FILE, or secrets.identity")
+	}
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {

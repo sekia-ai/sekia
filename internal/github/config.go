@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+
+	"github.com/sekia-ai/sekia/internal/secrets"
 )
 
 // Config is the top-level GitHub agent configuration.
@@ -83,6 +85,19 @@ func LoadConfig(cfgFile string) (Config, error) {
 
 	// Config file is optional.
 	_ = v.ReadInConfig()
+
+	// Decrypt any ENC[...] values in config.
+	identities, err := secrets.ResolveIdentity(v)
+	if err != nil {
+		return Config{}, fmt.Errorf("resolve encryption identity: %w", err)
+	}
+	if identities != nil {
+		if err := secrets.DecryptViperConfig(v, identities); err != nil {
+			return Config{}, fmt.Errorf("decrypt config: %w", err)
+		}
+	} else if secrets.HasEncryptedValues(v) {
+		return Config{}, fmt.Errorf("config contains encrypted values but no age identity is configured; set SEKIA_AGE_KEY, SEKIA_AGE_KEY_FILE, or secrets.identity")
+	}
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {

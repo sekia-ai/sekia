@@ -246,7 +246,7 @@ func SaveTokenToFile(path string, token *oauth2.Token) error {
 		return fmt.Errorf("create token dir: %w", err)
 	}
 
-	data, err := json.MarshalIndent(token, "", "  ")
+	data, err := json.MarshalIndent(token, "", "  ") // #nosec G117 -- token is written to a 0600 file, not logged or exposed
 	if err != nil {
 		return fmt.Errorf("marshal token: %w", err)
 	}
