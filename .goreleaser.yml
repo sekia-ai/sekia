@@ -65,9 +65,44 @@ builds:
       - -s -w -X main.version={{.Version}}
 
 archives:
-  - id: default
-    builds: [sekiad, sekiactl, sekia-github, sekia-slack, sekia-linear, sekia-google, sekia-mcp]
+  - id: sekia
+    builds: [sekiad, sekiactl]
     name_template: "sekia_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+  - id: sekia-github
+    builds: [sekia-github]
+    name_template: "sekia-github_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+  - id: sekia-slack
+    builds: [sekia-slack]
+    name_template: "sekia-slack_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+  - id: sekia-linear
+    builds: [sekia-linear]
+    name_template: "sekia-linear_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+  - id: sekia-google
+    builds: [sekia-google]
+    name_template: "sekia-google_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+  - id: sekia-mcp
+    builds: [sekia-mcp]
+    name_template: "sekia-mcp_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
         format: zip
@@ -100,23 +135,128 @@ changelog:
 
 brews:
   - name: sekia
-    ids: [default]
+    ids: [sekia]
     repository:
       owner: sekia-ai
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: Formula
     homepage: "https://github.com/sekia-ai/sekia"
-    description: "Multi-agent event bus for workflow automation"
+    description: "Multi-agent event bus - daemon and CLI"
     license: "Apache-2.0"
     install: |
       bin.install "sekiad"
       bin.install "sekiactl"
-      bin.install "sekia-github"
-      bin.install "sekia-slack"
-      bin.install "sekia-linear"
-      bin.install "sekia-google"
-      bin.install "sekia-mcp"
+    service: |
+      run [opt_bin/"sekiad"]
+      keep_alive true
+      log_path var/"log/sekiad.log"
+      error_log_path var/"log/sekiad.log"
     test: |
       system bin/"sekiad", "--help"
       system bin/"sekiactl", "--help"
+
+  - name: sekia-github
+    ids: [sekia-github]
+    repository:
+      owner: sekia-ai
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/sekia-ai/sekia"
+    description: "sekia GitHub agent - webhook and polling bridge"
+    license: "Apache-2.0"
+    dependencies:
+      - name: sekia-ai/tap/sekia
+    install: |
+      bin.install "sekia-github"
+    service: |
+      run [opt_bin/"sekia-github"]
+      keep_alive true
+      log_path var/"log/sekia-github.log"
+      error_log_path var/"log/sekia-github.log"
+    test: |
+      system bin/"sekia-github", "--help"
+
+  - name: sekia-slack
+    ids: [sekia-slack]
+    repository:
+      owner: sekia-ai
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/sekia-ai/sekia"
+    description: "sekia Slack agent - Socket Mode bridge"
+    license: "Apache-2.0"
+    dependencies:
+      - name: sekia-ai/tap/sekia
+    install: |
+      bin.install "sekia-slack"
+    service: |
+      run [opt_bin/"sekia-slack"]
+      keep_alive true
+      log_path var/"log/sekia-slack.log"
+      error_log_path var/"log/sekia-slack.log"
+    test: |
+      system bin/"sekia-slack", "--help"
+
+  - name: sekia-linear
+    ids: [sekia-linear]
+    repository:
+      owner: sekia-ai
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/sekia-ai/sekia"
+    description: "sekia Linear agent - GraphQL polling bridge"
+    license: "Apache-2.0"
+    dependencies:
+      - name: sekia-ai/tap/sekia
+    install: |
+      bin.install "sekia-linear"
+    service: |
+      run [opt_bin/"sekia-linear"]
+      keep_alive true
+      log_path var/"log/sekia-linear.log"
+      error_log_path var/"log/sekia-linear.log"
+    test: |
+      system bin/"sekia-linear", "--help"
+
+  - name: sekia-google
+    ids: [sekia-google]
+    repository:
+      owner: sekia-ai
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/sekia-ai/sekia"
+    description: "sekia Google agent - Gmail and Calendar bridge"
+    license: "Apache-2.0"
+    dependencies:
+      - name: sekia-ai/tap/sekia
+    install: |
+      bin.install "sekia-google"
+    service: |
+      run [opt_bin/"sekia-google"]
+      keep_alive true
+      log_path var/"log/sekia-google.log"
+      error_log_path var/"log/sekia-google.log"
+    test: |
+      system bin/"sekia-google", "--help"
+
+  - name: sekia-mcp
+    ids: [sekia-mcp]
+    repository:
+      owner: sekia-ai
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/sekia-ai/sekia"
+    description: "sekia MCP server - Model Context Protocol adapter"
+    license: "Apache-2.0"
+    dependencies:
+      - name: sekia-ai/tap/sekia
+    install: |
+      bin.install "sekia-mcp"
+    test: |
+      system bin/"sekia-mcp", "--help"
