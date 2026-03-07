@@ -11,7 +11,7 @@ require (
 	github.com/nats-io/nats-server/v2 v2.12.4
 	github.com/nats-io/nats.go v1.49.0
 	github.com/rs/zerolog v1.34.0
-	github.com/slack-go/slack v0.18.0
+	github.com/slack-go/slack v0.19.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/yuin/gopher-lua v1.1.1
