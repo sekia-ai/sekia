@@ -85,7 +85,19 @@
     <button class="tab-btn" data-tab="source">Source</button>
   </div>
   <div class="tab-content active" id="tab-brew">
-    <pre><code>brew install sekia-ai/tap/sekia</code></pre>
+    <pre><code><span class="cm"># Daemon + CLI (required)</span>
+brew install sekia-ai/tap/sekia
+
+<span class="cm"># Agents (install the ones you need)</span>
+brew install sekia-ai/tap/sekia-github
+brew install sekia-ai/tap/sekia-slack
+brew install sekia-ai/tap/sekia-linear
+brew install sekia-ai/tap/sekia-google
+brew install sekia-ai/tap/sekia-mcp
+
+<span class="cm"># Run as background services (launchd)</span>
+brew services start sekia
+brew services start sekia-github</code></pre>
   </div>
   <div class="tab-content" id="tab-go">
     <pre><code>go install github.com/sekia-ai/sekia/cmd/sekiad@latest
