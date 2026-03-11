@@ -113,7 +113,29 @@
   <h2>Installation</h2>
 
   <h3>Homebrew</h3>
-  <pre><code>brew install sekia-ai/tap/sekia</code></pre>
+  <p>Each component is a separate formula. Install the daemon/CLI first, then any agents you need:</p>
+  <pre><code><span class="cm"># Daemon + CLI (required)</span>
+brew install sekia-ai/tap/sekia
+
+<span class="cm"># Agents (install the ones you need)</span>
+brew install sekia-ai/tap/sekia-github
+brew install sekia-ai/tap/sekia-slack
+brew install sekia-ai/tap/sekia-linear
+brew install sekia-ai/tap/sekia-google
+brew install sekia-ai/tap/sekia-mcp</code></pre>
+
+  <p>Each formula (except <code>sekia-mcp</code>) includes a launchd service definition. Use <code>brew services</code> to run them as background services:</p>
+  <pre><code><span class="cm"># Start the daemon and agents as background services</span>
+brew services start sekia
+brew services start sekia-github
+brew services start sekia-slack
+
+<span class="cm"># Check running services</span>
+brew services list
+
+<span class="cm"># Stop a service</span>
+brew services stop sekia-github</code></pre>
+  <p>Logs are written to <code>$(brew --prefix)/var/log/&lt;formula&gt;.log</code> (e.g. <code>sekiad.log</code>, <code>sekia-github.log</code>).</p>
 
   <h3>Go</h3>
   <pre><code>go install github.com/sekia-ai/sekia/cmd/sekiad@latest
@@ -147,6 +169,8 @@ go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github \
   <h3>1. Start the daemon</h3>
   <pre><code>sekiad</code></pre>
   <p>This starts the embedded NATS server, workflow engine, and Unix socket API. No configuration file needed for defaults.</p>
+  <p>Or run it as a background service with Homebrew:</p>
+  <pre><code>brew services start sekia</code></pre>
 
   <h3>2. Write a workflow</h3>
   <p>Create a Lua file in <code>~/.config/sekia/workflows/</code>:</p>

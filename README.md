@@ -53,9 +53,38 @@ Seven binaries — `sekiad` (daemon), `sekiactl` (CLI), four agents (`sekia-gith
 
 ### Homebrew (macOS/Linux)
 
+Each component is a separate formula. Install what you need:
+
 ```bash
+# Daemon + CLI (required)
 brew install sekia-ai/tap/sekia
+
+# Agents (install the ones you need)
+brew install sekia-ai/tap/sekia-github
+brew install sekia-ai/tap/sekia-slack
+brew install sekia-ai/tap/sekia-linear
+brew install sekia-ai/tap/sekia-google
+brew install sekia-ai/tap/sekia-mcp
 ```
+
+Each formula (except `sekia-mcp`) includes a launchd service. Use `brew services` to manage them:
+
+```bash
+# Start the daemon as a background service
+brew services start sekia
+
+# Start agents as background services
+brew services start sekia-github
+brew services start sekia-slack
+
+# Check running services
+brew services list
+
+# Stop a service
+brew services stop sekia-github
+```
+
+Logs are written to `$(brew --prefix)/var/log/<formula>.log`.
 
 ### From source
 

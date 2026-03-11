@@ -322,6 +322,17 @@ Static website at `sekia.ai` with comprehensive documentation at `sekia.ai/docs/
 - **Single-page docs** — all documentation in one page for easy Cmd+F search. Sidebar navigation with scroll tracking.
 - **Same design system** — shared CSS variables, fonts, colors, dark mode.
 
+### Distribution and services (`.goreleaser.yml`)
+
+**Homebrew**: Each component is a separate formula in the `sekia-ai/homebrew-tap` repository, installed individually:
+- `sekia` — daemon (`sekiad`) + CLI (`sekiactl`)
+- `sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-google` — agent formulas (each depends on `sekia`)
+- `sekia-mcp` — MCP server (no service, stdio-based)
+
+**launchd services**: Every formula except `sekia-mcp` includes a Homebrew service definition (`keep_alive true`, logs to `var/log/<formula>.log`). Users manage them with `brew services start/stop/list`.
+
+**Archives**: goreleaser builds 7 binaries (linux+darwin, amd64+arm64), packages them into per-component tarballs, signs checksums with cosign, and generates SBOMs.
+
 ## Project status
 
 All phases complete. Docker, goreleaser, GitHub Actions CI/CD, web dashboard, MCP server, and documentation site are in place.
