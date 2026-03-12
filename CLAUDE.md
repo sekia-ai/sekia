@@ -282,30 +282,46 @@ Standalone binary (`cmd/sekia-mcp/`) that exposes sekia capabilities to AI assis
 
 ### Secrets encryption (`internal/secrets/`)
 
-Native config encryption using [age](https://age-encryption.org/) (`filippo.io/age`). Secret values in TOML config files are encrypted inline as `ENC[<base64(age-ciphertext)>]`. Each binary decrypts independently at startup. Plaintext values continue to work — encryption is fully opt-in.
+Config value encryption and secret resolution with three backends: age, AWS KMS, and AWS Secrets Manager. Each binary resolves secrets independently at startup via `ResolveViperConfig()`. Plaintext values continue to work — encryption is fully opt-in.
 
-**Flow**: `sekiactl secrets encrypt <value> → ENC[...] in config → LoadConfig() → ResolveIdentity() → DecryptViperConfig() → plaintext in memory`
+**Inline value formats:**
 
-**Identity resolution** (priority order):
-1. `SEKIA_AGE_KEY` env var — raw `AGE-SECRET-KEY-1...` string (for off-machine injection via Vault, AWS Secrets Manager, etc.)
+| Format | Backend | Behavior |
+|--------|---------|----------|
+| `ENC[<base64(age-ciphertext)>]` | age (`filippo.io/age`) | Decrypt with local age identity |
+| `KMS[<base64(ciphertext-blob)>]` | AWS KMS | Decrypt via KMS API (key ID embedded in cipherblob) |
+| `ASM[<secret-name-or-arn>]` | AWS Secrets Manager | Fetch plaintext secret by name/ARN |
+
+**Flow**: `LoadConfig() → ResolveViperConfig(v) → detect prefixes → lazy-init backends → resolve all values → v.Set() → Unmarshal() sees plaintext`
+
+**age identity resolution** (priority order):
+1. `SEKIA_AGE_KEY` env var — raw `AGE-SECRET-KEY-1...` string
 2. `SEKIA_AGE_KEY_FILE` env var — path to age identity file
 3. `secrets.identity` config key — path in TOML config
 4. `~/.config/sekia/age.key` — default location (if exists)
-5. None found → encryption disabled (no error unless `ENC[...]` values exist in config)
+5. None found → age disabled (no error unless `ENC[...]` values exist in config)
+
+**AWS config resolution**: Standard AWS SDK v2 default chain (env vars, profile, instance role, ECS/EC2 metadata). Optional region override via `secrets.aws_region` config key.
 
 **Key design decisions:**
-- **age encryption** — modern, simple, SOPS-compatible. Supports off-machine keys (env var injection, `age-plugin-yubikey`).
-- **Inline encrypted values** — `ENC[...]` strings in TOML, not a separate secrets store.
-- **Per-process decryption** — each binary resolves identity and decrypts its own config. No daemon dependency for secrets.
-- **Viper integration** — `DecryptViperConfig()` walks `v.AllKeys()`, decrypts `ENC[...]` values via `v.Set()`, so `Unmarshal()` sees plaintext. Zero changes to config structs.
-- **Fail-fast** — any decryption failure aborts startup. Clear error if `ENC[...]` values found but no identity configured.
+- **Three coexisting backends** — age for local/simple setups, KMS for AWS-managed encryption, ASM for direct secret references. Backends are lazily initialized only when their prefix is detected.
+- **Inline values** — `ENC[...]`, `KMS[...]`, `ASM[...]` strings in TOML, not a separate secrets store.
+- **Per-process decryption** — each binary resolves its own config. No daemon dependency for secrets.
+- **Unified resolver** — `ResolveViperConfig(v)` replaces the old three-call pattern (`ResolveIdentity` + `DecryptViperConfig` + `HasEncryptedValues`). Walks `v.AllKeys()` once, classifies values by prefix, resolves all in-place.
+- **ASM is plaintext-only** — binary secrets return an error. This is an opinionated choice for simplicity and security (no accidental binary blob injection).
+- **KMS auto-rotation safe** — AWS KMS preserves all previous key material versions, so ciphertexts encrypted with older versions still decrypt.
+- **Fail-fast** — any resolution failure aborts startup. Clear error if backend-specific values found but backend not configured.
+- **Testable** — `KMSClient` and `SecretsManagerClient` interfaces for mock injection in tests.
 
 **CLI:**
 - `sekiactl secrets keygen [--output <path>]` — generate age keypair (default `~/.config/sekia/age.key`)
-- `sekiactl secrets encrypt <value> [--recipient <pubkey>]` — encrypt a value, output `ENC[...]`
-- `sekiactl secrets decrypt <ENC[...]>` — decrypt a value (for debugging)
+- `sekiactl secrets encrypt <value> [--recipient <pubkey>]` — encrypt with age, output `ENC[...]`
+- `sekiactl secrets decrypt <ENC[...]>` — decrypt age value (for debugging)
+- `sekiactl secrets kms-encrypt <value> --key-id <id>` — encrypt with AWS KMS, output `KMS[...]`
+- `sekiactl secrets kms-decrypt <KMS[...]>` — decrypt KMS value (for debugging)
+- `sekiactl secrets asm-get <name-or-arn>` — fetch from Secrets Manager (for debugging)
 
-**Config**: `[secrets]` section — `identity` (path to age key file). Env vars: `SEKIA_AGE_KEY`, `SEKIA_AGE_KEY_FILE`.
+**Config**: `[secrets]` section — `identity` (path to age key file), `aws_region` (optional AWS region override), `kms_key_id` (default KMS key for encryption). Env vars: `SEKIA_AGE_KEY`, `SEKIA_AGE_KEY_FILE`, `SEKIA_KMS_KEY_ID`.
 
 ### Website and documentation (`docs/`)
 

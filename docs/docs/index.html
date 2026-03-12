@@ -443,6 +443,27 @@ $ sekiactl config reload --target sekiad</code></pre>
   </table>
   <p>All agents also hot-reload <code>security.command_secret</code>.</p>
 
+  <h3>Secret value formats</h3>
+  <p>Three inline formats are supported in TOML config files. Backends are lazily initialized &mdash; only when values with that prefix are detected:</p>
+  <table>
+    <thead><tr><th>Format</th><th>Backend</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>ENC[&lt;base64&gt;]</code></td><td>age</td><td>Decrypt with local age identity</td></tr>
+      <tr><td><code>KMS[&lt;base64&gt;]</code></td><td>AWS KMS</td><td>Decrypt via KMS API (key ID embedded in cipherblob)</td></tr>
+      <tr><td><code>ASM[&lt;name-or-arn&gt;]</code></td><td>AWS Secrets Manager</td><td>Fetch plaintext secret by name or ARN</td></tr>
+    </tbody>
+  </table>
+  <p>All formats can be mixed within the same config file. For example:</p>
+  <pre><code><span class="cm"># sekia-github.toml</span>
+[github]
+token = <span class="str">"ENC[YWdlLWVuY3J5cHRpb24...]"</span>      <span class="cm"># age-encrypted</span>
+
+[webhook]
+secret = <span class="str">"KMS[AQIDAHhB...]"</span>                  <span class="cm"># KMS-encrypted</span>
+
+[nats]
+token = <span class="str">"ASM[prod/sekia/nats-token]"</span>          <span class="cm"># Secrets Manager reference</span></code></pre>
+
   <h3>sekiactl secrets keygen</h3>
   <p>Generate a new <a href="https://age-encryption.org/">age</a> X25519 keypair for encrypting config secrets. The private key is written to a file (default <code>~/.config/sekia/age.key</code> with mode 0600) and the public key is printed to stdout.</p>
   <pre><code>$ sekiactl secrets keygen
@@ -465,6 +486,34 @@ $ sekiactl secrets encrypt --recipient age1abc... <span class="str">"xoxb-slack-
   <p>Decrypt an <code>ENC[...]</code> value using the configured identity. Useful for debugging.</p>
   <pre><code>$ sekiactl secrets decrypt <span class="str">"ENC[YWdlLWVuY3J5cHRpb24...]"</span>
 ghp_mytoken123</code></pre>
+
+  <h3>sekiactl secrets kms-encrypt</h3>
+  <p>Encrypt a plaintext value using an AWS KMS key and output a <code>KMS[...]</code> string. The key ID can be an ARN, alias, or key ID.</p>
+  <pre><code><span class="cm"># Explicit key ID</span>
+$ sekiactl secrets kms-encrypt --key-id alias/sekia-config <span class="str">"ghp_mytoken123"</span>
+KMS[AQIDAHhBm4p0...]
+
+<span class="cm"># Key ID from env or config</span>
+$ export SEKIA_KMS_KEY_ID=<span class="str">"arn:aws:kms:us-east-1:123456789:key/abc-def"</span>
+$ sekiactl secrets kms-encrypt <span class="str">"xoxb-slack-token"</span></code></pre>
+
+  <h3>sekiactl secrets kms-decrypt</h3>
+  <p>Decrypt a <code>KMS[...]</code> value using the AWS KMS API. No key ID needed &mdash; it is embedded in the ciphertext blob.</p>
+  <pre><code>$ sekiactl secrets kms-decrypt <span class="str">"KMS[AQIDAHhBm4p0...]"</span>
+ghp_mytoken123</code></pre>
+
+  <h3>sekiactl secrets asm-get</h3>
+  <p>Fetch a plaintext secret from AWS Secrets Manager. Only plaintext secrets are supported; binary secrets return an error.</p>
+  <pre><code>$ sekiactl secrets asm-get prod/sekia/github-token
+ghp_mytoken123</code></pre>
+
+  <h3>AWS configuration</h3>
+  <p>AWS credentials are resolved via the standard SDK v2 default chain (environment variables, shared credentials file, IAM instance role, ECS task role, etc.). An optional region override can be set:</p>
+  <pre><code><span class="cm"># In sekia.toml (or any agent config)</span>
+[secrets]
+aws_region = <span class="str">"us-east-1"</span>     <span class="cm"># optional region override</span>
+kms_key_id = <span class="str">"alias/sekia"</span>   <span class="cm"># default KMS key for kms-encrypt CLI</span></code></pre>
+  <p>KMS auto-rotation is fully supported &mdash; AWS preserves all previous key material versions, so existing ciphertexts remain decryptable after rotation.</p>
 </section>
 
 <!-- ================================================================== -->
