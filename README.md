@@ -169,25 +169,37 @@ See [configs/sekia.toml](configs/sekia.toml) for an example.
 
 ### Secrets Encryption
 
-Secret values in config files can be encrypted using [age](https://age-encryption.org/). Encrypted values are stored inline and decrypted transparently at startup.
+Secret values in config files can be encrypted or referenced inline using three backends:
+
+| Format | Backend | Description |
+|--------|---------|-------------|
+| `ENC[...]` | [age](https://age-encryption.org/) | Local age keypair encryption |
+| `KMS[...]` | AWS KMS | Encrypt/decrypt via AWS KMS API |
+| `ASM[...]` | AWS Secrets Manager | Fetch plaintext secret by name/ARN |
 
 ```bash
-# Generate a keypair (writes to ~/.config/sekia/age.key)
+# age: generate keypair + encrypt
 sekiactl secrets keygen
+sekiactl secrets encrypt "ghp_mytoken123"    # → ENC[...]
 
-# Encrypt a value
-sekiactl secrets encrypt "ghp_mytoken123"
-# Output: ENC[YWdlLWVuY3J5cHRpb24...]
+# AWS KMS: encrypt with a KMS key
+sekiactl secrets kms-encrypt --key-id alias/sekia "ghp_mytoken123"  # → KMS[...]
 ```
 
-Paste the `ENC[...]` value into your config file:
+All three formats can be mixed in the same config file:
 
 ```toml
 [github]
 token = "ENC[YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IF...]"
+
+[webhook]
+secret = "KMS[AQIDAHhB...]"
+
+[nats]
+token = "ASM[prod/sekia/nats-token]"
 ```
 
-The decryption key can live off-machine — set `SEKIA_AGE_KEY` (raw key) or `SEKIA_AGE_KEY_FILE` (path) via your secrets manager or CI/CD pipeline. See [SECURITY.md](SECURITY.md) for details.
+For age, the decryption key can live off-machine — set `SEKIA_AGE_KEY` (raw key) or `SEKIA_AGE_KEY_FILE` (path). For AWS backends, credentials use the standard SDK default chain (env, profile, instance role). See [SECURITY.md](SECURITY.md) for details.
 
 ## Web Dashboard
 

@@ -34,22 +34,29 @@ sekia is a multi-agent event bus that handles credentials and automates actions 
 
 ### Config Encryption
 
-sekia supports native encryption of secret values in TOML config files using [age](https://age-encryption.org/) (X25519). Encrypted values are stored inline as `ENC[<base64>]` strings and decrypted transparently at startup.
+sekia supports native encryption and secret resolution for values in TOML config files with three backends:
+
+- **age** (`ENC[...]`) — local X25519 encryption via [age](https://age-encryption.org/). Generate keys with `sekiactl secrets keygen`.
+- **AWS KMS** (`KMS[...]`) — encrypt/decrypt via the AWS KMS API. KMS auto-rotation is fully supported.
+- **AWS Secrets Manager** (`ASM[...]`) — fetch plaintext secrets by name or ARN. Only plaintext secrets are supported (binary secrets are rejected).
+
+All three formats can be mixed within the same config file and are decrypted transparently at startup.
 
 ```bash
-# Generate a keypair
+# age
 sekiactl secrets keygen
-# Public key: age1abc...
+sekiactl secrets encrypt "ghp_mytoken123"           # → ENC[...]
 
-# Encrypt a token
-sekiactl secrets encrypt "ghp_mytoken123"
-# ENC[YWdlLWVuY3J5cHRpb24...]
+# AWS KMS
+sekiactl secrets kms-encrypt --key-id alias/sekia "ghp_mytoken123"  # → KMS[...]
 
 # Use in config
 # github.token = "ENC[YWdlLWVuY3J5cHRpb24...]"
+# webhook.secret = "KMS[AQIDAHhB...]"
+# nats.token = "ASM[prod/sekia/nats-token]"
 ```
 
-**Off-machine key support:** The decryption key does not need to reside on the same machine as the encrypted config. Set `SEKIA_AGE_KEY` (raw key string) or `SEKIA_AGE_KEY_FILE` (path to key file) via your secrets manager, CI/CD pipeline, or orchestration tool. Hardware keys are supported via `age-plugin-yubikey`.
+**Off-machine key support:** For age, the decryption key does not need to reside on the same machine. Set `SEKIA_AGE_KEY` (raw key string) or `SEKIA_AGE_KEY_FILE` (path to key file) via your secrets manager, CI/CD pipeline, or orchestration tool. Hardware keys are supported via `age-plugin-yubikey`. For AWS backends, credentials use the standard SDK v2 default chain (environment, profile, instance role, ECS task role).
 
 Key files are stored with `0600` permissions and their parent directories with `0700`.
 
