@@ -33,3 +33,8 @@ listen = ":8080"
 # max_tokens = 1024
 # temperature = 0.0
 # system_prompt = ""
+
+# [secrets]
+# identity = "~/.config/sekia/age.key"    # age private key file for ENC[...] values
+# aws_region = "us-east-1"                # AWS region for KMS[...] and ASM[...] values
+# kms_key_id = "alias/sekia"              # default KMS key for sekiactl secrets kms-encrypt

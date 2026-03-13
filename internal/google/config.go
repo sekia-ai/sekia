@@ -29,6 +29,7 @@ type GoogleConfig struct {
 	ClientID     string `mapstructure:"client_id"`
 	ClientSecret string `mapstructure:"client_secret"` // #nosec G117 -- config deserialization, not hardcoded
 	TokenPath    string `mapstructure:"token_path"`
+	AuthPort     int    `mapstructure:"auth_port"`
 }
 
 // GmailConfig holds Gmail polling settings.

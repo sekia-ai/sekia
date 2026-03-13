@@ -339,6 +339,17 @@ Agent binary executes command via external API</code></pre>
     </tbody>
   </table>
 
+  <h3>[secrets]</h3>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>identity</td><td>string</td><td><code>~/.config/sekia/age.key</code></td><td>SEKIA_AGE_KEY_FILE</td><td>Path to age identity (private key) file for <code>ENC[...]</code> decryption</td></tr>
+      <tr><td>aws_region</td><td>string</td><td>&mdash;</td><td>&mdash;</td><td>AWS region override for <code>KMS[...]</code> and <code>ASM[...]</code> resolution</td></tr>
+      <tr><td>kms_key_id</td><td>string</td><td>&mdash;</td><td>SEKIA_KMS_KEY_ID</td><td>Default KMS key ID/ARN/alias for <code>sekiactl secrets kms-encrypt</code></td></tr>
+    </tbody>
+  </table>
+  <p>Additional env vars: <code>SEKIA_AGE_KEY</code> (raw age secret key string). AWS credentials use the standard SDK v2 default chain (env vars, shared credentials file, IAM instance role, ECS task role).</p>
+
   <h3>Example config file</h3>
   <pre><code><span class="cm"># ~/.config/sekia/sekia.toml</span>
 
@@ -361,7 +372,12 @@ listen = <span class="str">":8080"</span>
 
 [ai]
 api_key = <span class="str">"sk-ant-..."</span>
-model = <span class="str">"claude-sonnet-4-20250514"</span></code></pre>
+model = <span class="str">"claude-sonnet-4-20250514"</span>
+
+<span class="cm"># [secrets]</span>
+<span class="cm"># identity = "~/.config/sekia/age.key"      # age key file (default)</span>
+<span class="cm"># aws_region = "us-east-1"                   # for KMS[...] and ASM[...] values</span>
+<span class="cm"># kms_key_id = "alias/sekia"                 # default KMS key for CLI encrypt</span></code></pre>
 </section>
 
 <!-- ================================================================== -->
@@ -1099,6 +1115,19 @@ sekia-google [--config /path/to/sekia-google.toml]</code></pre>
     <li>Run <code>sekia-google</code> to start the agent (token auto-refreshes)</li>
   </ol>
 
+  <h4>Remote auth via SSH</h4>
+  <p>When running <code>sekia-google auth</code> on a headless server (e.g. EC2), the OAuth2 callback needs to reach the remote machine from your local browser. Set a fixed callback port and use SSH port forwarding:</p>
+  <pre><code><span class="cm"># In sekia-google.toml on the remote machine</span>
+[google]
+auth_port = 44557
+
+<span class="cm"># From your local machine, forward the callback port</span>
+ssh -L 44557:localhost:44557 your-server
+
+<span class="cm"># Then run auth on the remote machine (via the SSH session)</span>
+sekia-google auth</code></pre>
+  <p>The auth URL will open in your local browser. After granting permissions, the callback redirects to <code>localhost:44557</code>, which SSH tunnels back to the remote server. Without <code>auth_port</code>, the callback port is random and changes each run.</p>
+
   <h3>Configuration</h3>
   <p>Config file: <code>sekia-google.toml</code>.</p>
 
@@ -1118,6 +1147,7 @@ sekia-google [--config /path/to/sekia-google.toml]</code></pre>
       <tr><td>client_id</td><td>string</td><td>&mdash;</td><td>GOOGLE_CLIENT_ID</td><td>OAuth2 client ID (required)</td></tr>
       <tr><td>client_secret</td><td>string</td><td>&mdash;</td><td>GOOGLE_CLIENT_SECRET</td><td>OAuth2 client secret (required)</td></tr>
       <tr><td>token_path</td><td>string</td><td><code>~/.config/sekia/google-token.json</code></td><td>GOOGLE_TOKEN_PATH</td><td>Path to store the OAuth2 token</td></tr>
+      <tr><td>auth_port</td><td>int</td><td><code>0</code> (random)</td><td>&mdash;</td><td>Fixed port for OAuth2 callback server. Useful for SSH port forwarding when running <code>sekia-google auth</code> on a remote machine</td></tr>
     </tbody>
   </table>
 
