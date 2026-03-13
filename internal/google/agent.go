@@ -19,7 +19,7 @@ import (
 
 const (
 	agentName    = "google-agent"
-	agentVersion = "0.1.5"
+	agentVersion = "0.1.6"
 )
 
 // GoogleAgent bridges Google services (Gmail, Calendar) to the sekia event bus
