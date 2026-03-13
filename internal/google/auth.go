@@ -43,18 +43,21 @@ func OAuthConfig(clientID, clientSecret string) *oauth2.Config {
 // AuthFlow runs the OAuth2 authorization code flow with a loopback redirect.
 // It starts a temporary localhost HTTP server, opens the user's browser to
 // Google's consent screen, and captures the authorization code via redirect.
-func AuthFlow(ctx context.Context, clientID, clientSecret string) (*oauth2.Token, error) {
-	return authFlowWithListener(ctx, clientID, clientSecret, nil)
+// If port is non-zero, the callback server listens on that fixed port
+// (useful for SSH port forwarding). Otherwise a random port is chosen.
+func AuthFlow(ctx context.Context, clientID, clientSecret string, port int) (*oauth2.Token, error) {
+	return authFlowWithListener(ctx, clientID, clientSecret, nil, port)
 }
 
 // authFlowWithListener is the testable version that accepts an optional listener.
-// If listener is nil, a random localhost port is chosen.
-func authFlowWithListener(ctx context.Context, clientID, clientSecret string, listener net.Listener) (*oauth2.Token, error) {
+// If listener is nil, it listens on the given port (0 = random).
+func authFlowWithListener(ctx context.Context, clientID, clientSecret string, listener net.Listener, port int) (*oauth2.Token, error) {
 	var err error
 	if listener == nil {
-		listener, err = net.Listen("tcp", "127.0.0.1:0")
+		addr := fmt.Sprintf("127.0.0.1:%d", port)
+		listener, err = net.Listen("tcp", addr)
 		if err != nil {
-			return nil, fmt.Errorf("listen on localhost: %w", err)
+			return nil, fmt.Errorf("listen on %s: %w", addr, err)
 		}
 	}
 

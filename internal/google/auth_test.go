@@ -59,7 +59,7 @@ func TestAuthFlow(t *testing.T) {
 	}
 	ch := make(chan result, 1)
 	go func() {
-		token, err := authFlowWithListener(ctx, "test-client-id", "test-client-secret", listener)
+		token, err := authFlowWithListener(ctx, "test-client-id", "test-client-secret", listener, 0)
 		ch <- result{token, err}
 	}()
 

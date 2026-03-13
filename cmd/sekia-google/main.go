@@ -59,7 +59,7 @@ func main() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 
-			token, err := googleagent.AuthFlow(ctx, cfg.Google.ClientID, cfg.Google.ClientSecret)
+			token, err := googleagent.AuthFlow(ctx, cfg.Google.ClientID, cfg.Google.ClientSecret, cfg.Google.AuthPort)
 			if err != nil {
 				return fmt.Errorf("authorization failed: %w", err)
 			}
