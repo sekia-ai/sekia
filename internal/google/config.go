@@ -2,6 +2,9 @@ package google
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -97,6 +100,13 @@ func LoadConfig(cfgFile string) (Config, error) {
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
 		return cfg, err
+	}
+
+	// Expand ~ in token_path (Go doesn't do this automatically).
+	if strings.HasPrefix(cfg.Google.TokenPath, "~") {
+		if homeDir, err := os.UserHomeDir(); err == nil {
+			cfg.Google.TokenPath = filepath.Join(homeDir, cfg.Google.TokenPath[1:])
+		}
 	}
 
 	return cfg, nil
