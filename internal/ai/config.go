@@ -8,4 +8,5 @@ type Config struct {
 	MaxTokens    int     `mapstructure:"max_tokens"`
 	Temperature  float64 `mapstructure:"temperature"`
 	SystemPrompt string  `mapstructure:"system_prompt"`
+	PersonaPath  string  `mapstructure:"persona_path"`
 }

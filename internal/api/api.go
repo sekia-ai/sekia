@@ -14,6 +14,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 	"github.com/sekia-ai/sekia/internal/registry"
+	"github.com/sekia-ai/sekia/internal/skills"
 	"github.com/sekia-ai/sekia/internal/workflow"
 	"github.com/sekia-ai/sekia/pkg/protocol"
 )
@@ -23,6 +24,7 @@ type Server struct {
 	socketPath string
 	registry   *registry.Registry
 	engine     *workflow.Engine
+	skills     *skills.Manager
 	nc         *nats.Conn
 	startedAt  time.Time
 	httpServer *http.Server
@@ -46,6 +48,7 @@ func New(socketPath string, reg *registry.Registry, engine *workflow.Engine, nc 
 	mux.HandleFunc("GET /api/v1/agents", s.handleAgents)
 	mux.HandleFunc("GET /api/v1/workflows", s.handleWorkflows)
 	mux.HandleFunc("POST /api/v1/workflows/reload", s.handleWorkflowReload)
+	mux.HandleFunc("GET /api/v1/skills", s.handleSkills)
 	mux.HandleFunc("POST /api/v1/config/reload", s.handleConfigReload)
 
 	s.httpServer = &http.Server{
@@ -194,4 +197,21 @@ func (s *Server) handleConfigReload(w http.ResponseWriter, r *http.Request) {
 		Status: "reload_requested",
 		Target: target,
 	})
+}
+
+// SetSkillsManager sets the skills manager for the API server.
+func (s *Server) SetSkillsManager(m *skills.Manager) {
+	s.skills = m
+}
+
+func (s *Server) handleSkills(w http.ResponseWriter, r *http.Request) {
+	var infos []skills.SkillInfo
+	if s.skills != nil {
+		infos = s.skills.SkillInfos()
+	}
+	if infos == nil {
+		infos = []skills.SkillInfo{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"skills": infos})
 }

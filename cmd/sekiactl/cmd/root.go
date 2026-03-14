@@ -26,6 +26,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newStatusCmd())
 	rootCmd.AddCommand(newAgentsCmd())
 	rootCmd.AddCommand(newWorkflowsCmd())
+	rootCmd.AddCommand(newSkillsCmd())
 	rootCmd.AddCommand(newConfigCmd())
 	rootCmd.AddCommand(newSecretsCmd())
 

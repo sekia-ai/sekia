@@ -12,8 +12,11 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/sekia-ai/sekia/internal/ai"
 	"github.com/sekia-ai/sekia/internal/api"
+	"github.com/sekia-ai/sekia/internal/conversation"
 	"github.com/sekia-ai/sekia/internal/natsserver"
 	"github.com/sekia-ai/sekia/internal/registry"
+	"github.com/sekia-ai/sekia/internal/sentinel"
+	"github.com/sekia-ai/sekia/internal/skills"
 	"github.com/sekia-ai/sekia/internal/web"
 	"github.com/sekia-ai/sekia/internal/workflow"
 	"github.com/sekia-ai/sekia/pkg/protocol"
@@ -26,6 +29,8 @@ type Daemon struct {
 	nats        *natsserver.Server
 	registry    *registry.Registry
 	engine      *workflow.Engine
+	sentinel    *sentinel.Sentinel
+	skills      *skills.Manager
 	apiServer   *api.Server
 	webServer   *web.Server
 	startedAt   time.Time
@@ -84,41 +89,32 @@ func (d *Daemon) Run() error {
 	d.registry = reg
 
 	// 3. Create LLM client (if configured).
-	llm := d.llmOverride
-	if llm == nil && d.cfg.AI.APIKey != "" {
-		llm = ai.NewAnthropicClient(d.cfg.AI, d.logger)
-		d.logger.Info().
-			Str("provider", d.cfg.AI.Provider).
-			Str("model", d.cfg.AI.Model).
-			Msg("AI client configured")
-	}
+	llm := d.createLLMClient()
 
 	// 4. Start workflow engine.
-	if d.cfg.Security.CommandSecret == "" {
-		d.logger.Warn().Msg("no command signing secret configured; commands will not be authenticated. Set security.command_secret or SEKIA_COMMAND_SECRET")
-	}
-	if d.cfg.Workflows.Dir != "" {
-		eng := workflow.New(ns.Conn(), d.cfg.Workflows.Dir, llm, d.cfg.Workflows.HandlerTimeout, d.cfg.Security.CommandSecret, d.logger)
-		if d.cfg.Workflows.VerifyIntegrity {
-			eng.SetVerifyIntegrity(true)
-		}
-		if err := eng.Start(); err != nil {
-			reg.Close()
-			ns.Shutdown()
-			return fmt.Errorf("start workflow engine: %w", err)
-		}
-		if err := eng.LoadDir(); err != nil {
-			d.logger.Warn().Err(err).Msg("failed to load workflows")
-		}
-		if d.cfg.Workflows.HotReload {
-			if err := eng.StartWatcher(); err != nil {
-				d.logger.Warn().Err(err).Msg("failed to start workflow watcher")
-			}
-		}
-		d.engine = eng
+	if err := d.startWorkflowEngine(llm); err != nil {
+		reg.Close()
+		ns.Shutdown()
+		return err
 	}
 
-	// 4b. Subscribe to config reload for the daemon.
+	// 4a. Create conversation store and wire to engine.
+	convoStore := conversation.NewStore(d.cfg.Conversation.MaxHistory, d.cfg.Conversation.TTL)
+	if d.engine != nil {
+		d.engine.SetConversationStore(conversation.NewWorkflowAdapter(convoStore))
+	}
+	go d.runConversationCleanup(convoStore)
+
+	// 4b. Load skills (if configured).
+	d.loadSkills()
+
+	// 4c. Start sentinel (if configured).
+	if d.cfg.Sentinel.Enabled && llm != nil {
+		d.sentinel = sentinel.New(d.cfg.Sentinel, llm, ns.Conn(), reg, d.engine, d.logger)
+		d.sentinel.Start()
+	}
+
+	// 4d. Subscribe to config reload for the daemon.
 	ns.Conn().Subscribe(protocol.SubjectConfigReload, func(_ *nats.Msg) {
 		d.reloadConfig()
 	})
@@ -128,36 +124,16 @@ func (d *Daemon) Run() error {
 
 	// 5. Start API server.
 	d.apiServer = api.New(d.cfg.Server.Socket, reg, d.engine, ns.Conn(), d.startedAt, d.logger)
-	apiLn, err := d.apiServer.Listen()
-	if err != nil {
-		if d.engine != nil {
-			d.engine.Stop()
-		}
-		reg.Close()
-		ns.Shutdown()
-		return fmt.Errorf("api listen: %w", err)
+	if d.skills != nil {
+		d.apiServer.SetSkillsManager(d.skills)
 	}
-	apiErrCh := make(chan error, 1)
-	go func() {
-		apiErrCh <- d.apiServer.Serve(apiLn)
-	}()
+	apiErrCh, err := d.startAPIServer()
+	if err != nil {
+		return err
+	}
 
 	// 6. Start web UI (if configured).
-	var webErrCh chan error
-	if d.cfg.Web.Listen != "" {
-		if d.cfg.Web.Username == "" || d.cfg.Web.Password == "" {
-			d.logger.Warn().Msg("web dashboard has no authentication; set web.username and web.password or SEKIA_WEB_USERNAME/SEKIA_WEB_PASSWORD")
-		}
-		d.webServer = web.New(web.Config{
-			Listen:   d.cfg.Web.Listen,
-			Username: d.cfg.Web.Username,
-			Password: d.cfg.Web.Password,
-		}, reg, d.engine, ns.Conn(), d.startedAt, d.logger)
-		webErrCh = make(chan error, 1)
-		go func() {
-			webErrCh <- d.webServer.Start()
-		}()
-	}
+	webErrCh := d.startWebServer(reg, ns)
 
 	d.logger.Info().
 		Str("socket", d.cfg.Server.Socket).
@@ -167,6 +143,74 @@ func (d *Daemon) Run() error {
 	close(d.readyCh)
 
 	// 7. Wait for signal, stop call, or server error.
+	d.waitForShutdown(apiErrCh, webErrCh)
+
+	return d.shutdown()
+}
+
+func (d *Daemon) startWorkflowEngine(llm ai.LLMClient) error {
+	if d.cfg.Security.CommandSecret == "" {
+		d.logger.Warn().Msg("no command signing secret configured; commands will not be authenticated. Set security.command_secret or SEKIA_COMMAND_SECRET")
+	}
+	if d.cfg.Workflows.Dir == "" {
+		return nil
+	}
+	eng := workflow.New(d.nats.Conn(), d.cfg.Workflows.Dir, llm, d.cfg.Workflows.HandlerTimeout, d.cfg.Security.CommandSecret, d.logger)
+	if d.cfg.Workflows.VerifyIntegrity {
+		eng.SetVerifyIntegrity(true)
+	}
+	if err := eng.Start(); err != nil {
+		return fmt.Errorf("start workflow engine: %w", err)
+	}
+	if err := eng.LoadDir(); err != nil {
+		d.logger.Warn().Err(err).Msg("failed to load workflows")
+	}
+	if d.cfg.Workflows.HotReload {
+		if err := eng.StartWatcher(); err != nil {
+			d.logger.Warn().Err(err).Msg("failed to start workflow watcher")
+		}
+	}
+	d.engine = eng
+	return nil
+}
+
+func (d *Daemon) startAPIServer() (chan error, error) {
+	apiLn, err := d.apiServer.Listen()
+	if err != nil {
+		if d.engine != nil {
+			d.engine.Stop()
+		}
+		d.registry.Close()
+		d.nats.Shutdown()
+		return nil, fmt.Errorf("api listen: %w", err)
+	}
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- d.apiServer.Serve(apiLn)
+	}()
+	return errCh, nil
+}
+
+func (d *Daemon) startWebServer(reg *registry.Registry, ns *natsserver.Server) chan error {
+	if d.cfg.Web.Listen == "" {
+		return nil
+	}
+	if d.cfg.Web.Username == "" || d.cfg.Web.Password == "" {
+		d.logger.Warn().Msg("web dashboard has no authentication; set web.username and web.password or SEKIA_WEB_USERNAME/SEKIA_WEB_PASSWORD")
+	}
+	d.webServer = web.New(web.Config{
+		Listen:   d.cfg.Web.Listen,
+		Username: d.cfg.Web.Username,
+		Password: d.cfg.Web.Password,
+	}, reg, d.engine, ns.Conn(), d.startedAt, d.logger)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- d.webServer.Start()
+	}()
+	return errCh
+}
+
+func (d *Daemon) waitForShutdown(apiErrCh, webErrCh chan error) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
@@ -184,8 +228,6 @@ func (d *Daemon) Run() error {
 			d.logger.Error().Err(err).Msg("web server error")
 		}
 	}
-
-	return d.shutdown()
 }
 
 // Stop signals the daemon to shut down. Safe to call from another goroutine.
@@ -213,6 +255,66 @@ func (d *Daemon) NATSConnectOpts() []nats.Option {
 	return opts
 }
 
+func (d *Daemon) loadSkills() {
+	if d.cfg.Skills.Dir == "" {
+		return
+	}
+	mgr := skills.NewManager(d.cfg.Skills.Dir, d.logger)
+	if err := mgr.LoadAll(); err != nil {
+		d.logger.Warn().Err(err).Msg("failed to load skills")
+	}
+	d.skills = mgr
+	if d.engine != nil {
+		d.engine.SetSkillsIndex(mgr.Index())
+		d.engine.SetSkillResolver(mgr)
+		// Load skill handler.lua files as workflows.
+		for name, path := range mgr.HandlerPaths() {
+			if err := d.engine.LoadWorkflow("skill:"+name, path); err != nil {
+				d.logger.Warn().Err(err).Str("skill", name).Msg("failed to load skill handler")
+			}
+		}
+	}
+}
+
+func (d *Daemon) createLLMClient() ai.LLMClient {
+	if d.llmOverride != nil {
+		return d.llmOverride
+	}
+	if d.cfg.AI.APIKey == "" {
+		return nil
+	}
+	ac := ai.NewAnthropicClient(d.cfg.AI, d.logger)
+	if d.cfg.AI.PersonaPath != "" {
+		persona, err := ai.LoadPersona(d.cfg.AI.PersonaPath)
+		if err != nil {
+			d.logger.Warn().Err(err).Str("path", d.cfg.AI.PersonaPath).Msg("failed to load persona")
+		} else if persona != "" {
+			ac.SetPersonaPrompt(persona)
+			d.logger.Info().Str("path", d.cfg.AI.PersonaPath).Msg("persona loaded")
+		}
+	}
+	d.logger.Info().
+		Str("provider", d.cfg.AI.Provider).
+		Str("model", d.cfg.AI.Model).
+		Msg("AI client configured")
+	return ac
+}
+
+func (d *Daemon) runConversationCleanup(store *conversation.Store) {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if removed := store.Cleanup(); removed > 0 {
+				d.logger.Debug().Int("removed", removed).Msg("cleaned up expired conversations")
+			}
+		case <-d.stopCh:
+			return
+		}
+	}
+}
+
 func (d *Daemon) reloadConfig() {
 	d.logger.Info().Msg("reloading daemon configuration")
 
@@ -235,8 +337,10 @@ func (d *Daemon) reloadConfig() {
 		}
 
 		if d.llmOverride == nil && newCfg.AI.APIKey != "" &&
-			(newCfg.AI.APIKey != d.cfg.AI.APIKey || newCfg.AI.Model != d.cfg.AI.Model) {
-			newLLM := ai.NewAnthropicClient(newCfg.AI, d.logger)
+			(newCfg.AI.APIKey != d.cfg.AI.APIKey || newCfg.AI.Model != d.cfg.AI.Model ||
+				newCfg.AI.PersonaPath != d.cfg.AI.PersonaPath) {
+			d.cfg = newCfg
+			newLLM := d.createLLMClient()
 			d.engine.SetLLMClient(newLLM)
 			d.logger.Info().Str("model", newCfg.AI.Model).Msg("updated AI client")
 		}
@@ -255,6 +359,9 @@ func (d *Daemon) shutdown() error {
 	}
 	if d.apiServer != nil {
 		d.apiServer.Shutdown(ctx)
+	}
+	if d.sentinel != nil {
+		d.sentinel.Stop()
 	}
 	if d.engine != nil {
 		d.engine.Stop()

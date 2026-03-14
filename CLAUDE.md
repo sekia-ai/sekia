@@ -93,6 +93,9 @@ Lua-based event→handler→command engine using [gopher-lua](https://github.com
 - `sekia.name` — the workflow's name
 - `sekia.ai(prompt [, opts])` — synchronous LLM call, returns `(result, err)`. Options: `model`, `max_tokens`, `temperature`, `system`
 - `sekia.ai_json(prompt [, opts])` — like `sekia.ai` but requests JSON and returns a parsed Lua table
+- `sekia.skill(name)` — returns full instructions for a named skill (from `SKILL.md` files)
+- `sekia.conversation(platform, channel, thread)` — returns a conversation handle with methods: `:append(role, content)`, `:reply(prompt)`, `:history()`, `:metadata(key, [value])`
+- `sekia.schedule(interval_seconds, handler)` — register a timer-driven handler that fires at the given interval (minimum 1 second)
 
 **Key design decisions:**
 - **Sandboxed**: only `base` (minus `dofile`/`loadfile`/`load`), `table`, `string`, `math` loaded. No `os`/`io`/`debug`.
@@ -129,7 +132,69 @@ LLM client for the Anthropic Messages API, wired into the Lua workflow engine as
 - **Error handling** — returns `(nil, error_string)` on failure (never raises Lua errors, unlike `sekia.publish`/`sekia.command`).
 - **120s timeout** per LLM call.
 
-**Config**: `[ai]` section in `sekia.toml`. Env var: `SEKIA_AI_API_KEY`.
+**Persona** (`internal/ai/persona.go`): A markdown file (`~/.config/sekia/persona.md`) loaded at startup and prepended to every AI system prompt. Defines agent personality, communication style, values, and boundaries. Gracefully handles missing file (returns empty string).
+
+**Prompt layering**: `[JSON mode prefix] + [persona.md] + [skills index] + [per-call system prompt]`
+
+**Multi-turn conversations**: `CompleteRequest.Messages []ai.Message` — if non-empty, used instead of single `Prompt` for multi-turn conversation context.
+
+**Config**: `[ai]` section in `sekia.toml` — `api_key`, `model`, `max_tokens`, `temperature`, `persona_path`. Env var: `SEKIA_AI_API_KEY`.
+
+### Sentinel (`internal/sentinel/`)
+
+AI-driven proactive check system. Reads a markdown checklist (`~/.config/sekia/sentinel.md`) on a configurable interval, gathers system context (agents, workflows), sends to the LLM, and publishes events based on the AI's assessment.
+
+**Flow**: `sentinel.md checklist + system context → LLM → parse actions → publish events on sekia.events.sentinel`
+
+**Event types**: `sentinel.action.required`, `sentinel.check.complete`
+
+**Key design decisions:**
+- **AI thinks about what matters** — unlike cron, sentinel evaluates whether something needs attention.
+- **Standard event publishing** — workflows handle sentinel events like any other NATS event.
+- **Optional** — disabled by default, requires both `sentinel.enabled = true` and an AI client.
+
+**Config**: `[sentinel]` section in `sekia.toml` — `enabled`, `interval`, `checklist_path`. Env vars: `SEKIA_SENTINEL_ENABLED`, `SEKIA_SENTINEL_INTERVAL`.
+
+### Skills system (`internal/skills/`)
+
+Directory-based capability definitions with YAML frontmatter + natural language instructions. Skills metadata is injected into AI prompts; optional `handler.lua` files auto-load as workflows.
+
+**Directory structure:**
+```
+~/.config/sekia/skills/
+  pr-review/
+    SKILL.md          # YAML frontmatter + instructions
+    handler.lua       # optional, auto-loaded as workflow with "skill:" prefix
+  triage/
+    SKILL.md
+```
+
+**SKILL.md format**: YAML frontmatter (`name`, `description`, `triggers`, `version`) followed by natural language instructions.
+
+**Key design decisions:**
+- **Skills index** — compact summary of all skills injected into AI prompts so the LLM knows what capabilities are available.
+- **`sekia.skill(name)`** — Lua function returns full instructions for a named skill (lazy loading).
+- **Handler auto-loading** — `handler.lua` files in skill directories are automatically loaded as workflows with `skill:` prefix.
+- **Hot-reload** — skills can be reloaded via API or CLI.
+
+**Config**: `[skills]` section in `sekia.toml` — `dir`, `hot_reload`.
+
+**API endpoints:** `GET /api/v1/skills` — list loaded skills.
+
+**CLI:** `sekiactl skills list` — list loaded skills.
+
+### Conversation store (`internal/conversation/`)
+
+In-memory multi-turn conversation state keyed by (platform, channel, thread), with TTL eviction.
+
+**Key design decisions:**
+- **Thread-safe** — `sync.RWMutex` protects all state.
+- **MaxHistory trimming** — oldest messages are dropped when the limit is exceeded.
+- **TTL cleanup** — background goroutine runs every minute, removes conversations that have exceeded their TTL.
+- **WorkflowAdapter** — bridges `conversation.Store` to `workflow.ConversationStore` interface using `ai.Message`, avoiding circular dependencies.
+- **Metadata** — key/value pairs per conversation for workflow state (e.g., mood, context flags).
+
+**Config**: `[conversation]` section in `sekia.toml` — `max_history` (default 50), `ttl` (default 1h).
 
 ### GitHub agent (`internal/github/`)
 

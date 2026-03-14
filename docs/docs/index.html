@@ -66,6 +66,14 @@
     <a href="#workflow-examples">Examples</a>
   </div>
   <div class="sidebar-section">
+    <div class="sidebar-heading">AI Features</div>
+    <a href="#persona">Persona</a>
+    <a href="#skills">Skills</a>
+    <a href="#conversations">Conversations</a>
+    <a href="#schedules">Scheduled Workflows</a>
+    <a href="#sentinel">Sentinel</a>
+  </div>
+  <div class="sidebar-section">
     <div class="sidebar-heading">Agents</div>
     <a href="#github-agent">GitHub</a>
     <a href="#slack-agent">Slack</a>
@@ -693,9 +701,158 @@ sekia.<span class="fn">on</span>(<span class="str">"sekia.events.*"</span>, <spa
     sekia.<span class="fn">log</span>(<span class="str">"info"</span>, <span class="str">"Label: "</span> .. data.label .. <span class="str">", Confidence: "</span> .. data.confidence)
 <span class="kw">end</span></code></pre>
 
+  <h3>sekia.skill(name)</h3>
+  <p>Returns the full instructions for a named skill (from <code>SKILL.md</code> files). Returns an empty string if the skill is not found or skills are not configured.</p>
+  <pre><code><span class="kw">local</span> instructions = sekia.<span class="fn">skill</span>(<span class="str">"pr-review"</span>)
+sekia.<span class="fn">log</span>(<span class="str">"info"</span>, <span class="str">"Skill instructions: "</span> .. instructions)</code></pre>
+
+  <h3>sekia.conversation(platform, channel [, thread])</h3>
+  <p>Returns a conversation handle for multi-turn interactions. Conversations are keyed by (platform, channel, thread) and stored in memory with TTL eviction.</p>
+  <p>The returned table has these methods:</p>
+  <ul>
+    <li><code>conv:append(role, content)</code> &mdash; add a message to the conversation history</li>
+    <li><code>conv:reply(prompt)</code> &mdash; append the prompt as a user message, send full history to the LLM, store the response. Returns <code>(response, err)</code></li>
+    <li><code>conv:history()</code> &mdash; returns a table of <code>{role=..., content=...}</code> entries</li>
+    <li><code>conv:metadata(key [, value])</code> &mdash; get or set per-conversation metadata</li>
+  </ul>
+  <pre><code><span class="kw">local</span> conv = sekia.<span class="fn">conversation</span>(<span class="str">"slack"</span>, event.payload.channel, event.payload.thread_ts)
+conv:<span class="fn">append</span>(<span class="str">"user"</span>, <span class="str">"hello"</span>)
+<span class="kw">local</span> response, err = conv:<span class="fn">reply</span>(<span class="str">"What can you help with?"</span>)
+<span class="kw">if</span> response <span class="kw">then</span>
+    sekia.<span class="fn">log</span>(<span class="str">"info"</span>, <span class="str">"AI said: "</span> .. response)
+<span class="kw">end</span>
+
+<span class="cm">-- Per-conversation metadata</span>
+conv:<span class="fn">metadata</span>(<span class="str">"mood"</span>, <span class="str">"happy"</span>)
+<span class="kw">local</span> mood = conv:<span class="fn">metadata</span>(<span class="str">"mood"</span>)  <span class="cm">-- "happy"</span></code></pre>
+
+  <h3>sekia.schedule(interval_seconds, handler)</h3>
+  <p>Registers a timer-driven handler that fires at the given interval (minimum 1 second). Enables autonomous agent behavior without external triggers.</p>
+  <pre><code>sekia.<span class="fn">schedule</span>(<span class="num">300</span>, <span class="kw">function</span>()
+    <span class="kw">local</span> result, err = sekia.<span class="fn">ai</span>(<span class="str">"Any PRs needing attention?"</span>)
+    <span class="kw">if</span> err <span class="kw">then</span> <span class="kw">return</span> <span class="kw">end</span>
+    sekia.<span class="fn">command</span>(<span class="str">"slack-agent"</span>, <span class="str">"send_message"</span>, {
+        channel = <span class="str">"#engineering"</span>,
+        text    = result,
+    })
+<span class="kw">end</span>)</code></pre>
+
   <h3>sekia.name</h3>
   <p>A string containing the current workflow's name (derived from the filename without <code>.lua</code> extension).</p>
   <pre><code>sekia.<span class="fn">log</span>(<span class="str">"info"</span>, <span class="str">"Running workflow: "</span> .. sekia.name)</code></pre>
+</section>
+
+<!-- ================================================================== -->
+<!-- AI FEATURES -->
+<!-- ================================================================== -->
+<section id="persona">
+  <h2>Persona &mdash; Agent Identity</h2>
+  <p>A markdown file defines your agent's personality, communication style, values, and boundaries. This content is automatically prepended to every AI system prompt (both <code>sekia.ai()</code> and <code>conv:reply()</code>).</p>
+  <p>Default path: <code>~/.config/sekia/persona.md</code>. Configure with <code>ai.persona_path</code> in <code>sekia.toml</code>.</p>
+  <p><strong>Prompt layering order:</strong> <code>[JSON mode prefix] + [persona.md] + [skills index] + [per-call system prompt]</code></p>
+  <pre><code># ~/.config/sekia/persona.md
+
+You are a helpful engineering assistant for the Acme team.
+
+## Communication style
+- Be concise, technical, and direct
+- When in doubt, ask for clarification rather than guessing
+- Use code examples when explaining concepts
+
+## Boundaries
+- Never approve PRs without human review
+- Escalate security issues immediately</code></pre>
+</section>
+
+<section id="skills">
+  <h2>Skills &mdash; Capability Definitions</h2>
+  <p>Skills are directory-based capability definitions with YAML frontmatter and natural language instructions. Place them in the skills directory (default <code>~/.config/sekia/skills/</code>).</p>
+  <p>Each skill is a directory containing a <code>SKILL.md</code> file and an optional <code>handler.lua</code> workflow.</p>
+  <pre><code># Directory structure
+~/.config/sekia/skills/
+  pr-review/
+    SKILL.md          # YAML frontmatter + instructions
+    handler.lua       # optional, auto-loaded as workflow
+  triage/
+    SKILL.md</code></pre>
+  <p><strong>SKILL.md format:</strong></p>
+  <pre><code>---
+name: pr-review
+description: Reviews GitHub PRs for code quality
+triggers:
+  - github.pr.opened
+version: "1.0"
+---
+When reviewing a PR:
+1. Check for test coverage
+2. Look for security issues
+3. Approve if only minor style issues</code></pre>
+  <p>Skills metadata is automatically injected as a compact index into every AI prompt, so the LLM knows what capabilities are available. Use <code>sekia.skill(name)</code> to get the full instructions for a specific skill.</p>
+  <p><strong>Config:</strong> <code>[skills]</code> section &mdash; <code>dir</code>, <code>hot_reload</code>.</p>
+  <p><strong>CLI:</strong> <code>sekiactl skills list</code>. <strong>API:</strong> <code>GET /api/v1/skills</code>.</p>
+</section>
+
+<section id="conversations">
+  <h2>Conversations &mdash; Multi-Turn State</h2>
+  <p>The conversation store provides in-memory multi-turn conversation state keyed by (platform, channel, thread), with configurable history limits and TTL eviction.</p>
+  <pre><code><span class="cm">-- Conversational Slack bot</span>
+sekia.<span class="fn">on</span>(<span class="str">"sekia.events.slack"</span>, <span class="kw">function</span>(event)
+    <span class="kw">if</span> event.type ~= <span class="str">"slack.mention"</span> <span class="kw">then</span> <span class="kw">return</span> <span class="kw">end</span>
+
+    <span class="kw">local</span> conv = sekia.<span class="fn">conversation</span>(<span class="str">"slack"</span>, event.payload.channel,
+        event.payload.thread_ts <span class="kw">or</span> event.payload.timestamp)
+
+    <span class="kw">local</span> text = event.payload.text:<span class="fn">gsub</span>(<span class="str">"&lt;@[^&gt;]+&gt;%s*"</span>, <span class="str">""</span>)
+    <span class="kw">local</span> response, err = conv:<span class="fn">reply</span>(text)
+    <span class="kw">if</span> err <span class="kw">then</span> <span class="kw">return</span> <span class="kw">end</span>
+
+    sekia.<span class="fn">command</span>(<span class="str">"slack-agent"</span>, <span class="str">"send_reply"</span>, {
+        channel   = event.payload.channel,
+        thread_ts = event.payload.thread_ts <span class="kw">or</span> event.payload.timestamp,
+        text      = response,
+    })
+<span class="kw">end</span>)</code></pre>
+  <p><strong>Config:</strong> <code>[conversation]</code> section &mdash; <code>max_history</code> (default 50), <code>ttl</code> (default 1h).</p>
+</section>
+
+<section id="schedules">
+  <h2>Scheduled Workflows</h2>
+  <p>Use <code>sekia.schedule()</code> to register handlers that fire on a timer, enabling autonomous agent behavior without external triggers. Handlers run in the same goroutine as event handlers, ensuring thread safety.</p>
+  <pre><code><span class="cm">-- Autonomous PR reviewer (every 5 minutes)</span>
+sekia.<span class="fn">schedule</span>(<span class="num">300</span>, <span class="kw">function</span>()
+    <span class="kw">local</span> result, err = sekia.<span class="fn">ai_json</span>(<span class="str">"Review open PRs needing attention"</span>, {
+        system = sekia.<span class="fn">skill</span>(<span class="str">"pr-review"</span>)
+    })
+    <span class="kw">if</span> err <span class="kw">then</span> <span class="kw">return</span> <span class="kw">end</span>
+
+    <span class="kw">for</span> _, pr <span class="kw">in</span> <span class="fn">ipairs</span>(result.prs <span class="kw">or</span> {}) <span class="kw">do</span>
+        sekia.<span class="fn">command</span>(<span class="str">"github-agent"</span>, <span class="str">"create_comment"</span>, {
+            owner = pr.owner, repo = pr.repo,
+            number = pr.number, body = pr.review_comment,
+        })
+    <span class="kw">end</span>
+<span class="kw">end</span>)</code></pre>
+</section>
+
+<section id="sentinel">
+  <h2>Sentinel &mdash; Proactive AI Checks</h2>
+  <p>Sentinel reads a markdown checklist on a configurable interval, gathers system context (connected agents, loaded workflows), and asks the AI if anything needs attention. Unlike cron, sentinel <em>thinks</em> about whether something matters.</p>
+  <p><strong>Checklist example</strong> (<code>~/.config/sekia/sentinel.md</code>):</p>
+  <pre><code>- Are there GitHub PRs open &gt;3 days without review?
+- Are there urgent Linear tickets with no assignee?
+- Have any agents gone offline since last check?
+- Are there unread emails from important contacts?</code></pre>
+  <p>Events are published to <code>sekia.events.sentinel</code> with types <code>sentinel.action.required</code> and <code>sentinel.check.complete</code>. Handle them in workflows like any other event:</p>
+  <pre><code><span class="cm">-- React to sentinel findings</span>
+sekia.<span class="fn">on</span>(<span class="str">"sekia.events.sentinel"</span>, <span class="kw">function</span>(event)
+    <span class="kw">if</span> event.type == <span class="str">"sentinel.action.required"</span> <span class="kw">then</span>
+        sekia.<span class="fn">command</span>(<span class="str">"slack-agent"</span>, <span class="str">"send_message"</span>, {
+            channel = <span class="str">"#ops"</span>,
+            text    = event.payload.reasoning,
+        })
+    <span class="kw">end</span>
+<span class="kw">end</span>)</code></pre>
+  <p><strong>Config:</strong> <code>[sentinel]</code> section &mdash; <code>enabled</code> (default false), <code>interval</code> (default 5m), <code>checklist_path</code> (default <code>~/.config/sekia/sentinel.md</code>).</p>
 </section>
 
 <!-- ================================================================== -->

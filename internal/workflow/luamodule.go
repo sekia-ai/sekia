@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
@@ -26,8 +27,21 @@ type moduleContext struct {
 	nc            *nats.Conn
 	logger        zerolog.Logger
 	handlers      []handlerEntry
-	llm           ai.LLMClient // nil if AI is not configured
-	commandSecret string       // HMAC-SHA256 secret for signing commands (empty = no signing)
+	schedules     []scheduleEntry
+	llm           ai.LLMClient          // nil if AI is not configured
+	commandSecret string                 // HMAC-SHA256 secret for signing commands (empty = no signing)
+	skillsIndex   string                 // compact skills summary for AI prompts
+	skillResolver SkillResolver          // resolves full skill instructions by name
+	convoStore    ConversationStore      // conversation store (nil if not configured)
+}
+
+// ConversationStore is the interface the workflow engine uses for conversation state.
+type ConversationStore interface {
+	GetOrCreateID(platform, channelID, threadID string) string
+	AppendMessage(convoID, role, content string)
+	GetMessages(convoID string) []ai.Message
+	SetMetadata(convoID, key, value string)
+	GetMetadata(convoID, key string) string
 }
 
 // registerSekiaModule creates the global "sekia" table with on/publish/command/log functions.
@@ -41,6 +55,9 @@ func registerSekiaModule(L *lua.LState, ctx *moduleContext) {
 	L.SetField(mod, "log", L.NewFunction(ctx.luaLog))
 	L.SetField(mod, "ai", L.NewFunction(ctx.luaAI))
 	L.SetField(mod, "ai_json", L.NewFunction(ctx.luaAIJSON))
+	L.SetField(mod, "skill", L.NewFunction(ctx.luaSkill))
+	L.SetField(mod, "conversation", L.NewFunction(ctx.luaConversation))
+	L.SetField(mod, "schedule", L.NewFunction(ctx.luaSchedule))
 
 	L.SetGlobal("sekia", mod)
 }
@@ -133,6 +150,41 @@ func (ctx *moduleContext) luaCommand(L *lua.LState) int {
 		Str("agent", agentName).
 		Str("command", command).
 		Msg("sent command")
+
+	return 0
+}
+
+// luaSkill returns the full instructions for a named skill: sekia.skill(name) -> string
+func (ctx *moduleContext) luaSkill(L *lua.LState) int {
+	name := L.CheckString(1)
+	if ctx.skillResolver == nil {
+		L.Push(lua.LString(""))
+		return 1
+	}
+	instructions := ctx.skillResolver.FullInstructions(name)
+	L.Push(lua.LString(instructions))
+	return 1
+}
+
+// luaSchedule registers a timer-driven handler: sekia.schedule(interval_seconds, handler)
+func (ctx *moduleContext) luaSchedule(L *lua.LState) int {
+	intervalSec := L.CheckNumber(1)
+	fn := L.CheckFunction(2)
+
+	interval := time.Duration(float64(intervalSec) * float64(time.Second))
+	if interval < 1*time.Second {
+		L.ArgError(1, "interval must be at least 1 second")
+		return 0
+	}
+
+	ctx.schedules = append(ctx.schedules, scheduleEntry{
+		Interval: interval,
+		Fn:       fn,
+	})
+
+	ctx.logger.Debug().
+		Dur("interval", interval).
+		Msg("registered schedule handler")
 
 	return 0
 }

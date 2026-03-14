@@ -20,6 +20,7 @@ func (ctx *moduleContext) luaAI(L *lua.LState) int {
 
 	prompt := L.CheckString(1)
 	req := completeRequestFromLua(L, prompt)
+	ctx.injectSkillsIndex(&req)
 
 	callCtx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
@@ -48,6 +49,7 @@ func (ctx *moduleContext) luaAIJSON(L *lua.LState) int {
 	prompt := L.CheckString(1)
 	req := completeRequestFromLua(L, prompt)
 	req.JSONMode = true
+	ctx.injectSkillsIndex(&req)
 
 	callCtx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
@@ -70,6 +72,18 @@ func (ctx *moduleContext) luaAIJSON(L *lua.LState) int {
 	L.Push(GoToLua(L, parsed))
 	L.Push(lua.LNil)
 	return 2
+}
+
+// injectSkillsIndex prepends the skills index to the request's system prompt if available.
+func (ctx *moduleContext) injectSkillsIndex(req *ai.CompleteRequest) {
+	if ctx.skillsIndex == "" {
+		return
+	}
+	if req.SystemPrompt != "" {
+		req.SystemPrompt = ctx.skillsIndex + "\n\n" + req.SystemPrompt
+	} else {
+		req.SystemPrompt = ctx.skillsIndex
+	}
 }
 
 // completeRequestFromLua builds an ai.CompleteRequest from Lua arguments.
