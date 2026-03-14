@@ -19,26 +19,39 @@ type LLMClient interface {
 	Complete(ctx context.Context, req CompleteRequest) (string, error)
 }
 
+// Message represents a single message in a multi-turn conversation.
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
 // CompleteRequest holds parameters for an LLM completion call.
 type CompleteRequest struct {
 	Prompt       string
-	SystemPrompt string  // overrides config default if non-empty
-	Model        string  // overrides config default if non-empty
-	MaxTokens    int     // overrides config default if > 0
-	Temperature  float64 // -1 means use config default
+	Messages     []Message // if non-empty, used instead of Prompt for multi-turn
+	SystemPrompt string    // overrides config default if non-empty
+	Model        string    // overrides config default if non-empty
+	MaxTokens    int       // overrides config default if > 0
+	Temperature  float64   // -1 means use config default
 	JSONMode     bool
 }
 
 // anthropicClient implements LLMClient using the Anthropic Messages API.
 type anthropicClient struct {
-	apiKey       string
-	baseURL      string
-	model        string
-	maxTokens    int
-	temperature  float64
-	systemPrompt string
-	http         *http.Client
-	logger       zerolog.Logger
+	apiKey        string
+	baseURL       string
+	model         string
+	maxTokens     int
+	temperature   float64
+	systemPrompt  string
+	personaPrompt string
+	http          *http.Client
+	logger        zerolog.Logger
+}
+
+// SetPersonaPrompt sets the persona content prepended to every system prompt.
+func (c *anthropicClient) SetPersonaPrompt(s string) {
+	c.personaPrompt = s
 }
 
 // NewAnthropicClient creates an LLM client for the Anthropic Messages API.
@@ -85,6 +98,40 @@ type apiError struct {
 	Message string `json:"message"`
 }
 
+// buildSystemPrompt assembles the final system prompt from persona, defaults, per-call overrides, and JSON mode.
+func (c *anthropicClient) buildSystemPrompt(req CompleteRequest) string {
+	parts := make([]string, 0, 3)
+
+	if req.JSONMode {
+		parts = append(parts, "Respond with valid JSON only. No other text.")
+	}
+	if c.personaPrompt != "" {
+		parts = append(parts, c.personaPrompt)
+	}
+
+	systemPrompt := c.systemPrompt
+	if req.SystemPrompt != "" {
+		systemPrompt = req.SystemPrompt
+	}
+	if systemPrompt != "" {
+		parts = append(parts, systemPrompt)
+	}
+
+	return joinNonEmpty(parts, "\n\n")
+}
+
+// joinNonEmpty joins non-empty strings with the given separator.
+func joinNonEmpty(parts []string, sep string) string {
+	if len(parts) == 0 {
+		return ""
+	}
+	result := parts[0]
+	for _, p := range parts[1:] {
+		result += sep + p
+	}
+	return result
+}
+
 func (c *anthropicClient) Complete(ctx context.Context, req CompleteRequest) (string, error) {
 	model := c.model
 	if req.Model != "" {
@@ -101,27 +148,22 @@ func (c *anthropicClient) Complete(ctx context.Context, req CompleteRequest) (st
 		temperature = req.Temperature
 	}
 
-	systemPrompt := c.systemPrompt
-	if req.SystemPrompt != "" {
-		systemPrompt = req.SystemPrompt
-	}
-	if req.JSONMode {
-		prefix := "Respond with valid JSON only. No other text."
-		if systemPrompt != "" {
-			systemPrompt = prefix + "\n\n" + systemPrompt
-		} else {
-			systemPrompt = prefix
+	var msgs []message
+	if len(req.Messages) > 0 {
+		msgs = make([]message, len(req.Messages))
+		for i, m := range req.Messages {
+			msgs[i] = message{Role: m.Role, Content: m.Content}
 		}
+	} else {
+		msgs = []message{{Role: "user", Content: req.Prompt}}
 	}
 
 	body := messagesRequest{
 		Model:       model,
 		MaxTokens:   maxTokens,
 		Temperature: temperature,
-		System:      systemPrompt,
-		Messages: []message{
-			{Role: "user", Content: req.Prompt},
-		},
+		System:      c.buildSystemPrompt(req),
+		Messages:    msgs,
 	}
 
 	jsonBody, err := json.Marshal(body)

@@ -10,17 +10,27 @@ import (
 
 	"github.com/sekia-ai/sekia/internal/ai"
 	"github.com/sekia-ai/sekia/internal/secrets"
+	"github.com/sekia-ai/sekia/internal/sentinel"
 	"github.com/sekia-ai/sekia/pkg/sockpath"
 )
 
+// ConversationConfig holds conversation store settings.
+type ConversationConfig struct {
+	MaxHistory int           `mapstructure:"max_history"`
+	TTL        time.Duration `mapstructure:"ttl"`
+}
+
 // Config is the top-level daemon configuration.
 type Config struct {
-	Server    ServerConfig   `mapstructure:"server"`
-	NATS      NATSConfig     `mapstructure:"nats"`
-	Workflows WorkflowConfig `mapstructure:"workflows"`
-	Web       WebConfig      `mapstructure:"web"`
-	AI        ai.Config      `mapstructure:"ai"`
-	Security  SecurityConfig `mapstructure:"security"`
+	Server       ServerConfig       `mapstructure:"server"`
+	NATS         NATSConfig         `mapstructure:"nats"`
+	Workflows    WorkflowConfig     `mapstructure:"workflows"`
+	Web          WebConfig          `mapstructure:"web"`
+	AI           ai.Config          `mapstructure:"ai"`
+	Sentinel     sentinel.Config    `mapstructure:"sentinel"`
+	Skills       SkillsConfig       `mapstructure:"skills"`
+	Conversation ConversationConfig `mapstructure:"conversation"`
+	Security     SecurityConfig     `mapstructure:"security"`
 }
 
 // SecurityConfig holds application-level security settings.
@@ -50,6 +60,12 @@ type NATSConfig struct {
 	Token    string `mapstructure:"token"`
 }
 
+// SkillsConfig holds skill system settings.
+type SkillsConfig struct {
+	Dir       string `mapstructure:"dir"`
+	HotReload bool   `mapstructure:"hot_reload"`
+}
+
 // WorkflowConfig holds Lua workflow engine settings.
 type WorkflowConfig struct {
 	Dir             string        `mapstructure:"dir"`
@@ -67,9 +83,11 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v.SetDefault("nats.embedded", true)
 
 	homeDir, _ := os.UserHomeDir()
+	configDir := filepath.Join(homeDir, ".config", "sekia")
+
 	v.SetDefault("nats.data_dir", filepath.Join(homeDir, ".local", "share", "sekia", "nats"))
 
-	v.SetDefault("workflows.dir", filepath.Join(homeDir, ".config", "sekia", "workflows"))
+	v.SetDefault("workflows.dir", filepath.Join(configDir, "workflows"))
 	v.SetDefault("workflows.hot_reload", true)
 	v.SetDefault("workflows.handler_timeout", 30*time.Second)
 	v.SetDefault("workflows.verify_integrity", false)
@@ -78,6 +96,17 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v.SetDefault("ai.model", "claude-sonnet-4-20250514")
 	v.SetDefault("ai.max_tokens", 1024)
 	v.SetDefault("ai.temperature", 0.0)
+	v.SetDefault("ai.persona_path", filepath.Join(configDir, "persona.md"))
+
+	v.SetDefault("skills.dir", filepath.Join(configDir, "skills"))
+	v.SetDefault("skills.hot_reload", true)
+
+	v.SetDefault("conversation.max_history", 50)
+	v.SetDefault("conversation.ttl", 1*time.Hour)
+
+	v.SetDefault("sentinel.enabled", false)
+	v.SetDefault("sentinel.interval", 5*time.Minute)
+	v.SetDefault("sentinel.checklist_path", filepath.Join(configDir, "sentinel.md"))
 
 	v.SetConfigType("toml")
 

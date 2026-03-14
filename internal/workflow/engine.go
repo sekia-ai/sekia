@@ -30,6 +30,13 @@ type WorkflowInfo struct {
 	Errors   int64    `json:"errors"`
 }
 
+// scheduleEntry holds a timer-driven callback registered via sekia.schedule().
+type scheduleEntry struct {
+	Interval time.Duration
+	Fn       *lua.LFunction
+	ticker   *time.Ticker
+}
+
 // workflowState tracks a loaded workflow and its isolated Lua VM.
 type workflowState struct {
 	name           string
@@ -41,12 +48,18 @@ type workflowState struct {
 	errors         atomic.Int64
 	handlerTimeout time.Duration
 
-	eventCh chan *nats.Msg
-	done    chan struct{}
+	eventCh   chan *nats.Msg
+	done      chan struct{}
+	schedules []scheduleEntry
 }
 
 // ErrIntegrityViolation is returned when a workflow file fails SHA256 manifest verification.
 var ErrIntegrityViolation = errors.New("integrity violation")
+
+// SkillResolver provides skill instructions for the sekia.skill() Lua function.
+type SkillResolver interface {
+	FullInstructions(name string) string
+}
 
 // Engine manages Lua workflow scripts and routes NATS events to Lua handlers.
 type Engine struct {
@@ -60,6 +73,9 @@ type Engine struct {
 	handlerTimeout  time.Duration
 	commandSecret   string
 	verifyIntegrity bool
+	skillsIndex     string
+	skillResolver   SkillResolver
+	convoStore      ConversationStore
 }
 
 // New creates a workflow engine. Does not start it.
@@ -155,6 +171,27 @@ func (e *Engine) SetLLMClient(llm ai.LLMClient) {
 	e.llm = llm
 }
 
+// SetSkillsIndex sets the compact skills index injected into AI prompts.
+func (e *Engine) SetSkillsIndex(index string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.skillsIndex = index
+}
+
+// SetSkillResolver sets the resolver used by sekia.skill() in Lua.
+func (e *Engine) SetSkillResolver(r SkillResolver) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.skillResolver = r
+}
+
+// SetConversationStore sets the conversation store used by sekia.conversation() in Lua.
+func (e *Engine) SetConversationStore(cs ConversationStore) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.convoStore = cs
+}
+
 // SetVerifyIntegrity enables or disables SHA256 manifest verification for workflow loading.
 func (e *Engine) SetVerifyIntegrity(v bool) {
 	e.mu.Lock()
@@ -188,6 +225,9 @@ func (e *Engine) LoadWorkflow(name, filePath string) error {
 		logger:        wfLogger,
 		llm:           e.llm,
 		commandSecret: e.commandSecret,
+		skillsIndex:   e.skillsIndex,
+		skillResolver: e.skillResolver,
+		convoStore:    e.convoStore,
 	}
 	registerSekiaModule(L, modCtx)
 
@@ -205,6 +245,7 @@ func (e *Engine) LoadWorkflow(name, filePath string) error {
 		handlerTimeout: e.handlerTimeout,
 		eventCh:        make(chan *nats.Msg, 4096),
 		done:           make(chan struct{}),
+		schedules:      modCtx.schedules,
 	}
 
 	go ws.run()
@@ -292,33 +333,89 @@ func (e *Engine) handleEvent(msg *nats.Msg) {
 	}
 }
 
-// run is the per-workflow goroutine that processes events sequentially.
+// run is the per-workflow goroutine that processes events and schedules sequentially.
 func (ws *workflowState) run() {
 	defer close(ws.done)
 
-	for msg := range ws.eventCh {
-		var ev protocol.Event
-		if err := json.Unmarshal(msg.Data, &ev); err != nil {
-			ws.errors.Add(1)
-			ws.modCtx.logger.Error().Err(err).Msg("unmarshal event")
+	// Start schedule tickers and merge into a single channel.
+	type scheduleTick struct {
+		fn *lua.LFunction
+	}
+	scheduleCh := make(chan scheduleTick, 16)
+	for i := range ws.schedules {
+		s := &ws.schedules[i]
+		s.ticker = time.NewTicker(s.Interval)
+		go func(t *time.Ticker, fn *lua.LFunction) {
+			for range t.C {
+				scheduleCh <- scheduleTick{fn: fn}
+			}
+		}(s.ticker, s.Fn)
+	}
+
+	for {
+		select {
+		case msg, ok := <-ws.eventCh:
+			if !ok {
+				// Channel closed — stop all tickers and drain scheduleCh.
+				for i := range ws.schedules {
+					ws.schedules[i].ticker.Stop()
+				}
+				return
+			}
+			ws.processEvent(msg)
+		case tick := <-scheduleCh:
+			ws.callScheduleHandler(tick.fn)
+		}
+	}
+}
+
+func (ws *workflowState) processEvent(msg *nats.Msg) {
+	var ev protocol.Event
+	if err := json.Unmarshal(msg.Data, &ev); err != nil {
+		ws.errors.Add(1)
+		ws.modCtx.logger.Error().Err(err).Msg("unmarshal event")
+		return
+	}
+
+	ws.modCtx.logger.Debug().
+		Str("event_type", ev.Type).
+		Str("event_id", ev.ID).
+		Str("subject", msg.Subject).
+		Msg("processing event")
+
+	eventTable := EventToLua(ws.L, ev)
+
+	for _, h := range ws.modCtx.handlers {
+		if !SubjectMatches(h.Pattern, msg.Subject) {
 			continue
 		}
+		ws.callHandler(h, ev.ID, eventTable)
+	}
+	ws.events.Add(1)
+}
 
-		ws.modCtx.logger.Debug().
-			Str("event_type", ev.Type).
-			Str("event_id", ev.ID).
-			Str("subject", msg.Subject).
-			Msg("processing event")
+func (ws *workflowState) callScheduleHandler(fn *lua.LFunction) {
+	var cancel context.CancelFunc
+	if ws.handlerTimeout > 0 {
+		var ctx context.Context
+		ctx, cancel = context.WithTimeout(context.Background(), ws.handlerTimeout)
+		ws.L.SetContext(ctx)
+	}
 
-		eventTable := EventToLua(ws.L, ev)
+	err := ws.L.CallByParam(lua.P{
+		Fn:      fn,
+		NRet:    0,
+		Protect: true,
+	})
 
-		for _, h := range ws.modCtx.handlers {
-			if !SubjectMatches(h.Pattern, msg.Subject) {
-				continue
-			}
-			ws.callHandler(h, ev.ID, eventTable)
-		}
-		ws.events.Add(1)
+	if cancel != nil {
+		cancel()
+		ws.L.SetContext(nil)
+	}
+
+	if err != nil {
+		ws.errors.Add(1)
+		ws.modCtx.logger.Error().Err(err).Msg("schedule handler error")
 	}
 }
 

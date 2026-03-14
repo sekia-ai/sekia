@@ -163,6 +163,12 @@ Defaults:
 | `ai.provider` | `anthropic` |
 | `ai.model` | `claude-sonnet-4-20250514` |
 | `ai.max_tokens` | `1024` |
+| `ai.persona_path` | `~/.config/sekia/persona.md` |
+| `skills.dir` | `~/.config/sekia/skills` |
+| `conversation.max_history` | `50` |
+| `conversation.ttl` | `1h` |
+| `sentinel.enabled` | `false` |
+| `sentinel.interval` | `5m` |
 | `web.listen` | (empty — disabled) |
 
 See [configs/sekia.toml](configs/sekia.toml) for an example.
@@ -231,6 +237,7 @@ The daemon exposes an HTTP API over its Unix socket.
 | `GET /api/v1/agents` | List registered agents with capabilities and stats |
 | `GET /api/v1/workflows` | List loaded workflows with handler patterns and stats |
 | `POST /api/v1/workflows/reload` | Reload all workflows from disk |
+| `GET /api/v1/skills` | List loaded skills with descriptions and triggers |
 
 ## Agent SDK
 
@@ -299,6 +306,9 @@ end)
 | `sekia.log(level, message)` | Log a message (`debug`, `info`, `warn`, `error`) |
 | `sekia.ai(prompt [, opts])` | Call an LLM and return the response text. Options: `model`, `max_tokens`, `temperature`, `system` |
 | `sekia.ai_json(prompt [, opts])` | Like `sekia.ai` but requests JSON and returns a parsed Lua table |
+| `sekia.skill(name)` | Returns full instructions for a named skill (from `SKILL.md` files) |
+| `sekia.conversation(platform, channel, thread)` | Returns a conversation handle with `:append()`, `:reply()`, `:history()`, `:metadata()` |
+| `sekia.schedule(interval_seconds, handler)` | Register a timer-driven handler (minimum 1s interval) |
 | `sekia.name` | The workflow's name (derived from filename) |
 
 Workflows run in a sandboxed Lua VM with only `base`, `table`, `string`, and `math` libraries available. Dangerous functions (`os`, `io`, `debug`, `dofile`, `load`) are removed.
@@ -397,6 +407,105 @@ sekia.on("sekia.events.github", function(event)
     })
 end)
 ```
+
+### Persona — Agent Identity
+
+A markdown file defines your agent's personality, communication style, values, and boundaries. This content is automatically prepended to every AI system prompt.
+
+```bash
+# Create your persona
+cat > ~/.config/sekia/persona.md << 'EOF'
+You are a helpful engineering assistant. Be concise, technical, and direct.
+When in doubt, ask for clarification rather than guessing.
+EOF
+```
+
+**Config**: `ai.persona_path` in `sekia.toml` (default `~/.config/sekia/persona.md`).
+
+### Skills — Capability Definitions
+
+Skills are directory-based capability definitions with YAML frontmatter and natural language instructions. Place them in the skills directory (default `~/.config/sekia/skills/`).
+
+```markdown
+<!-- ~/.config/sekia/skills/pr-review/SKILL.md -->
+---
+name: pr-review
+description: Reviews GitHub PRs for code quality
+triggers:
+  - github.pr.opened
+version: "1.0"
+---
+When reviewing a PR:
+1. Check for test coverage
+2. Look for security issues
+3. Approve if only minor style issues
+```
+
+Skills metadata is automatically injected into AI prompts. Use `sekia.skill(name)` in workflows to get full instructions for a specific skill. Optional `handler.lua` files in skill directories are auto-loaded as workflows.
+
+### Conversations — Multi-Turn State
+
+The conversation API provides in-memory multi-turn conversation state with TTL eviction:
+
+```lua
+sekia.on("sekia.events.slack", function(event)
+    if event.type ~= "slack.mention" then return end
+
+    local conv = sekia.conversation("slack", event.payload.channel,
+        event.payload.thread_ts or event.payload.timestamp)
+
+    local text = event.payload.text:gsub("<@[^>]+>%s*", "")
+    local response, err = conv:reply(text)
+    if err then return end
+
+    sekia.command("slack-agent", "send_reply", {
+        channel = event.payload.channel,
+        thread_ts = event.payload.thread_ts or event.payload.timestamp,
+        text = response,
+    })
+end)
+```
+
+Conversations are keyed by (platform, channel, thread). The `:reply(prompt)` method appends the user message, sends the full conversation history to the LLM, and stores the assistant response. Use `:metadata(key, [value])` for per-conversation state.
+
+### Scheduled Workflows — Autonomous Agents
+
+Use `sekia.schedule()` to run handlers on a timer, enabling autonomous agent behavior:
+
+```lua
+sekia.schedule(300, function()  -- every 5 minutes
+    local result, err = sekia.ai_json("Review open PRs needing attention", {
+        system = sekia.skill("pr-review")
+    })
+    if err then return end
+
+    for _, pr in ipairs(result.prs or {}) do
+        sekia.command("github-agent", "create_comment", {
+            owner = pr.owner, repo = pr.repo,
+            number = pr.number, body = pr.review_comment,
+        })
+    end
+end)
+```
+
+### Sentinel — Proactive AI Checks
+
+Sentinel reads a markdown checklist on a configurable interval, gathers system context, and asks the AI if anything needs attention:
+
+```markdown
+<!-- ~/.config/sekia/sentinel.md -->
+- Are there GitHub PRs open >3 days without review?
+- Are there urgent Linear tickets with no assignee?
+- Have any agents gone offline since last check?
+```
+
+```toml
+[sentinel]
+enabled = true
+interval = "5m"
+```
+
+Events are published to `sekia.events.sentinel` and handled by workflows like any other event.
 
 ## Agents
 
