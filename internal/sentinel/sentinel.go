@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -207,11 +209,31 @@ func loadChecklist(path string) (string, error) {
 	if path == "" {
 		return "", nil
 	}
-	data, err := os.ReadFile(path)
+
+	cleanPath := filepath.Clean(path)
+	dir := filepath.Dir(cleanPath)
+	base := filepath.Base(cleanPath)
+
+	root, err := os.OpenRoot(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
 		}
+		return "", fmt.Errorf("open sentinel checklist directory: %w", err)
+	}
+	defer root.Close()
+
+	f, err := root.Open(base)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read sentinel checklist: %w", err)
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(f)
+	if err != nil {
 		return "", fmt.Errorf("read sentinel checklist: %w", err)
 	}
 	return strings.TrimSpace(string(data)), nil

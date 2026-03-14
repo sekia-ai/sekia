@@ -2,6 +2,7 @@ package skills
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,8 +32,20 @@ type SkillInfo struct {
 
 // LoadSkill reads a SKILL.md file from a directory and parses it.
 func LoadSkill(dir string) (*Skill, error) {
-	path := filepath.Join(dir, "SKILL.md")
-	data, err := os.ReadFile(path)
+	cleanDir := filepath.Clean(dir)
+	root, err := os.OpenRoot(cleanDir)
+	if err != nil {
+		return nil, fmt.Errorf("open skill directory: %w", err)
+	}
+	defer root.Close()
+
+	f, err := root.Open("SKILL.md")
+	if err != nil {
+		return nil, fmt.Errorf("read SKILL.md: %w", err)
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return nil, fmt.Errorf("read SKILL.md: %w", err)
 	}
