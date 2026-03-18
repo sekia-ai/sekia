@@ -33,7 +33,9 @@ type SlackConfig struct {
 }
 
 // LoadConfig reads the Slack agent configuration from file, env vars, and defaults.
-func LoadConfig(cfgFile string) (Config, error) {
+// When instanceName is non-empty and cfgFile is empty, the config file name
+// becomes "sekia-slack-<instanceName>" (e.g., sekia-slack-work.toml).
+func LoadConfig(cfgFile, instanceName string) (Config, error) {
 	v := viper.New()
 
 	v.SetDefault("nats.url", "nats://127.0.0.1:4222")
@@ -43,7 +45,11 @@ func LoadConfig(cfgFile string) (Config, error) {
 	if cfgFile != "" {
 		v.SetConfigFile(cfgFile)
 	} else {
-		v.SetConfigName("sekia-slack")
+		configName := "sekia-slack"
+		if instanceName != "" {
+			configName = "sekia-slack-" + instanceName
+		}
+		v.SetConfigName(configName)
 		v.AddConfigPath("/etc/sekia")
 		v.AddConfigPath("$HOME/.config/sekia")
 		v.AddConfigPath(".")

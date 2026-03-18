@@ -40,7 +40,9 @@ type PollConfig struct {
 }
 
 // LoadConfig reads the Linear agent configuration from file, env vars, and defaults.
-func LoadConfig(cfgFile string) (Config, error) {
+// When instanceName is non-empty and cfgFile is empty, the config file name
+// becomes "sekia-linear-<instanceName>" (e.g., sekia-linear-work.toml).
+func LoadConfig(cfgFile, instanceName string) (Config, error) {
 	v := viper.New()
 
 	v.SetDefault("nats.url", "nats://127.0.0.1:4222")
@@ -52,7 +54,11 @@ func LoadConfig(cfgFile string) (Config, error) {
 	if cfgFile != "" {
 		v.SetConfigFile(cfgFile)
 	} else {
-		v.SetConfigName("sekia-linear")
+		configName := "sekia-linear"
+		if instanceName != "" {
+			configName = "sekia-linear-" + instanceName
+		}
+		v.SetConfigName(configName)
 		v.AddConfigPath("/etc/sekia")
 		v.AddConfigPath("$HOME/.config/sekia")
 		v.AddConfigPath(".")

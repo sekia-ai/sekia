@@ -18,14 +18,15 @@ import (
 )
 
 const (
-	agentName    = "google-agent"
-	agentVersion = "0.2.0"
+	defaultAgentName = "google-agent"
+	agentVersion     = "0.2.0"
 )
 
 // GoogleAgent bridges Google services (Gmail, Calendar) to the sekia event bus
 // and executes commands dispatched by workflows.
 type GoogleAgent struct {
 	cfg            Config
+	instanceName   string // agent name for NATS registration and command subscription
 	gmailClient    GmailClient
 	calendarClient CalendarClient
 	agent          *agent.Agent
@@ -38,7 +39,13 @@ type GoogleAgent struct {
 }
 
 // NewAgent creates a GoogleAgent with real API clients. Call Run() to start.
-func NewAgent(cfg Config, logger zerolog.Logger) (*GoogleAgent, error) {
+// instanceName overrides the default agent name for NATS registration.
+// Pass "" to use the default ("google-agent").
+func NewAgent(cfg Config, instanceName string, logger zerolog.Logger) (*GoogleAgent, error) {
+	if instanceName == "" {
+		instanceName = defaultAgentName
+	}
+
 	oauthCfg := OAuthConfig(cfg.Google.ClientID, cfg.Google.ClientSecret)
 	tokenSource, err := NewPersistentTokenSource(oauthCfg, cfg.Google.TokenPath)
 	if err != nil {
@@ -48,10 +55,11 @@ func NewAgent(cfg Config, logger zerolog.Logger) (*GoogleAgent, error) {
 	httpClient := oauth2.NewClient(context.Background(), tokenSource)
 
 	ga := &GoogleAgent{
-		cfg:     cfg,
-		logger:  logger.With().Str("component", "google-agent").Logger(),
-		stopCh:  make(chan struct{}),
-		readyCh: make(chan struct{}),
+		cfg:          cfg,
+		instanceName: instanceName,
+		logger:       logger.With().Str("component", instanceName).Logger(),
+		stopCh:       make(chan struct{}),
+		readyCh:      make(chan struct{}),
 	}
 
 	if cfg.Gmail.Enabled {
@@ -98,10 +106,11 @@ func NewTestAgent(
 				CalendarID:   "primary",
 			},
 		},
+		instanceName:   defaultAgentName,
 		gmailClient:    gmailClient,
 		calendarClient: calendarClient,
 		natsOpts:       natsOpts,
-		logger:         logger.With().Str("component", "google-agent").Logger(),
+		logger:         logger.With().Str("component", defaultAgentName).Logger(),
 		stopCh:         make(chan struct{}),
 		readyCh:        make(chan struct{}),
 	}
@@ -133,7 +142,7 @@ func (ga *GoogleAgent) Run() error {
 		NATSOpts: natsOpts,
 	}
 	a, err := agent.New(
-		agentCfg, agentName, agentVersion,
+		agentCfg, ga.instanceName, agentVersion,
 		capabilities, commands,
 		ga.logger,
 	)
@@ -148,7 +157,7 @@ func (ga *GoogleAgent) Run() error {
 	}
 
 	// 3. Subscribe to commands.
-	_, err = a.Conn().Subscribe(protocol.SubjectCommands(agentName), ga.handleCommand)
+	_, err = a.Conn().Subscribe(protocol.SubjectCommands(ga.instanceName), ga.handleCommand)
 	if err != nil {
 		a.Close()
 		return fmt.Errorf("subscribe commands: %w", err)
@@ -234,7 +243,7 @@ func (ga *GoogleAgent) shutdown() error {
 func (ga *GoogleAgent) reloadConfig() {
 	ga.logger.Info().Msg("reloading google agent configuration")
 
-	newCfg, err := LoadConfig("")
+	newCfg, err := LoadConfig("", "")
 	if err != nil {
 		ga.logger.Error().Err(err).Msg("failed to reload config")
 		return

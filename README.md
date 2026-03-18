@@ -529,6 +529,52 @@ Events are published to `sekia.events.sentinel` and handled by workflows like an
 
 Each agent is a standalone binary that connects to the daemon's NATS bus, publishes events from an external service, and executes commands dispatched by Lua workflows.
 
+### Named Instances (Multi-Tenancy)
+
+All agents support a `--name` flag for running multiple instances of the same agent type with different configurations:
+
+```bash
+# Two GitHub agents for different accounts
+sekia-github --name github-personal   # reads ~/.config/sekia/sekia-github-personal.toml
+sekia-github --name github-work       # reads ~/.config/sekia/sekia-github-work.toml
+```
+
+When `--name` is set:
+- **Config file** becomes `sekia-{agent}-{name}.toml` (unless `--config` overrides)
+- **NATS registration** uses the instance name (e.g., `github-work` instead of `github-agent`)
+- **Command subject** becomes `sekia.commands.{name}` — target instances from workflows via `sekia.command("github-work", "add_label", payload)`
+
+Without `--name`, behavior is unchanged.
+
+#### Running Named Instances as Background Services
+
+Use `sekiactl service` to manage named instances as background services (launchd on macOS, systemd on Linux):
+
+```bash
+# Create a service
+sekiactl service create sekia-github --name github-work
+
+# Start/stop/restart
+sekiactl service start github-work
+sekiactl service stop github-work
+sekiactl service restart github-work
+
+# List all managed services
+sekiactl service list
+# NAME             BINARY         STATUS   PID
+# github-work      sekia-github   running  12345
+# github-personal  sekia-github   stopped  -
+
+# Remove a service (stops and deletes)
+sekiactl service remove github-work
+```
+
+Optional flags on `create`:
+- `--config /path/to/config.toml` — pass an explicit config file
+- `--env KEY=VALUE` — set environment variables (repeatable; stored in plaintext, prefer `ENC[...]` config values)
+
+Logs are written to `~/.config/sekia/logs/{name}.log`. The default `brew services`-managed instance is not affected.
+
 ### GitHub Agent
 
 Ingests GitHub events via webhooks and/or REST API polling, and executes GitHub API commands.

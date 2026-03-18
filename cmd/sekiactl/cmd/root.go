@@ -29,6 +29,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newSkillsCmd())
 	rootCmd.AddCommand(newConfigCmd())
 	rootCmd.AddCommand(newSecretsCmd())
+	rootCmd.AddCommand(newServiceCmd())
 
 	return rootCmd
 }

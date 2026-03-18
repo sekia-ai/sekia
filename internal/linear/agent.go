@@ -17,32 +17,40 @@ import (
 )
 
 const (
-	agentName    = "linear-agent"
-	agentVersion = "0.2.0"
+	defaultAgentName = "linear-agent"
+	agentVersion     = "0.2.0"
 )
 
 // LinearAgent bridges Linear events to the sekia event bus
 // and executes Linear API commands dispatched by workflows.
 type LinearAgent struct {
-	cfg      Config
-	lnClient LinearClient
-	agent    *agent.Agent
-	logger   zerolog.Logger
-	stopCh   chan struct{}
+	cfg          Config
+	instanceName string // agent name for NATS registration and command subscription
+	lnClient     LinearClient
+	agent        *agent.Agent
+	logger       zerolog.Logger
+	stopCh       chan struct{}
 
 	// Overridable for testing.
 	natsOpts []nats.Option
 }
 
 // NewAgent creates a LinearAgent. Call Run() to start.
-func NewAgent(cfg Config, logger zerolog.Logger) *LinearAgent {
+// instanceName overrides the default agent name for NATS registration.
+// Pass "" to use the default ("linear-agent").
+func NewAgent(cfg Config, instanceName string, logger zerolog.Logger) *LinearAgent {
+	if instanceName == "" {
+		instanceName = defaultAgentName
+	}
+
 	client := newRealLinearClient(cfg.Linear.APIKey)
 
 	return &LinearAgent{
-		cfg:      cfg,
-		lnClient: client,
-		logger:   logger.With().Str("component", "linear-agent").Logger(),
-		stopCh:   make(chan struct{}),
+		cfg:          cfg,
+		instanceName: instanceName,
+		lnClient:     client,
+		logger:       logger.With().Str("component", instanceName).Logger(),
+		stopCh:       make(chan struct{}),
 	}
 }
 
@@ -59,7 +67,7 @@ func (la *LinearAgent) Run() error {
 		NATSOpts: natsOpts,
 	}
 	a, err := agent.New(
-		agentCfg, agentName, agentVersion,
+		agentCfg, la.instanceName, agentVersion,
 		[]string{"linear-polling", "linear-api"},
 		[]string{"create_issue", "update_issue", "create_comment", "add_label"},
 		la.logger,
@@ -75,7 +83,7 @@ func (la *LinearAgent) Run() error {
 	}
 
 	// 2. Subscribe to commands.
-	_, err = a.Conn().Subscribe(protocol.SubjectCommands(agentName), la.handleCommand)
+	_, err = a.Conn().Subscribe(protocol.SubjectCommands(la.instanceName), la.handleCommand)
 	if err != nil {
 		a.Close()
 		return fmt.Errorf("subscribe commands: %w", err)
@@ -130,10 +138,11 @@ func NewTestAgent(natsURL string, natsOpts []nats.Option, mockClient LinearClien
 			NATS: NATSConfig{URL: natsURL},
 			Poll: PollConfig{Interval: pollInterval},
 		},
-		lnClient: mockClient,
-		natsOpts: natsOpts,
-		logger:   logger.With().Str("component", "linear-agent").Logger(),
-		stopCh:   make(chan struct{}),
+		instanceName: defaultAgentName,
+		lnClient:     mockClient,
+		natsOpts:     natsOpts,
+		logger:       logger.With().Str("component", defaultAgentName).Logger(),
+		stopCh:       make(chan struct{}),
 	}
 }
 
@@ -148,7 +157,7 @@ func (la *LinearAgent) shutdown() error {
 func (la *LinearAgent) reloadConfig() {
 	la.logger.Info().Msg("reloading linear agent configuration")
 
-	newCfg, err := LoadConfig("")
+	newCfg, err := LoadConfig("", "")
 	if err != nil {
 		la.logger.Error().Err(err).Msg("failed to reload config")
 		return

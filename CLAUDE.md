@@ -81,6 +81,44 @@ internal/server     cmd/sekiactl/cmd    internal/github    internal/slack   inte
 - **Go 1.22+ ServeMux routing** (`"GET /api/v1/status"`) — no external HTTP framework.
 - **Config via Viper**: TOML files searched in `/etc/sekia`, `~/.config/sekia`, `.`; env vars with `SEKIA_` prefix; code defaults.
 
+### Named instances (multi-tenancy)
+
+All agent binaries (`sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-google`) support `--name <instance>` for running multiple instances of the same agent type against different configurations.
+
+**Behavior when `--name` is set:**
+- Config file becomes `sekia-{agent}-{name}.toml` (e.g., `sekia-github --name work` → `sekia-github-work.toml`)
+- Agent registers on NATS as `{name}` instead of `{agent}-agent` (e.g., `work` instead of `github-agent`)
+- Command subscription uses `sekia.commands.{name}` — workflows target named instances via `sekia.command("work", "add_label", payload)`
+- `--config` still overrides the config file path regardless of `--name`
+
+**Without `--name`:** behavior is unchanged (defaults to `github-agent`, `sekia-github.toml`, etc.).
+
+**Example multi-instance setup:**
+```bash
+# Personal GitHub account
+sekia-github --name github-personal   # reads sekia-github-personal.toml, registers as "github-personal"
+
+# Work GitHub account
+sekia-github --name github-work       # reads sekia-github-work.toml, registers as "github-work"
+```
+
+**Service management** (`internal/service/`):
+Named instances can run as background services via `sekiactl service`. Platform-specific:
+- **macOS**: launchd plists in `~/Library/LaunchAgents/com.sekia.{name}.plist`
+- **Linux**: systemd user units in `~/.config/systemd/user/sekia-{name}.service`
+
+Build tags (`service_darwin.go`, `service_linux.go`) separate platform implementations.
+
+**CLI:**
+- `sekiactl service create <binary> --name <instance> [--config <path>] [--env KEY=VALUE]` — generate service file
+- `sekiactl service start <name>` — start service
+- `sekiactl service stop <name>` — stop service
+- `sekiactl service restart <name>` — restart service
+- `sekiactl service remove <name>` — stop + delete service file
+- `sekiactl service list` — list managed services (name, binary, status, PID)
+
+Logs go to `~/.config/sekia/logs/{name}.log`. The default brew-managed instance is not affected.
+
 ### Workflow engine (`internal/workflow/`)
 
 Lua-based event→handler→command engine using [gopher-lua](https://github.com/yuin/gopher-lua). Workflows are `.lua` files in a configurable directory (default `~/.config/sekia/workflows/`).
