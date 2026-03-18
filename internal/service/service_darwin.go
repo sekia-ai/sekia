@@ -116,11 +116,11 @@ func Create(opts CreateOpts) error {
 		return fmt.Errorf("render plist: %w", err)
 	}
 
-	if err := os.MkdirAll(launchAgentsDir(), 0755); err != nil {
+	if err := os.MkdirAll(launchAgentsDir(), 0750); err != nil {
 		return fmt.Errorf("create LaunchAgents directory: %w", err)
 	}
 
-	if err := os.WriteFile(plistPath, buf.Bytes(), 0644); err != nil {
+	if err := os.WriteFile(plistPath, buf.Bytes(), 0600); err != nil { // #nosec G306 -- may contain env vars with secrets
 		return fmt.Errorf("write plist: %w", err)
 	}
 
@@ -213,7 +213,7 @@ func List() ([]ServiceInfo, error) {
 
 // parseBinaryFromPlist extracts the binary name from ProgramArguments in a plist.
 func parseBinaryFromPlist(path string) string {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path from filepath.Glob on known directory
 	if err != nil {
 		return "unknown"
 	}

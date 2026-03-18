@@ -76,5 +76,5 @@ func LogPath(name string) string {
 
 // EnsureLogDir creates the log directory if it doesn't exist.
 func EnsureLogDir() error {
-	return os.MkdirAll(LogDir(), 0755)
+	return os.MkdirAll(LogDir(), 0750)
 }
