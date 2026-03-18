@@ -20,14 +20,15 @@ import (
 )
 
 const (
-	agentName    = "github-agent"
-	agentVersion = "0.2.0"
+	defaultAgentName = "github-agent"
+	agentVersion     = "0.2.0"
 )
 
 // GitHubAgent bridges GitHub webhooks and/or REST API polling to the sekia
 // event bus and executes GitHub API commands dispatched by workflows.
 type GitHubAgent struct {
 	cfg          Config
+	instanceName string // agent name for NATS registration and command subscription
 	ghClient     GitHubClient
 	agent        *agent.Agent
 	webhook      *WebhookServer
@@ -46,19 +47,26 @@ type GitHubAgent struct {
 }
 
 // NewAgent creates a GitHubAgent. Call Run() to start.
-func NewAgent(cfg Config, logger zerolog.Logger) *GitHubAgent {
+// instanceName overrides the default agent name for NATS registration.
+// Pass "" to use the default ("github-agent").
+func NewAgent(cfg Config, instanceName string, logger zerolog.Logger) *GitHubAgent {
+	if instanceName == "" {
+		instanceName = defaultAgentName
+	}
+
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: cfg.GitHub.Token})
 	httpClient := oauth2.NewClient(context.Background(), ts)
 	ghc := gh.NewClient(httpClient)
 
 	return &GitHubAgent{
-		cfg:      cfg,
-		ghClient: &realGitHubClient{client: ghc},
-		logger:   logger.With().Str("component", "github-agent").Logger(),
-		stopCh:   make(chan struct{}),
-		cmdCh:    make(chan *nats.Msg, 256),
-		cmdDone:  make(chan struct{}),
-		readyCh:  make(chan struct{}),
+		cfg:          cfg,
+		instanceName: instanceName,
+		ghClient:     &realGitHubClient{client: ghc},
+		logger:       logger.With().Str("component", instanceName).Logger(),
+		stopCh:       make(chan struct{}),
+		cmdCh:        make(chan *nats.Msg, 256),
+		cmdDone:      make(chan struct{}),
+		readyCh:      make(chan struct{}),
 	}
 }
 
@@ -83,7 +91,7 @@ func (ga *GitHubAgent) Run() error {
 		NATSOpts: natsOpts,
 	}
 	a, err := agent.New(
-		agentCfg, agentName, agentVersion,
+		agentCfg, ga.instanceName, agentVersion,
 		capabilities,
 		[]string{"add_label", "remove_label", "create_comment", "close_issue", "reopen_issue"},
 		ga.logger,
@@ -99,7 +107,7 @@ func (ga *GitHubAgent) Run() error {
 	}
 
 	// 2. Subscribe to commands (non-blocking enqueue; worker goroutine executes).
-	_, err = a.Conn().Subscribe(protocol.SubjectCommands(agentName), ga.enqueueCommand)
+	_, err = a.Conn().Subscribe(protocol.SubjectCommands(ga.instanceName), ga.enqueueCommand)
 	if err != nil {
 		a.Close()
 		return fmt.Errorf("subscribe commands: %w", err)
@@ -192,13 +200,14 @@ func NewTestAgent(natsURL string, natsOpts []nats.Option, ghBaseURL, webhookList
 			NATS:    NATSConfig{URL: natsURL},
 			Webhook: WebhookConfig{Listen: webhookListen, Path: "/webhook", Secret: TestWebhookSecret},
 		},
-		ghClient: &realGitHubClient{client: ghc},
-		natsOpts: natsOpts,
-		logger:   logger.With().Str("component", "github-agent").Logger(),
-		stopCh:   make(chan struct{}),
-		cmdCh:    make(chan *nats.Msg, 256),
-		cmdDone:  make(chan struct{}),
-		readyCh:  make(chan struct{}),
+		instanceName: defaultAgentName,
+		ghClient:     &realGitHubClient{client: ghc},
+		natsOpts:     natsOpts,
+		logger:       logger.With().Str("component", defaultAgentName).Logger(),
+		stopCh:       make(chan struct{}),
+		cmdCh:        make(chan *nats.Msg, 256),
+		cmdDone:      make(chan struct{}),
+		readyCh:      make(chan struct{}),
 	}
 }
 
@@ -250,13 +259,14 @@ func NewTestAgentWithPolling(natsURL string, natsOpts []nats.Option, ghClient Gi
 			Webhook: WebhookConfig{Listen: webhookListen, Path: "/webhook"},
 			Poll:    PollConfig{Enabled: true, Interval: pollInterval, Repos: repos, PerTick: 100, State: "open"},
 		},
-		ghClient: ghClient,
-		natsOpts: natsOpts,
-		logger:   logger.With().Str("component", "github-agent").Logger(),
-		stopCh:   make(chan struct{}),
-		cmdCh:    make(chan *nats.Msg, 256),
-		cmdDone:  make(chan struct{}),
-		readyCh:  make(chan struct{}),
+		instanceName: defaultAgentName,
+		ghClient:     ghClient,
+		natsOpts:     natsOpts,
+		logger:       logger.With().Str("component", defaultAgentName).Logger(),
+		stopCh:       make(chan struct{}),
+		cmdCh:        make(chan *nats.Msg, 256),
+		cmdDone:      make(chan struct{}),
+		readyCh:      make(chan struct{}),
 	}
 }
 
@@ -288,7 +298,7 @@ func (ga *GitHubAgent) shutdown() error {
 func (ga *GitHubAgent) reloadConfig() {
 	ga.logger.Info().Msg("reloading github agent configuration")
 
-	newCfg, err := LoadConfig("")
+	newCfg, err := LoadConfig("", "")
 	if err != nil {
 		ga.logger.Error().Err(err).Msg("failed to reload config")
 		return

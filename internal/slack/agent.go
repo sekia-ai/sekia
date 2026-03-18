@@ -18,32 +18,40 @@ import (
 )
 
 const (
-	agentName    = "slack-agent"
-	agentVersion = "0.2.0"
+	defaultAgentName = "slack-agent"
+	agentVersion     = "0.2.0"
 )
 
 // SlackAgent bridges Slack events to the sekia event bus
 // and executes Slack API commands dispatched by workflows.
 type SlackAgent struct {
-	cfg      Config
-	slClient SlackClient
-	agent    *agent.Agent
-	logger   zerolog.Logger
-	stopCh   chan struct{}
+	cfg          Config
+	instanceName string // agent name for NATS registration and command subscription
+	slClient     SlackClient
+	agent        *agent.Agent
+	logger       zerolog.Logger
+	stopCh       chan struct{}
 
 	// Overridable for testing.
 	natsOpts []nats.Option
 }
 
 // NewAgent creates a SlackAgent. Call Run() to start.
-func NewAgent(cfg Config, logger zerolog.Logger) *SlackAgent {
+// instanceName overrides the default agent name for NATS registration.
+// Pass "" to use the default ("slack-agent").
+func NewAgent(cfg Config, instanceName string, logger zerolog.Logger) *SlackAgent {
+	if instanceName == "" {
+		instanceName = defaultAgentName
+	}
+
 	api := slackapi.New(cfg.Slack.BotToken)
 
 	return &SlackAgent{
-		cfg:      cfg,
-		slClient: &realSlackClient{client: api},
-		logger:   logger.With().Str("component", "slack-agent").Logger(),
-		stopCh:   make(chan struct{}),
+		cfg:          cfg,
+		instanceName: instanceName,
+		slClient:     &realSlackClient{client: api},
+		logger:       logger.With().Str("component", instanceName).Logger(),
+		stopCh:       make(chan struct{}),
 	}
 }
 
@@ -60,7 +68,7 @@ func (sa *SlackAgent) Run() error {
 		NATSOpts: natsOpts,
 	}
 	a, err := agent.New(
-		agentCfg, agentName, agentVersion,
+		agentCfg, sa.instanceName, agentVersion,
 		[]string{"slack-socketmode", "slack-api"},
 		[]string{"send_message", "update_message", "add_reaction", "send_reply"},
 		sa.logger,
@@ -76,7 +84,7 @@ func (sa *SlackAgent) Run() error {
 	}
 
 	// 2. Subscribe to commands.
-	_, err = a.Conn().Subscribe(protocol.SubjectCommands(agentName), sa.handleCommand)
+	_, err = a.Conn().Subscribe(protocol.SubjectCommands(sa.instanceName), sa.handleCommand)
 	if err != nil {
 		a.Close()
 		return fmt.Errorf("subscribe commands: %w", err)
@@ -135,10 +143,11 @@ func NewTestAgent(natsURL string, natsOpts []nats.Option, mockClient SlackClient
 		cfg: Config{
 			NATS: NATSConfig{URL: natsURL},
 		},
-		slClient: mockClient,
-		natsOpts: natsOpts,
-		logger:   logger.With().Str("component", "slack-agent").Logger(),
-		stopCh:   make(chan struct{}),
+		instanceName: defaultAgentName,
+		slClient:     mockClient,
+		natsOpts:     natsOpts,
+		logger:       logger.With().Str("component", defaultAgentName).Logger(),
+		stopCh:       make(chan struct{}),
 	}
 }
 
@@ -153,7 +162,7 @@ func (sa *SlackAgent) shutdown() error {
 func (sa *SlackAgent) reloadConfig() {
 	sa.logger.Info().Msg("reloading slack agent configuration")
 
-	newCfg, err := LoadConfig("")
+	newCfg, err := LoadConfig("", "")
 	if err != nil {
 		sa.logger.Error().Err(err).Msg("failed to reload config")
 		return

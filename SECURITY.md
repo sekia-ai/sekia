@@ -65,6 +65,10 @@ Key files are stored with `0600` permissions and their parent directories with `
 - Lua workflows run in a restricted sandbox: only `base` (minus `dofile`/`loadfile`/`load`), `table`, `string`, and `math` modules are available. `os`, `io`, and `debug` are excluded.
 - **Workflow integrity verification** is available: set `workflows.verify_integrity = true` and maintain a `workflows.sha256` manifest generated with `sekiactl workflows sign`. The engine will reject any `.lua` file whose hash does not match the manifest.
 
+### Named Instance Services
+
+Named agent instances managed via `sekiactl service create` generate launchd plists (macOS) or systemd units (Linux). The `--env KEY=VALUE` flag stores environment variables in **plaintext** within these service files. Prefer using encrypted config values (`ENC[...]`, `KMS[...]`, `ASM[...]`) in TOML config files instead. Service files are created with `0644` permissions in standard user service directories (`~/Library/LaunchAgents/` or `~/.config/systemd/user/`).
+
 ### Network Exposure
 
 - The embedded NATS server runs in-process with `DontListen: true` by default — no TCP port is opened for NATS.

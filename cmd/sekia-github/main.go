@@ -15,6 +15,7 @@ var version = "dev"
 
 func main() {
 	var cfgFile string
+	var instanceName string
 
 	rootCmd := &cobra.Command{
 		Use:   "sekia-github",
@@ -24,18 +25,19 @@ func main() {
 				zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339},
 			).With().Timestamp().Logger()
 
-			cfg, err := ghagent.LoadConfig(cfgFile)
+			cfg, err := ghagent.LoadConfig(cfgFile, instanceName)
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
 
-			ga := ghagent.NewAgent(cfg, logger)
+			ga := ghagent.NewAgent(cfg, instanceName, logger)
 			return ga.Run()
 		},
 	}
 
 	rootCmd.Version = version
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file path")
+	rootCmd.PersistentFlags().StringVar(&instanceName, "name", "", "instance name for multi-tenant setups (e.g., github-work); changes config file and NATS registration")
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

@@ -16,6 +16,7 @@ var version = "dev"
 
 func main() {
 	var cfgFile string
+	var instanceName string
 
 	rootCmd := &cobra.Command{
 		Use:   "sekia-google",
@@ -25,7 +26,7 @@ func main() {
 				zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339},
 			).With().Timestamp().Logger()
 
-			cfg, err := googleagent.LoadConfig(cfgFile)
+			cfg, err := googleagent.LoadConfig(cfgFile, instanceName)
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
@@ -34,7 +35,7 @@ func main() {
 				return fmt.Errorf("invalid config: %w", err)
 			}
 
-			ga, err := googleagent.NewAgent(cfg, logger)
+			ga, err := googleagent.NewAgent(cfg, instanceName, logger)
 			if err != nil {
 				return fmt.Errorf("create agent: %w", err)
 			}
@@ -47,7 +48,7 @@ func main() {
 		Use:   "auth",
 		Short: "Authorize sekia-google with your Google account",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := googleagent.LoadConfig(cfgFile)
+			cfg, err := googleagent.LoadConfig(cfgFile, instanceName)
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
@@ -76,6 +77,7 @@ func main() {
 	rootCmd.AddCommand(authCmd)
 	rootCmd.Version = version
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file path")
+	rootCmd.PersistentFlags().StringVar(&instanceName, "name", "", "instance name for multi-tenant setups (e.g., google-work); changes config file and NATS registration")
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

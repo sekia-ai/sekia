@@ -75,6 +75,7 @@
   </div>
   <div class="sidebar-section">
     <div class="sidebar-heading">Agents</div>
+    <a href="#named-instances">Named Instances</a>
     <a href="#github-agent">GitHub</a>
     <a href="#slack-agent">Slack</a>
     <a href="#linear-agent">Linear</a>
@@ -538,6 +539,19 @@ ghp_mytoken123</code></pre>
 aws_region = <span class="str">"us-east-1"</span>     <span class="cm"># optional region override</span>
 kms_key_id = <span class="str">"alias/sekia"</span>   <span class="cm"># default KMS key for kms-encrypt CLI</span></code></pre>
   <p>KMS auto-rotation is fully supported &mdash; AWS preserves all previous key material versions, so existing ciphertexts remain decryptable after rotation.</p>
+
+  <h3>sekiactl service</h3>
+  <p>Manage named agent instances as background services (launchd on macOS, systemd on Linux). See <a href="#named-instances">Named Instances</a> for full documentation.</p>
+  <pre><code>$ sekiactl service create sekia-github --name github-work
+$ sekiactl service start github-work
+$ sekiactl service stop github-work
+$ sekiactl service restart github-work
+$ sekiactl service remove github-work
+$ sekiactl service list</code></pre>
+
+  <h3>sekiactl skills list</h3>
+  <p>List loaded skills.</p>
+  <pre><code>$ sekiactl skills list</code></pre>
 </section>
 
 <!-- ================================================================== -->
@@ -743,6 +757,111 @@ conv:<span class="fn">metadata</span>(<span class="str">"mood"</span>, <span cla
 </section>
 
 <!-- ================================================================== -->
+<!-- WORKFLOW EXAMPLES -->
+<!-- ================================================================== -->
+<section id="workflow-examples">
+  <h2>Workflow Examples</h2>
+
+  <h3>Auto-label GitHub issues</h3>
+  <p>Labels issues based on keywords in the title and posts a welcome comment.</p>
+  <pre><code><span class="cm">-- github-auto-label.lua</span>
+
+sekia.<span class="fn">on</span>(<span class="str">"sekia.events.github"</span>, <span class="kw">function</span>(event)
+    <span class="kw">if</span> event.type ~= <span class="str">"github.issue.opened"</span> <span class="kw">then</span> <span class="kw">return</span> <span class="kw">end</span>
+
+    <span class="kw">local</span> title = string.<span class="fn">lower</span>(event.payload.title <span class="kw">or</span> <span class="str">""</span>)
+    <span class="kw">local</span> owner = event.payload.owner
+    <span class="kw">local</span> repo  = event.payload.repo
+    <span class="kw">local</span> num   = event.payload.number
+
+    <span class="kw">if</span> string.<span class="fn">find</span>(title, <span class="str">"bug"</span>) <span class="kw">or</span> string.<span class="fn">find</span>(title, <span class="str">"crash"</span>) <span class="kw">then</span>
+        sekia.<span class="fn">command</span>(<span class="str">"github-agent"</span>, <span class="str">"add_label"</span>, {
+            owner = owner, repo = repo, number = num, label = <span class="str">"bug"</span>,
+        })
+    <span class="kw">end</span>
+
+    <span class="kw">if</span> string.<span class="fn">find</span>(title, <span class="str">"feature"</span>) <span class="kw">or</span> string.<span class="fn">find</span>(title, <span class="str">"request"</span>) <span class="kw">then</span>
+        sekia.<span class="fn">command</span>(<span class="str">"github-agent"</span>, <span class="str">"add_label"</span>, {
+            owner = owner, repo = repo, number = num, label = <span class="str">"enhancement"</span>,
+        })
+    <span class="kw">end</span>
+
+    sekia.<span class="fn">command</span>(<span class="str">"github-agent"</span>, <span class="str">"create_comment"</span>, {
+        owner = owner, repo = repo, number = num,
+        body  = <span class="str">"Thanks for opening this issue! A maintainer will review it shortly."</span>,
+    })
+<span class="kw">end</span>)</code></pre>
+
+  <h3>AI-powered issue classifier</h3>
+  <p>Uses an LLM to classify issues and apply the appropriate label.</p>
+  <pre><code><span class="cm">-- ai-issue-classifier.lua</span>
+
+sekia.<span class="fn">on</span>(<span class="str">"sekia.events.github"</span>, <span class="kw">function</span>(event)
+    <span class="kw">if</span> event.type ~= <span class="str">"github.issue.opened"</span> <span class="kw">then</span> <span class="kw">return</span> <span class="kw">end</span>
+
+    <span class="kw">local</span> prompt = <span class="str">"Classify this GitHub issue. Reply with exactly one word: bug, feature, question, or docs.\n\n"</span>
+        .. <span class="str">"Title: "</span> .. (event.payload.title <span class="kw">or</span> <span class="str">""</span>) .. <span class="str">"\n"</span>
+        .. <span class="str">"Body: "</span> .. (event.payload.body <span class="kw">or</span> <span class="str">""</span>)
+
+    <span class="kw">local</span> result, err = sekia.<span class="fn">ai</span>(prompt, { max_tokens = <span class="num">16</span>, temperature = <span class="num">0</span> })
+
+    <span class="kw">if</span> err <span class="kw">then</span>
+        sekia.<span class="fn">log</span>(<span class="str">"error"</span>, <span class="str">"AI classification failed: "</span> .. err)
+        <span class="kw">return</span>
+    <span class="kw">end</span>
+
+    <span class="kw">local</span> label = string.<span class="fn">lower</span>(string.<span class="fn">gsub</span>(result, <span class="str">"%s+"</span>, <span class="str">""</span>))
+
+    sekia.<span class="fn">command</span>(<span class="str">"github-agent"</span>, <span class="str">"add_label"</span>, {
+        owner  = event.payload.owner,
+        repo   = event.payload.repo,
+        number = event.payload.number,
+        label  = label,
+    })
+<span class="kw">end</span>)</code></pre>
+
+  <h3>Auto-reply to urgent emails</h3>
+  <pre><code><span class="cm">-- gmail-auto-reply.lua</span>
+<span class="cm">-- Requires: sekia-google with gmail.enabled = true</span>
+
+sekia.<span class="fn">on</span>(<span class="str">"sekia.events.google"</span>, <span class="kw">function</span>(event)
+    <span class="kw">if</span> event.type ~= <span class="str">"gmail.message.received"</span> <span class="kw">then</span> <span class="kw">return</span> <span class="kw">end</span>
+
+    <span class="kw">local</span> subject = string.<span class="fn">lower</span>(event.payload.subject <span class="kw">or</span> <span class="str">""</span>)
+
+    <span class="kw">if</span> string.<span class="fn">find</span>(subject, <span class="str">"urgent"</span>) <span class="kw">or</span> string.<span class="fn">find</span>(subject, <span class="str">"critical"</span>) <span class="kw">then</span>
+        sekia.<span class="fn">command</span>(<span class="str">"google-agent"</span>, <span class="str">"reply_email"</span>, {
+            thread_id   = event.payload.thread_id,
+            in_reply_to = event.payload.message_id,
+            to          = event.payload.from,
+            subject     = <span class="str">"Re: "</span> .. (event.payload.subject <span class="kw">or</span> <span class="str">""</span>),
+            body        = <span class="str">"Thank you. This has been flagged as urgent and will be reviewed promptly."</span>,
+        })
+    <span class="kw">end</span>
+<span class="kw">end</span>)</code></pre>
+
+  <h3>Calendar event notifications</h3>
+  <pre><code><span class="cm">-- google-calendar-notify.lua</span>
+<span class="cm">-- Requires: sekia-google with calendar.enabled = true</span>
+
+sekia.<span class="fn">on</span>(<span class="str">"sekia.events.google"</span>, <span class="kw">function</span>(event)
+    <span class="kw">if</span> event.type == <span class="str">"google.calendar.event.created"</span> <span class="kw">then</span>
+        sekia.<span class="fn">log</span>(<span class="str">"info"</span>, <span class="str">"New event: "</span> .. (event.payload.summary <span class="kw">or</span> <span class="str">"untitled"</span>))
+
+        <span class="cm">-- Notify via Slack</span>
+        sekia.<span class="fn">command</span>(<span class="str">"slack-agent"</span>, <span class="str">"send_message"</span>, {
+            channel = <span class="str">"#calendar"</span>,
+            text    = <span class="str">"New event: "</span> .. event.payload.summary .. <span class="str">" at "</span> .. event.payload.start,
+        })
+    <span class="kw">end</span>
+
+    <span class="kw">if</span> event.type == <span class="str">"google.calendar.event.upcoming"</span> <span class="kw">then</span>
+        sekia.<span class="fn">log</span>(<span class="str">"info"</span>, <span class="str">"Starting in "</span> .. event.payload.minutes_until .. <span class="str">"m: "</span> .. (event.payload.summary <span class="kw">or</span> <span class="str">"untitled"</span>))
+    <span class="kw">end</span>
+<span class="kw">end</span>)</code></pre>
+</section>
+
+<!-- ================================================================== -->
 <!-- AI FEATURES -->
 <!-- ================================================================== -->
 <section id="persona">
@@ -856,108 +975,74 @@ sekia.<span class="fn">on</span>(<span class="str">"sekia.events.sentinel"</span
 </section>
 
 <!-- ================================================================== -->
-<!-- WORKFLOW EXAMPLES -->
+<!-- NAMED INSTANCES -->
 <!-- ================================================================== -->
-<section id="workflow-examples">
-  <h2>Workflow Examples</h2>
+<section id="named-instances">
+  <h2>Named Instances (Multi-Tenancy)</h2>
+  <p>All agent binaries support a <code>--name</code> flag for running multiple instances of the same agent type with different configurations.</p>
 
-  <h3>Auto-label GitHub issues</h3>
-  <p>Labels issues based on keywords in the title and posts a welcome comment.</p>
-  <pre><code><span class="cm">-- github-auto-label.lua</span>
+  <pre><code><span class="cm"># Two GitHub agents for different accounts</span>
+sekia-github --name github-personal   <span class="cm"># reads sekia-github-personal.toml</span>
+sekia-github --name github-work       <span class="cm"># reads sekia-github-work.toml</span></code></pre>
 
-sekia.<span class="fn">on</span>(<span class="str">"sekia.events.github"</span>, <span class="kw">function</span>(event)
-    <span class="kw">if</span> event.type ~= <span class="str">"github.issue.opened"</span> <span class="kw">then</span> <span class="kw">return</span> <span class="kw">end</span>
+  <p>When <code>--name</code> is set:</p>
+  <ul>
+    <li><strong>Config file</strong> becomes <code>sekia-{agent}-{name}.toml</code> (unless <code>--config</code> overrides)</li>
+    <li><strong>NATS registration</strong> uses the instance name (e.g., <code>github-work</code> instead of <code>github-agent</code>)</li>
+    <li><strong>Command subject</strong> becomes <code>sekia.commands.{name}</code> &mdash; target instances from workflows via <code>sekia.command("github-work", "add_label", payload)</code></li>
+  </ul>
+  <p>Without <code>--name</code>, behavior is unchanged (default names: <code>github-agent</code>, <code>slack-agent</code>, etc.).</p>
 
-    <span class="kw">local</span> title = string.<span class="fn">lower</span>(event.payload.title <span class="kw">or</span> <span class="str">""</span>)
-    <span class="kw">local</span> owner = event.payload.owner
-    <span class="kw">local</span> repo  = event.payload.repo
-    <span class="kw">local</span> num   = event.payload.number
+  <h3>Background Services</h3>
+  <p>Use <code>sekiactl service</code> to manage named instances as background services (launchd on macOS, systemd on Linux):</p>
 
-    <span class="kw">if</span> string.<span class="fn">find</span>(title, <span class="str">"bug"</span>) <span class="kw">or</span> string.<span class="fn">find</span>(title, <span class="str">"crash"</span>) <span class="kw">then</span>
-        sekia.<span class="fn">command</span>(<span class="str">"github-agent"</span>, <span class="str">"add_label"</span>, {
-            owner = owner, repo = repo, number = num, label = <span class="str">"bug"</span>,
-        })
-    <span class="kw">end</span>
+  <pre><code><span class="cm"># Create a service</span>
+sekiactl service create sekia-github --name github-work
 
-    <span class="kw">if</span> string.<span class="fn">find</span>(title, <span class="str">"feature"</span>) <span class="kw">or</span> string.<span class="fn">find</span>(title, <span class="str">"request"</span>) <span class="kw">then</span>
-        sekia.<span class="fn">command</span>(<span class="str">"github-agent"</span>, <span class="str">"add_label"</span>, {
-            owner = owner, repo = repo, number = num, label = <span class="str">"enhancement"</span>,
-        })
-    <span class="kw">end</span>
+<span class="cm"># Start / stop / restart</span>
+sekiactl service start github-work
+sekiactl service stop github-work
+sekiactl service restart github-work
 
-    sekia.<span class="fn">command</span>(<span class="str">"github-agent"</span>, <span class="str">"create_comment"</span>, {
-        owner = owner, repo = repo, number = num,
-        body  = <span class="str">"Thanks for opening this issue! A maintainer will review it shortly."</span>,
-    })
-<span class="kw">end</span>)</code></pre>
+<span class="cm"># List all managed services</span>
+sekiactl service list
 
-  <h3>AI-powered issue classifier</h3>
-  <p>Uses an LLM to classify issues and apply the appropriate label.</p>
-  <pre><code><span class="cm">-- ai-issue-classifier.lua</span>
+<span class="cm"># Remove (stops and deletes the service file)</span>
+sekiactl service remove github-work</code></pre>
 
-sekia.<span class="fn">on</span>(<span class="str">"sekia.events.github"</span>, <span class="kw">function</span>(event)
-    <span class="kw">if</span> event.type ~= <span class="str">"github.issue.opened"</span> <span class="kw">then</span> <span class="kw">return</span> <span class="kw">end</span>
+  <h4>CLI Reference</h4>
+  <table class="config-table">
+    <thead><tr><th>Command</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>sekiactl service create &lt;binary&gt; --name &lt;instance&gt;</code></td><td>Generate a service file for a named instance</td></tr>
+      <tr><td><code>sekiactl service start &lt;name&gt;</code></td><td>Start a named service</td></tr>
+      <tr><td><code>sekiactl service stop &lt;name&gt;</code></td><td>Stop a named service</td></tr>
+      <tr><td><code>sekiactl service restart &lt;name&gt;</code></td><td>Restart a named service</td></tr>
+      <tr><td><code>sekiactl service remove &lt;name&gt;</code></td><td>Stop and delete the service file</td></tr>
+      <tr><td><code>sekiactl service list</code></td><td>List all managed sekia services</td></tr>
+    </tbody>
+  </table>
 
-    <span class="kw">local</span> prompt = <span class="str">"Classify this GitHub issue. Reply with exactly one word: bug, feature, question, or docs.\n\n"</span>
-        .. <span class="str">"Title: "</span> .. (event.payload.title <span class="kw">or</span> <span class="str">""</span>) .. <span class="str">"\n"</span>
-        .. <span class="str">"Body: "</span> .. (event.payload.body <span class="kw">or</span> <span class="str">""</span>)
+  <h4>Create flags</h4>
+  <table class="config-table">
+    <thead><tr><th>Flag</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>--name &lt;instance&gt;</code></td><td>Instance name (required)</td></tr>
+      <tr><td><code>--config &lt;path&gt;</code></td><td>Explicit config file path (optional)</td></tr>
+      <tr><td><code>--env KEY=VALUE</code></td><td>Environment variable (optional, repeatable). Stored in plaintext &mdash; prefer <code>ENC[...]</code> config values</td></tr>
+    </tbody>
+  </table>
 
-    <span class="kw">local</span> result, err = sekia.<span class="fn">ai</span>(prompt, { max_tokens = <span class="num">16</span>, temperature = <span class="num">0</span> })
+  <h4>Platform details</h4>
+  <table class="config-table">
+    <thead><tr><th>Platform</th><th>Service file location</th><th>Backend</th></tr></thead>
+    <tbody>
+      <tr><td>macOS</td><td><code>~/Library/LaunchAgents/com.sekia.{name}.plist</code></td><td>launchd</td></tr>
+      <tr><td>Linux</td><td><code>~/.config/systemd/user/sekia-{name}.service</code></td><td>systemd (user units)</td></tr>
+    </tbody>
+  </table>
 
-    <span class="kw">if</span> err <span class="kw">then</span>
-        sekia.<span class="fn">log</span>(<span class="str">"error"</span>, <span class="str">"AI classification failed: "</span> .. err)
-        <span class="kw">return</span>
-    <span class="kw">end</span>
-
-    <span class="kw">local</span> label = string.<span class="fn">lower</span>(string.<span class="fn">gsub</span>(result, <span class="str">"%s+"</span>, <span class="str">""</span>))
-
-    sekia.<span class="fn">command</span>(<span class="str">"github-agent"</span>, <span class="str">"add_label"</span>, {
-        owner  = event.payload.owner,
-        repo   = event.payload.repo,
-        number = event.payload.number,
-        label  = label,
-    })
-<span class="kw">end</span>)</code></pre>
-
-  <h3>Auto-reply to urgent emails</h3>
-  <pre><code><span class="cm">-- gmail-auto-reply.lua</span>
-<span class="cm">-- Requires: sekia-google with gmail.enabled = true</span>
-
-sekia.<span class="fn">on</span>(<span class="str">"sekia.events.google"</span>, <span class="kw">function</span>(event)
-    <span class="kw">if</span> event.type ~= <span class="str">"gmail.message.received"</span> <span class="kw">then</span> <span class="kw">return</span> <span class="kw">end</span>
-
-    <span class="kw">local</span> subject = string.<span class="fn">lower</span>(event.payload.subject <span class="kw">or</span> <span class="str">""</span>)
-
-    <span class="kw">if</span> string.<span class="fn">find</span>(subject, <span class="str">"urgent"</span>) <span class="kw">or</span> string.<span class="fn">find</span>(subject, <span class="str">"critical"</span>) <span class="kw">then</span>
-        sekia.<span class="fn">command</span>(<span class="str">"google-agent"</span>, <span class="str">"reply_email"</span>, {
-            thread_id   = event.payload.thread_id,
-            in_reply_to = event.payload.message_id,
-            to          = event.payload.from,
-            subject     = <span class="str">"Re: "</span> .. (event.payload.subject <span class="kw">or</span> <span class="str">""</span>),
-            body        = <span class="str">"Thank you. This has been flagged as urgent and will be reviewed promptly."</span>,
-        })
-    <span class="kw">end</span>
-<span class="kw">end</span>)</code></pre>
-
-  <h3>Calendar event notifications</h3>
-  <pre><code><span class="cm">-- google-calendar-notify.lua</span>
-<span class="cm">-- Requires: sekia-google with calendar.enabled = true</span>
-
-sekia.<span class="fn">on</span>(<span class="str">"sekia.events.google"</span>, <span class="kw">function</span>(event)
-    <span class="kw">if</span> event.type == <span class="str">"google.calendar.event.created"</span> <span class="kw">then</span>
-        sekia.<span class="fn">log</span>(<span class="str">"info"</span>, <span class="str">"New event: "</span> .. (event.payload.summary <span class="kw">or</span> <span class="str">"untitled"</span>))
-
-        <span class="cm">-- Notify via Slack</span>
-        sekia.<span class="fn">command</span>(<span class="str">"slack-agent"</span>, <span class="str">"send_message"</span>, {
-            channel = <span class="str">"#calendar"</span>,
-            text    = <span class="str">"New event: "</span> .. event.payload.summary .. <span class="str">" at "</span> .. event.payload.start,
-        })
-    <span class="kw">end</span>
-
-    <span class="kw">if</span> event.type == <span class="str">"google.calendar.event.upcoming"</span> <span class="kw">then</span>
-        sekia.<span class="fn">log</span>(<span class="str">"info"</span>, <span class="str">"Starting in "</span> .. event.payload.minutes_until .. <span class="str">"m: "</span> .. (event.payload.summary <span class="kw">or</span> <span class="str">"untitled"</span>))
-    <span class="kw">end</span>
-<span class="kw">end</span>)</code></pre>
+  <p>Logs are written to <code>~/.config/sekia/logs/{name}.log</code>. The default <code>brew services</code>-managed instance is not affected.</p>
 </section>
 
 <!-- ================================================================== -->
@@ -968,7 +1053,7 @@ sekia.<span class="fn">on</span>(<span class="str">"sekia.events.google"</span>,
   <p>Standalone binary (<code>sekia-github</code>) that bridges GitHub to the NATS event bus via webhooks and/or REST API polling.</p>
 
   <h3>Usage</h3>
-  <pre><code>sekia-github [--config /path/to/sekia-github.toml]</code></pre>
+  <pre><code>sekia-github [--name &lt;instance&gt;] [--config /path/to/sekia-github.toml]</code></pre>
 
   <h3>Configuration</h3>
   <p>Config file: <code>sekia-github.toml</code>. At least one of webhook or polling must be enabled.</p>
@@ -1090,7 +1175,7 @@ repos    = [<span class="str">"myorg/myrepo"</span>, <span class="str">"myorg/ot
   <p>Standalone binary (<code>sekia-slack</code>) that connects to Slack via Socket Mode (WebSocket). No public URL needed.</p>
 
   <h3>Usage</h3>
-  <pre><code>sekia-slack [--config /path/to/sekia-slack.toml]</code></pre>
+  <pre><code>sekia-slack [--name &lt;instance&gt;] [--config /path/to/sekia-slack.toml]</code></pre>
 
   <h3>Configuration</h3>
   <p>Config file: <code>sekia-slack.toml</code>.</p>
@@ -1174,7 +1259,7 @@ app_token = <span class="str">"xapp-..."</span>  <span class="cm"># or set SLACK
   <p>Standalone binary (<code>sekia-linear</code>) that polls the Linear GraphQL API for changes and executes commands.</p>
 
   <h3>Usage</h3>
-  <pre><code>sekia-linear [--config /path/to/sekia-linear.toml]</code></pre>
+  <pre><code>sekia-linear [--name &lt;instance&gt;] [--config /path/to/sekia-linear.toml]</code></pre>
 
   <h3>Configuration</h3>
   <p>Config file: <code>sekia-linear.toml</code>.</p>
@@ -1257,10 +1342,10 @@ team_filter = <span class="str">"Engineering"</span></code></pre>
 
   <h3>Usage</h3>
   <pre><code><span class="cm"># Authorize (one-time setup)</span>
-sekia-google auth [--config /path/to/sekia-google.toml]
+sekia-google auth [--name &lt;instance&gt;] [--config /path/to/sekia-google.toml]
 
 <span class="cm"># Run the agent</span>
-sekia-google [--config /path/to/sekia-google.toml]</code></pre>
+sekia-google [--name &lt;instance&gt;] [--config /path/to/sekia-google.toml]</code></pre>
 
   <h3>OAuth2 Setup</h3>
   <ol>
