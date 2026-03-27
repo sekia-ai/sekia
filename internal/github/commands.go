@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	gh "github.com/google/go-github/v68/github"
@@ -15,6 +16,8 @@ type GitHubClient interface {
 	RemoveLabel(ctx context.Context, owner, repo string, number int, label string) error
 	CreateComment(ctx context.Context, owner, repo string, number int, body string) error
 	EditIssueState(ctx context.Context, owner, repo string, number int, state string) error
+	ApprovePR(ctx context.Context, owner, repo string, number int, body string) error
+	AddToProject(ctx context.Context, owner, repo string, number int, projectID string, fields []ProjectField) (string, error)
 
 	// Polling methods — fetch a single page of results.
 	// Returns (items, nextPage, error). nextPage == 0 means no more data.
@@ -28,7 +31,9 @@ type GitHubClient interface {
 
 // realGitHubClient wraps the google/go-github client.
 type realGitHubClient struct {
-	client *gh.Client
+	client     *gh.Client
+	httpClient *http.Client // shared OAuth2 HTTP client for GraphQL
+	token      string       // GitHub PAT for GraphQL Authorization header
 }
 
 func (c *realGitHubClient) AddLabels(ctx context.Context, owner, repo string, number int, labels []string) error {
@@ -51,6 +56,15 @@ func (c *realGitHubClient) CreateComment(ctx context.Context, owner, repo string
 func (c *realGitHubClient) EditIssueState(ctx context.Context, owner, repo string, number int, state string) error {
 	_, _, err := c.client.Issues.Edit(ctx, owner, repo, number, &gh.IssueRequest{
 		State: &state,
+	})
+	return err
+}
+
+func (c *realGitHubClient) ApprovePR(ctx context.Context, owner, repo string, number int, body string) error {
+	event := "APPROVE"
+	_, _, err := c.client.PullRequests.CreateReview(ctx, owner, repo, number, &gh.PullRequestReviewRequest{
+		Event: &event,
+		Body:  &body,
 	})
 	return err
 }
@@ -220,4 +234,63 @@ func cmdReopenIssue(ctx context.Context, ghc GitHubClient, payload map[string]an
 		return err
 	}
 	return ghc.EditIssueState(ctx, owner, repo, number, "open")
+}
+
+func cmdApprovePR(ctx context.Context, ghc GitHubClient, payload map[string]any) error {
+	owner, repo, number, err := extractRepoRef(payload)
+	if err != nil {
+		return err
+	}
+	body, _ := payload["body"].(string) // optional
+	return ghc.ApprovePR(ctx, owner, repo, number, body)
+}
+
+func cmdAddToProject(ctx context.Context, ghc GitHubClient, payload map[string]any) error {
+	owner, repo, number, err := extractRepoRef(payload)
+	if err != nil {
+		return err
+	}
+	projectID, err := extractString(payload, "project_id")
+	if err != nil {
+		return err
+	}
+
+	var fields []ProjectField
+	if raw, ok := payload["fields"]; ok {
+		arr, ok := raw.([]any)
+		if !ok {
+			return fmt.Errorf("fields must be an array")
+		}
+		for _, item := range arr {
+			m, ok := item.(map[string]any)
+			if !ok {
+				return fmt.Errorf("each field must be an object")
+			}
+			f := ProjectField{}
+			fid, err := extractString(m, "field_id")
+			if err != nil {
+				return err
+			}
+			f.FieldID = fid
+			if v, ok := m["text"].(string); ok {
+				f.Text = &v
+			}
+			if v, ok := m["number"].(float64); ok {
+				f.Number = &v
+			}
+			if v, ok := m["date"].(string); ok {
+				f.Date = &v
+			}
+			if v, ok := m["single_select_option_id"].(string); ok {
+				f.SingleSelectOptionID = &v
+			}
+			if v, ok := m["iteration_id"].(string); ok {
+				f.IterationID = &v
+			}
+			fields = append(fields, f)
+		}
+	}
+
+	_, err = ghc.AddToProject(ctx, owner, repo, number, projectID, fields)
+	return err
 }

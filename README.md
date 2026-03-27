@@ -626,6 +626,8 @@ Polled events include `payload.polled = true` so workflows can distinguish them 
 | `create_comment` | `owner`, `repo`, `number`, `body` | Post a comment |
 | `close_issue` | `owner`, `repo`, `number` | Close an issue |
 | `reopen_issue` | `owner`, `repo`, `number` | Reopen an issue |
+| `approve_pr` | `owner`, `repo`, `number` | Submit an approving review (optional: `body`) |
+| `add_to_project` | `owner`, `repo`, `number`, `project_id` | Add to a Projects v2 board (optional: `fields`) |
 
 **Example workflow**: [configs/workflows/github-auto-label.lua](configs/workflows/github-auto-label.lua)
 

@@ -61,7 +61,7 @@ func NewAgent(cfg Config, instanceName string, logger zerolog.Logger) *GitHubAge
 	return &GitHubAgent{
 		cfg:          cfg,
 		instanceName: instanceName,
-		ghClient:     &realGitHubClient{client: ghc},
+		ghClient:     &realGitHubClient{client: ghc, httpClient: httpClient, token: cfg.GitHub.Token},
 		logger:       logger.With().Str("component", instanceName).Logger(),
 		stopCh:       make(chan struct{}),
 		cmdCh:        make(chan *nats.Msg, 256),
@@ -93,7 +93,7 @@ func (ga *GitHubAgent) Run() error {
 	a, err := agent.New(
 		agentCfg, ga.instanceName, agentVersion,
 		capabilities,
-		[]string{"add_label", "remove_label", "create_comment", "close_issue", "reopen_issue"},
+		[]string{"add_label", "remove_label", "create_comment", "close_issue", "reopen_issue", "approve_pr", "add_to_project"},
 		ga.logger,
 	)
 	if err != nil {
@@ -389,6 +389,10 @@ func (ga *GitHubAgent) executeCommand(msg *nats.Msg) {
 		err = cmdCloseIssue(ctx, ga.ghClient, cmd.Payload)
 	case "reopen_issue":
 		err = cmdReopenIssue(ctx, ga.ghClient, cmd.Payload)
+	case "approve_pr":
+		err = cmdApprovePR(ctx, ga.ghClient, cmd.Payload)
+	case "add_to_project":
+		err = cmdAddToProject(ctx, ga.ghClient, cmd.Payload)
 	default:
 		err = fmt.Errorf("unknown command: %s", cmd.Command)
 	}
