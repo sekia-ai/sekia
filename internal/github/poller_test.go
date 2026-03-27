@@ -45,6 +45,12 @@ func (m *pollMockClient) CreateComment(_ context.Context, owner, repo string, nu
 func (m *pollMockClient) EditIssueState(_ context.Context, _, _ string, _ int, _ string) error {
 	return nil
 }
+func (m *pollMockClient) ApprovePR(_ context.Context, _, _ string, _ int, _ string) error {
+	return nil
+}
+func (m *pollMockClient) AddToProject(_ context.Context, _, _ string, _ int, _ string, _ []ProjectField) (string, error) {
+	return "", nil
+}
 
 func (m *pollMockClient) ListIssuesPage(_ context.Context, _, _ string, _ time.Time, _, _ int) ([]*gh.Issue, int, error) {
 	m.mu.Lock()
@@ -311,6 +317,12 @@ func (m *paginatingMockClient) CreateComment(_ context.Context, _, _ string, _ i
 }
 func (m *paginatingMockClient) EditIssueState(_ context.Context, _, _ string, _ int, _ string) error {
 	return nil
+}
+func (m *paginatingMockClient) ApprovePR(_ context.Context, _, _ string, _ int, _ string) error {
+	return nil
+}
+func (m *paginatingMockClient) AddToProject(_ context.Context, _, _ string, _ int, _ string, _ []ProjectField) (string, error) {
+	return "", nil
 }
 
 func (m *paginatingMockClient) ListIssuesPage(_ context.Context, _, _ string, _ time.Time, page, _ int) ([]*gh.Issue, int, error) {
@@ -644,6 +656,12 @@ func (m *labelMockClient) CreateComment(_ context.Context, _, _ string, _ int, _
 }
 func (m *labelMockClient) EditIssueState(_ context.Context, _, _ string, _ int, _ string) error {
 	return nil
+}
+func (m *labelMockClient) ApprovePR(_ context.Context, _, _ string, _ int, _ string) error {
+	return nil
+}
+func (m *labelMockClient) AddToProject(_ context.Context, _, _ string, _ int, _ string, _ []ProjectField) (string, error) {
+	return "", nil
 }
 func (m *labelMockClient) ListIssuesPage(_ context.Context, _, _ string, _ time.Time, _, _ int) ([]*gh.Issue, int, error) {
 	return nil, 0, nil

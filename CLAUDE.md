@@ -248,7 +248,11 @@ Standalone binary (`cmd/sekia-github/`) that bridges GitHub webhooks and/or REST
 
 **Event types (label-filtered mode)**: `github.issue.matched` — emitted for each issue matching the configured labels and state. Payload includes `labels`, `state`, `owner`, `repo`, `number`, `title`, `body`, `author`, `url`, `polled`.
 
-**Commands**: `add_label`, `remove_label`, `create_comment`, `close_issue`, `reopen_issue`
+**Commands**: `add_label`, `remove_label`, `create_comment`, `close_issue`, `reopen_issue`, `approve_pr`, `add_to_project`
+
+**`approve_pr`**: Submits an approving review on a pull request. Payload: `owner`, `repo`, `number`, optional `body`.
+
+**`add_to_project`**: Adds a PR/issue to a GitHub Projects v2 board and optionally sets field values. Payload: `owner`, `repo`, `number`, `project_id` (global node ID, e.g. `PVT_...`), optional `fields` array. Each field object: `field_id` (e.g. `PVTF_...`) plus one value key: `text`, `number`, `date`, `single_select_option_id`, or `iteration_id`. Uses GitHub GraphQL API (`internal/github/projects.go`).
 
 **Key design decisions:**
 - **GitHubClient interface** for testability — commands and polling reads go through an interface that wraps `google/go-github`, easily mocked in tests.

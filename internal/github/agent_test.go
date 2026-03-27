@@ -451,6 +451,14 @@ func (m *e2ePollMockClient) ListIssuesByLabelPage(_ context.Context, _, _ string
 	return nil, 0, nil
 }
 
+func (m *e2ePollMockClient) ApprovePR(_ context.Context, _, _ string, _ int, _ string) error {
+	return nil
+}
+
+func (m *e2ePollMockClient) AddToProject(_ context.Context, _, _ string, _ int, _ string, _ []ghagent.ProjectField) (string, error) {
+	return "", nil
+}
+
 func newTestGitHubAgent(t *testing.T, d *server.Daemon, mockGHURL string) *testGitHubAgent {
 	t.Helper()
 

@@ -42,6 +42,16 @@ func (m *mockGitHubClient) EditIssueState(_ context.Context, owner, repo string,
 	return nil
 }
 
+func (m *mockGitHubClient) ApprovePR(_ context.Context, owner, repo string, number int, body string) error {
+	m.calls = append(m.calls, mockCall{"ApprovePR", owner, repo, number, []string{body}})
+	return nil
+}
+
+func (m *mockGitHubClient) AddToProject(_ context.Context, owner, repo string, number int, projectID string, _ []ProjectField) (string, error) {
+	m.calls = append(m.calls, mockCall{"AddToProject", owner, repo, number, []string{projectID}})
+	return "PVTI_mock_item_id", nil
+}
+
 func (m *mockGitHubClient) ListIssuesPage(_ context.Context, _, _ string, _ time.Time, _, _ int) ([]*gh.Issue, int, error) {
 	return nil, 0, nil
 }
@@ -140,6 +150,92 @@ func TestCmdReopenIssue(t *testing.T) {
 	}
 	if mock.calls[0].Method != "EditIssueState" || mock.calls[0].Args[0] != "open" {
 		t.Errorf("unexpected call: %+v", mock.calls[0])
+	}
+}
+
+func TestCmdApprovePR(t *testing.T) {
+	mock := &mockGitHubClient{}
+	err := cmdApprovePR(context.Background(), mock, map[string]any{
+		"owner":  "myorg",
+		"repo":   "myrepo",
+		"number": float64(7),
+		"body":   "LGTM",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mock.calls[0].Method != "ApprovePR" || mock.calls[0].Args[0] != "LGTM" {
+		t.Errorf("unexpected call: %+v", mock.calls[0])
+	}
+}
+
+func TestCmdApprovePRNoBody(t *testing.T) {
+	mock := &mockGitHubClient{}
+	err := cmdApprovePR(context.Background(), mock, map[string]any{
+		"owner":  "myorg",
+		"repo":   "myrepo",
+		"number": float64(7),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mock.calls[0].Method != "ApprovePR" || mock.calls[0].Args[0] != "" {
+		t.Errorf("unexpected call: %+v", mock.calls[0])
+	}
+}
+
+func TestCmdAddToProject(t *testing.T) {
+	mock := &mockGitHubClient{}
+	err := cmdAddToProject(context.Background(), mock, map[string]any{
+		"owner":      "myorg",
+		"repo":       "myrepo",
+		"number":     float64(10),
+		"project_id": "PVT_abc123",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(mock.calls))
+	}
+	c := mock.calls[0]
+	if c.Method != "AddToProject" || c.Owner != "myorg" || c.Repo != "myrepo" || c.Number != 10 {
+		t.Errorf("unexpected call: %+v", c)
+	}
+	if c.Args[0] != "PVT_abc123" {
+		t.Errorf("unexpected project_id: %s", c.Args[0])
+	}
+}
+
+func TestCmdAddToProjectWithFields(t *testing.T) {
+	mock := &mockGitHubClient{}
+	err := cmdAddToProject(context.Background(), mock, map[string]any{
+		"owner":      "myorg",
+		"repo":       "myrepo",
+		"number":     float64(10),
+		"project_id": "PVT_abc123",
+		"fields": []any{
+			map[string]any{"field_id": "PVTF_text", "text": "hello"},
+			map[string]any{"field_id": "PVTF_num", "number": float64(42)},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mock.calls[0].Method != "AddToProject" {
+		t.Errorf("unexpected call: %+v", mock.calls[0])
+	}
+}
+
+func TestCmdAddToProjectMissingProjectID(t *testing.T) {
+	mock := &mockGitHubClient{}
+	err := cmdAddToProject(context.Background(), mock, map[string]any{
+		"owner":  "myorg",
+		"repo":   "myrepo",
+		"number": float64(10),
+	})
+	if err == nil {
+		t.Error("expected error for missing project_id")
 	}
 }
 

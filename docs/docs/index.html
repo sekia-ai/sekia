@@ -1148,6 +1148,8 @@ sekiactl service remove github-work</code></pre>
       <tr><td><code>create_comment</code></td><td>owner, repo, number, body</td><td>Create a comment on an issue or PR</td></tr>
       <tr><td><code>close_issue</code></td><td>owner, repo, number</td><td>Close an issue</td></tr>
       <tr><td><code>reopen_issue</code></td><td>owner, repo, number</td><td>Reopen an issue</td></tr>
+      <tr><td><code>approve_pr</code></td><td>owner, repo, number</td><td>Submit an approving review on a PR (optional: body)</td></tr>
+      <tr><td><code>add_to_project</code></td><td>owner, repo, number, project_id</td><td>Add PR/issue to a Projects v2 board (optional: fields array with field_id + value)</td></tr>
     </tbody>
   </table>
 
@@ -1595,7 +1597,7 @@ sekiactl status</code></pre>
       "name": "github-agent",
       "version": "v0.2.0",
       "status": "alive",
-      "commands": ["add_label", "remove_label", "create_comment", "close_issue", "reopen_issue"],
+      "commands": ["add_label", "remove_label", "create_comment", "close_issue", "reopen_issue", "approve_pr", "add_to_project"],
       "events_processed": 42,
       "errors": 0,
       "last_heartbeat": "2026-02-15T10:45:30Z"
