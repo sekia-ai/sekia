@@ -146,11 +146,11 @@ func ensureCSRFCookie(w http.ResponseWriter, r *http.Request) (string, bool) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return "", false
 	}
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- HttpOnly intentionally false: double-submit CSRF pattern requires JS to read the cookie and send it as X-CSRF-Token header.
 		Name:     "sekia_csrf",
 		Value:    token,
 		Path:     "/web",
-		HttpOnly: false, // Must be readable by JS to submit as header.
+		HttpOnly: false,
 		SameSite: http.SameSiteStrictMode,
 		Secure:   r.TLS != nil,
 	})
