@@ -61,8 +61,24 @@ func (c *realGitHubClient) EditIssueState(ctx context.Context, owner, repo strin
 }
 
 func (c *realGitHubClient) ApprovePR(ctx context.Context, owner, repo string, number int, body string) error {
+	// Check if we already approved this PR to avoid duplicate reviews.
+	reviews, _, err := c.client.PullRequests.ListReviews(ctx, owner, repo, number, &gh.ListOptions{PerPage: 100})
+	if err != nil {
+		return fmt.Errorf("list reviews: %w", err)
+	}
+	// Resolve authenticated user to compare against existing reviews.
+	me, _, err := c.client.Users.Get(ctx, "")
+	if err != nil {
+		return fmt.Errorf("get authenticated user: %w", err)
+	}
+	for _, r := range reviews {
+		if r.GetUser().GetLogin() == me.GetLogin() && r.GetState() == "APPROVED" {
+			return nil // already approved
+		}
+	}
+
 	event := "APPROVE"
-	_, _, err := c.client.PullRequests.CreateReview(ctx, owner, repo, number, &gh.PullRequestReviewRequest{
+	_, _, err = c.client.PullRequests.CreateReview(ctx, owner, repo, number, &gh.PullRequestReviewRequest{
 		Event: &event,
 		Body:  &body,
 	})
