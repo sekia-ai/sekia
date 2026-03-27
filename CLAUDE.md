@@ -256,6 +256,7 @@ Standalone binary (`cmd/sekia-github/`) that bridges GitHub webhooks and/or REST
 
 **Key design decisions:**
 - **GitHubClient interface** for testability — commands and polling reads go through an interface that wraps `google/go-github`, easily mocked in tests.
+- **GitHub GraphQL API for Projects v2** — `add_to_project` uses raw `net/http` GraphQL calls (`internal/github/projects.go`) because go-github has no ProjectV2 support. The `graphqlClient` reuses the same OAuth2 token. Three-step flow: resolve PR node ID → `addProjectV2ItemById` → `updateProjectV2ItemFieldValue` per field. All done in a single command to avoid request-reply complexity.
 - **All events on `sekia.events.github`** — workflows filter by `event.type` field, not NATS subject.
 - **Webhook HMAC-SHA256 verification** via `X-Hub-Signature-256` header (optional, controlled by `webhook.secret` config).
 - **PAT auth** via `GITHUB_TOKEN` env var or config file.
