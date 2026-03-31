@@ -18,7 +18,7 @@ import (
 
 const (
 	defaultAgentName = "linear-agent"
-	agentVersion     = "0.2.2"
+	agentVersion     = "0.2.3"
 )
 
 // LinearAgent bridges Linear events to the sekia event bus

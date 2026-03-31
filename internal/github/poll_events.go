@@ -103,6 +103,33 @@ func MapLabelMatchedIssue(issue *gh.Issue, owner, repo string) protocol.Event {
 	return protocol.NewEvent("github.issue.matched", "github", p)
 }
 
+// MapPRMatched converts a GitHub PullRequest from the PR-match poller into a sekia Event
+// with type "github.pr.matched".
+func MapPRMatched(pr *gh.PullRequest, owner, repo string) protocol.Event {
+	p := map[string]any{
+		"owner":       owner,
+		"repo":        repo,
+		"number":      pr.GetNumber(),
+		"title":       pr.GetTitle(),
+		"body":        pr.GetBody(),
+		"author":      pr.GetUser().GetLogin(),
+		"state":       pr.GetState(),
+		"head_branch": pr.GetHead().GetRef(),
+		"base_branch": pr.GetBase().GetRef(),
+		"url":         pr.GetHTMLURL(),
+		"draft":       pr.GetDraft(),
+		"polled":      true,
+	}
+
+	labels := make([]string, 0, len(pr.Labels))
+	for _, l := range pr.Labels {
+		labels = append(labels, l.GetName())
+	}
+	p["labels"] = labels
+
+	return protocol.NewEvent("github.pr.matched", "github", p)
+}
+
 // MapPolledComment converts a GitHub IssueComment from the REST API into a sekia Event.
 func MapPolledComment(comment *gh.IssueComment, owner, repo string) protocol.Event {
 	p := map[string]any{

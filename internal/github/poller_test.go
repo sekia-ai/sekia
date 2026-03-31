@@ -51,6 +51,9 @@ func (m *pollMockClient) ApprovePR(_ context.Context, _, _ string, _ int, _ stri
 func (m *pollMockClient) AddToProject(_ context.Context, _, _ string, _ int, _ string, _ []ProjectField) (string, error) {
 	return "", nil
 }
+func (m *pollMockClient) ListPRsByStatePage(_ context.Context, _, _ string, _ string, _ []string, _, _ int) ([]*gh.PullRequest, int, error) {
+	return nil, 0, nil
+}
 
 func (m *pollMockClient) ListIssuesPage(_ context.Context, _, _ string, _ time.Time, _, _ int) ([]*gh.Issue, int, error) {
 	m.mu.Lock()
@@ -323,6 +326,9 @@ func (m *paginatingMockClient) ApprovePR(_ context.Context, _, _ string, _ int, 
 }
 func (m *paginatingMockClient) AddToProject(_ context.Context, _, _ string, _ int, _ string, _ []ProjectField) (string, error) {
 	return "", nil
+}
+func (m *paginatingMockClient) ListPRsByStatePage(_ context.Context, _, _ string, _ string, _ []string, _, _ int) ([]*gh.PullRequest, int, error) {
+	return nil, 0, nil
 }
 
 func (m *paginatingMockClient) ListIssuesPage(_ context.Context, _, _ string, _ time.Time, page, _ int) ([]*gh.Issue, int, error) {
@@ -662,6 +668,9 @@ func (m *labelMockClient) ApprovePR(_ context.Context, _, _ string, _ int, _ str
 }
 func (m *labelMockClient) AddToProject(_ context.Context, _, _ string, _ int, _ string, _ []ProjectField) (string, error) {
 	return "", nil
+}
+func (m *labelMockClient) ListPRsByStatePage(_ context.Context, _, _ string, _ string, _ []string, _, _ int) ([]*gh.PullRequest, int, error) {
+	return nil, 0, nil
 }
 func (m *labelMockClient) ListIssuesPage(_ context.Context, _, _ string, _ time.Time, _, _ int) ([]*gh.Issue, int, error) {
 	return nil, 0, nil

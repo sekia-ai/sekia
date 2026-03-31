@@ -418,9 +418,9 @@ Agents:       3</code></pre>
   <p>List all registered agents.</p>
   <pre><code>$ sekiactl agents
 NAME            VERSION   STATUS   EVENTS   ERRORS   LAST HEARTBEAT
-github-agent    v0.2.2   alive    42       0        2s ago
-slack-agent     v0.2.2   alive    18       0        5s ago
-linear-agent    v0.2.2   alive    7        0        12s ago</code></pre>
+github-agent    v0.2.3   alive    42       0        2s ago
+slack-agent     v0.2.3   alive    18       0        5s ago
+linear-agent    v0.2.3   alive    7        0        12s ago</code></pre>
 
   <h3>sekiactl workflows</h3>
   <p>List loaded workflows. Alias for <code>sekiactl workflows list</code>.</p>
@@ -1110,7 +1110,10 @@ sekiactl service remove github-work</code></pre>
   <p><strong>Webhooks</strong> provide real-time, fine-grained events (labeled, assigned, reopened) but require a publicly accessible URL. <strong>Polling</strong> works behind firewalls but can only detect opened/closed/updated states. Both can run simultaneously; polled events include <code>payload.polled = true</code>.</p>
 
   <h3>Label-filtered mode</h3>
-  <p>When <code>poll.labels</code> is set, the poller switches to label-filtered mode: it queries issues by label and state instead of time, skips PRs/comments, and emits <code>github.issue.matched</code> events instead of the standard event types.</p>
+  <p>When <code>poll.labels</code> is set (and <code>match_prs</code> is false), the poller switches to label-filtered mode: it queries issues by label and state instead of time, skips PRs/comments, and emits <code>github.issue.matched</code> events instead of the standard event types.</p>
+
+  <h3>PR-match mode</h3>
+  <p>When <code>poll.match_prs = true</code>, the poller cycles through all PRs matching <code>state</code> (optionally filtered by <code>labels</code>) every interval. Emits <code>github.pr.matched</code> events with full PR metadata including author, draft status, and labels. Useful for auto-approval or triage workflows.</p>
 
   <h3>Rate limits</h3>
   <p>At startup, the agent logs a warning if the estimated API call rate (3 calls/repo/cycle) exceeds 80% of GitHub's 5,000 requests/hour limit.</p>
@@ -1133,6 +1136,7 @@ sekiactl service remove github-work</code></pre>
       <tr><td><code>github.pr.merged</code></td><td>Webhook + Polling</td><td>owner, repo, number, title, body, author, head_branch, base_branch, url, merge_commit</td></tr>
       <tr><td><code>github.pr.review_requested</code></td><td>Webhook only</td><td>owner, repo, number, title, body, author, head_branch, base_branch, url, reviewer</td></tr>
       <tr><td><code>github.pr.updated</code></td><td>Polling only</td><td>owner, repo, number, title, body, author, head_branch, base_branch, url</td></tr>
+      <tr><td><code>github.pr.matched</code></td><td>PR-match mode</td><td>owner, repo, number, title, body, author, state, head_branch, base_branch, url, draft, labels</td></tr>
       <tr><td><code>github.push</code></td><td>Webhook only</td><td>owner, repo, ref, before, after, commits_count, pusher, head_commit_message</td></tr>
       <tr><td><code>github.comment.created</code></td><td>Webhook only</td><td>owner, repo, issue_number, comment_id, body, author, url</td></tr>
     </tbody>
@@ -1595,7 +1599,7 @@ sekiactl status</code></pre>
   "agents": [
     {
       "name": "github-agent",
-      "version": "v0.2.2",
+      "version": "v0.2.3",
       "status": "alive",
       "commands": ["add_label", "remove_label", "create_comment", "close_issue", "reopen_issue", "approve_pr", "add_to_project"],
       "events_processed": 42,

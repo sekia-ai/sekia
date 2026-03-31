@@ -50,6 +50,7 @@ type Poller struct {
 	repos    []RepoRef
 	labels   []string
 	state    string
+	matchPRs bool
 	onEvent  func(protocol.Event)
 	logger   zerolog.Logger
 
@@ -68,6 +69,7 @@ type PollerConfig struct {
 	Repos    []RepoRef
 	Labels   []string
 	State    string
+	MatchPRs bool
 	OnEvent  func(protocol.Event)
 	Logger   zerolog.Logger
 }
@@ -81,6 +83,7 @@ func NewPoller(cfg PollerConfig) *Poller {
 		repos:        cfg.Repos,
 		labels:       cfg.Labels,
 		state:        cfg.State,
+		matchPRs:     cfg.MatchPRs,
 		onEvent:      cfg.OnEvent,
 		logger:       cfg.Logger.With().Str("component", "poller").Logger(),
 		lastSyncTime: time.Now().Add(-5 * time.Minute),
@@ -107,7 +110,13 @@ func (p *Poller) Run(ctx context.Context) error {
 // isLabelMode returns true when the poller is configured to query by label
 // instead of using time-based polling.
 func (p *Poller) isLabelMode() bool {
-	return len(p.labels) > 0
+	return len(p.labels) > 0 && !p.matchPRs
+}
+
+// isPRMatchMode returns true when the poller cycles through PRs by state
+// (optionally filtered by labels) instead of using time-based polling.
+func (p *Poller) isPRMatchMode() bool {
+	return p.matchPRs
 }
 
 func (p *Poller) tick(ctx context.Context) {
@@ -136,7 +145,7 @@ func (p *Poller) tick(ctx context.Context) {
 	}
 
 	if !failed && p.cursorExhausted() {
-		if !p.isLabelMode() {
+		if !p.isLabelMode() && !p.isPRMatchMode() {
 			p.lastSyncTime = p.cycleSince
 		}
 		p.inCycle = false
@@ -153,7 +162,11 @@ func (p *Poller) advanceCursor(nextPage int) {
 		p.cursor.page = nextPage
 		return
 	}
-	if p.isLabelMode() {
+	if p.isPRMatchMode() {
+		// PR match mode: single phase per repo, just advance to next repo.
+		p.cursor.repoIdx++
+		p.cursor.page = 1
+	} else if p.isLabelMode() {
 		// Label mode iterates each label separately (OR semantics).
 		p.cursor.labelIdx++
 		p.cursor.page = 1
@@ -183,7 +196,9 @@ func (p *Poller) fetchAndEmit(ctx context.Context, repo RepoRef, since time.Time
 	var nextPage int
 	var err error
 
-	if p.isLabelMode() {
+	if p.isPRMatchMode() {
+		emitted, nextPage, err = p.fetchPRsByState(ctx, repo, perPage)
+	} else if p.isLabelMode() {
 		emitted, nextPage, err = p.fetchIssuesByLabel(ctx, repo, perPage)
 	} else {
 		switch p.cursor.phase {
@@ -257,6 +272,21 @@ func (p *Poller) fetchIssuesByLabel(ctx context.Context, repo RepoRef, perPage i
 		p.onEvent(ev)
 		emitted++
 		p.logger.Debug().Str("type", ev.Type).Int("number", issue.GetNumber()).Str("label", label).Msg("label-matched issue")
+	}
+	return emitted, nextPage, nil
+}
+
+func (p *Poller) fetchPRsByState(ctx context.Context, repo RepoRef, perPage int) (int, int, error) {
+	prs, nextPage, err := p.client.ListPRsByStatePage(ctx, repo.Owner, repo.Repo, p.state, p.labels, p.cursor.page, perPage)
+	if err != nil {
+		return 0, 0, err
+	}
+	var emitted int
+	for _, pr := range prs {
+		ev := MapPRMatched(pr, repo.Owner, repo.Repo)
+		p.onEvent(ev)
+		emitted++
+		p.logger.Debug().Str("type", ev.Type).Int("number", pr.GetNumber()).Msg("PR-matched event")
 	}
 	return emitted, nextPage, nil
 }

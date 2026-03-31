@@ -459,6 +459,10 @@ func (m *e2ePollMockClient) AddToProject(_ context.Context, _, _ string, _ int, 
 	return "", nil
 }
 
+func (m *e2ePollMockClient) ListPRsByStatePage(_ context.Context, _, _ string, _ string, _ []string, _, _ int) ([]*gh.PullRequest, int, error) {
+	return nil, 0, nil
+}
+
 func newTestGitHubAgent(t *testing.T, d *server.Daemon, mockGHURL string) *testGitHubAgent {
 	t.Helper()
 

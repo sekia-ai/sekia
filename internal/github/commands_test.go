@@ -47,6 +47,10 @@ func (m *mockGitHubClient) ApprovePR(_ context.Context, owner, repo string, numb
 	return nil
 }
 
+func (m *mockGitHubClient) ListPRsByStatePage(_ context.Context, _, _ string, _ string, _ []string, _, _ int) ([]*gh.PullRequest, int, error) {
+	return nil, 0, nil
+}
+
 func (m *mockGitHubClient) AddToProject(_ context.Context, owner, repo string, number int, projectID string, _ []ProjectField) (string, error) {
 	m.calls = append(m.calls, mockCall{"AddToProject", owner, repo, number, []string{projectID}})
 	return "PVTI_mock_item_id", nil

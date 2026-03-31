@@ -248,9 +248,11 @@ Standalone binary (`cmd/sekia-github/`) that bridges GitHub webhooks and/or REST
 
 **Event types (label-filtered mode)**: `github.issue.matched` — emitted for each issue matching the configured labels and state. Payload includes `labels`, `state`, `owner`, `repo`, `number`, `title`, `body`, `author`, `url`, `polled`.
 
+**Event types (PR-match mode)**: `github.pr.matched` — emitted for each PR matching the configured state and optional labels. Payload includes `owner`, `repo`, `number`, `title`, `body`, `author`, `state`, `head_branch`, `base_branch`, `url`, `draft`, `labels`, `polled`.
+
 **Commands**: `add_label`, `remove_label`, `create_comment`, `close_issue`, `reopen_issue`, `approve_pr`, `add_to_project`
 
-**`approve_pr`**: Submits an approving review on a pull request. Payload: `owner`, `repo`, `number`, optional `body`.
+**`approve_pr`**: Submits an approving review on a pull request. Idempotent — checks for existing approval by the authenticated user before submitting. Payload: `owner`, `repo`, `number`, optional `body`.
 
 **`add_to_project`**: Adds a PR/issue to a GitHub Projects v2 board and optionally sets field values. Payload: `owner`, `repo`, `number`, `project_id` (global node ID, e.g. `PVT_...`), optional `fields` array. Each field object: `field_id` (e.g. `PVTF_...`) plus one value key: `text`, `number`, `date`, `single_select_option_id`, or `iteration_id`. Uses GitHub GraphQL API (`internal/github/projects.go`).
 
@@ -267,7 +269,7 @@ Standalone binary (`cmd/sekia-github/`) that bridges GitHub webhooks and/or REST
 
 **Config file**: `sekia-github.toml` (same search paths as `sekia.toml`). Env vars: `GITHUB_TOKEN`, `GITHUB_WEBHOOK_SECRET`, `SEKIA_NATS_URL`.
 
-**Polling config**: `[poll]` section — `enabled` (bool, default false), `interval` (duration, default 30s), `per_tick` (int, default 100, max items per tick), `repos` (list of `"owner/repo"`, required when enabled), `labels` (list of strings, optional), `state` (string, default "open"). When `labels` is non-empty the poller switches to **label-filtered mode**: queries issues by label+state instead of time, only fetches issues (skips PRs/comments), emits `github.issue.matched` events, and does not advance `lastSyncTime`.
+**Polling config**: `[poll]` section — `enabled` (bool, default false), `interval` (duration, default 30s), `per_tick` (int, default 100, max items per tick), `repos` (list of `"owner/repo"`, required when enabled), `labels` (list of strings, optional), `state` (string, default "open"), `match_prs` (bool, default false). When `labels` is non-empty (and `match_prs` is false) the poller switches to **label-filtered mode**: queries issues by label+state instead of time, only fetches issues (skips PRs/comments), emits `github.issue.matched` events, and does not advance `lastSyncTime`. When `match_prs` is true, the poller switches to **PR-match mode**: cycles through all PRs matching `state` (optionally filtered by `labels`) every interval, emits `github.pr.matched` events, and does not advance `lastSyncTime`. When labels are set with `match_prs`, the Issues API is used (supports label filtering) and results are filtered to PRs only.
 
 ### Slack agent (`internal/slack/`)
 
