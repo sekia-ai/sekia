@@ -27,6 +27,9 @@ type GitHubClient interface {
 
 	// Label-filtered polling — fetch issues by label and state (no time filter).
 	ListIssuesByLabelPage(ctx context.Context, owner, repo string, labels []string, state string, page, perPage int) ([]*gh.Issue, int, error)
+
+	// PR-match polling — fetch PRs by state, optionally filtered by labels (no time filter).
+	ListPRsByStatePage(ctx context.Context, owner, repo string, state string, labels []string, page, perPage int) ([]*gh.PullRequest, int, error)
 }
 
 // realGitHubClient wraps the google/go-github client.
@@ -148,6 +151,49 @@ func (c *realGitHubClient) ListIssuesByLabelPage(ctx context.Context, owner, rep
 		return nil, 0, err
 	}
 	return issues, resp.NextPage, nil
+}
+
+func (c *realGitHubClient) ListPRsByStatePage(ctx context.Context, owner, repo string, state string, labels []string, page, perPage int) ([]*gh.PullRequest, int, error) {
+	if len(labels) > 0 {
+		// GitHub Issues API supports label filtering and returns PRs too.
+		opts := &gh.IssueListByRepoOptions{
+			Labels:      labels,
+			State:       state,
+			Sort:        "updated",
+			Direction:   "desc",
+			ListOptions: gh.ListOptions{Page: page, PerPage: perPage},
+		}
+		issues, resp, err := c.client.Issues.ListByRepo(ctx, owner, repo, opts)
+		if err != nil {
+			return nil, 0, err
+		}
+		// Convert issue objects to PR objects for items that are PRs.
+		var prs []*gh.PullRequest
+		for _, issue := range issues {
+			if issue.PullRequestLinks == nil {
+				continue
+			}
+			pr, _, err := c.client.PullRequests.Get(ctx, owner, repo, issue.GetNumber())
+			if err != nil {
+				return nil, 0, fmt.Errorf("fetch PR #%d: %w", issue.GetNumber(), err)
+			}
+			prs = append(prs, pr)
+		}
+		return prs, resp.NextPage, nil
+	}
+
+	// No label filter — use PullRequests.List directly.
+	opts := &gh.PullRequestListOptions{
+		State:       state,
+		Sort:        "updated",
+		Direction:   "desc",
+		ListOptions: gh.ListOptions{Page: page, PerPage: perPage},
+	}
+	prs, resp, err := c.client.PullRequests.List(ctx, owner, repo, opts)
+	if err != nil {
+		return nil, 0, err
+	}
+	return prs, resp.NextPage, nil
 }
 
 // extractRepoRef extracts owner, repo, and issue/PR number from a command payload.

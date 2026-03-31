@@ -229,6 +229,7 @@ func (ga *GitHubAgent) startPoller() (chan error, error) {
 		Repos:    repos,
 		Labels:   ga.cfg.Poll.Labels,
 		State:    ga.cfg.Poll.State,
+		MatchPRs: ga.cfg.Poll.MatchPRs,
 		OnEvent:  ga.publishEvent,
 		Logger:   ga.logger,
 	})

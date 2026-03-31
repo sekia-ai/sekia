@@ -49,6 +49,7 @@ type PollConfig struct {
 	PerTick  int           `mapstructure:"per_tick"`
 	Labels   []string      `mapstructure:"labels"`
 	State    string        `mapstructure:"state"`
+	MatchPRs bool          `mapstructure:"match_prs"`
 }
 
 // LoadConfig reads configuration from file, env, and defaults.
@@ -66,6 +67,7 @@ func LoadConfig(cfgFile, instanceName string) (Config, error) {
 	v.SetDefault("poll.per_tick", 100)
 	v.SetDefault("poll.labels", []string{})
 	v.SetDefault("poll.state", "open")
+	v.SetDefault("poll.match_prs", false)
 
 	v.SetConfigType("toml")
 

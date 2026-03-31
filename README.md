@@ -612,10 +612,13 @@ To use polling only (no webhook server), set `webhook.listen = ""`.
 | PR opened/closed/merged/review_requested | `github.pr.<action>` | Webhook |
 | PR opened/closed/merged | `github.pr.opened`, `github.pr.closed`, `github.pr.merged` | Polling |
 | PR updated (any change) | `github.pr.updated` | Polling only |
+| PR matched (cycling) | `github.pr.matched` | PR-match mode (`match_prs = true`) |
 | Push | `github.push` | Webhook only |
 | Issue comment created | `github.comment.created` | Both |
 
 Polled events include `payload.polled = true` so workflows can distinguish them from webhook events if needed.
+
+**PR-match mode**: Set `match_prs = true` in `[poll]` to cycle through all PRs matching `state` (and optionally `labels`) every interval. Emits `github.pr.matched` events with full PR metadata including `author`, `draft`, `labels`, branches. Useful for auto-approval or triage workflows.
 
 **Commands**:
 
