@@ -6,7 +6,7 @@ require (
 	filippo.io/age v1.3.1
 	github.com/aws/aws-sdk-go-v2 v1.41.5
 	github.com/aws/aws-sdk-go-v2/config v1.32.13
-	github.com/aws/aws-sdk-go-v2/service/kms v1.50.3
+	github.com/aws/aws-sdk-go-v2/service/kms v1.50.4
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.41.5
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/go-github/v68 v68.0.0
