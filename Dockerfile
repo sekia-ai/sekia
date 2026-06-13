@@ -14,7 +14,7 @@ RUN CGO_ENABLED=0 go build -o /out/sekiad          ./cmd/sekiad \
  && CGO_ENABLED=0 go build -o /out/sekia-mcp        ./cmd/sekia-mcp
 
 # --- sekiad (daemon + CLI) ---
-FROM alpine:3.23 AS sekiad
+FROM alpine:3.24 AS sekiad
 RUN apk add --no-cache ca-certificates && apk upgrade --no-cache zlib && adduser -D sekia
 COPY --from=builder /out/sekiad /usr/local/bin/sekiad
 COPY --from=builder /out/sekiactl /usr/local/bin/sekiactl
@@ -22,35 +22,35 @@ USER sekia
 ENTRYPOINT ["sekiad"]
 
 # --- sekia-github ---
-FROM alpine:3.23 AS sekia-github
+FROM alpine:3.24 AS sekia-github
 RUN apk add --no-cache ca-certificates && apk upgrade --no-cache zlib && adduser -D sekia
 COPY --from=builder /out/sekia-github /usr/local/bin/sekia-github
 USER sekia
 ENTRYPOINT ["sekia-github"]
 
 # --- sekia-slack ---
-FROM alpine:3.23 AS sekia-slack
+FROM alpine:3.24 AS sekia-slack
 RUN apk add --no-cache ca-certificates && apk upgrade --no-cache zlib && adduser -D sekia
 COPY --from=builder /out/sekia-slack /usr/local/bin/sekia-slack
 USER sekia
 ENTRYPOINT ["sekia-slack"]
 
 # --- sekia-linear ---
-FROM alpine:3.23 AS sekia-linear
+FROM alpine:3.24 AS sekia-linear
 RUN apk add --no-cache ca-certificates && apk upgrade --no-cache zlib && adduser -D sekia
 COPY --from=builder /out/sekia-linear /usr/local/bin/sekia-linear
 USER sekia
 ENTRYPOINT ["sekia-linear"]
 
 # --- sekia-google ---
-FROM alpine:3.23 AS sekia-google
+FROM alpine:3.24 AS sekia-google
 RUN apk add --no-cache ca-certificates && apk upgrade --no-cache zlib && adduser -D sekia
 COPY --from=builder /out/sekia-google /usr/local/bin/sekia-google
 USER sekia
 ENTRYPOINT ["sekia-google"]
 
 # --- sekia-mcp ---
-FROM alpine:3.23 AS sekia-mcp
+FROM alpine:3.24 AS sekia-mcp
 RUN apk add --no-cache ca-certificates && apk upgrade --no-cache zlib && adduser -D sekia
 COPY --from=builder /out/sekia-mcp /usr/local/bin/sekia-mcp
 USER sekia
