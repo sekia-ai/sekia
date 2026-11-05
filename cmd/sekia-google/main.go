@@ -17,6 +17,7 @@ var version = "dev"
 func main() {
 	var cfgFile string
 	var instanceName string
+	var logLevel string
 
 	rootCmd := &cobra.Command{
 		Use:   "sekia-google",
@@ -34,6 +35,16 @@ func main() {
 			if err := googleagent.ValidateForRun(cfg); err != nil {
 				return fmt.Errorf("invalid config: %w", err)
 			}
+
+			levelName := cfg.Log.Level
+			if logLevel != "" {
+				levelName = logLevel
+			}
+			level, err := zerolog.ParseLevel(levelName)
+			if err != nil {
+				return fmt.Errorf("invalid log level %q", levelName)
+			}
+			logger = logger.Level(level)
 
 			ga, err := googleagent.NewAgent(cfg, instanceName, logger)
 			if err != nil {
@@ -78,6 +89,7 @@ func main() {
 	rootCmd.Version = version
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file path")
 	rootCmd.PersistentFlags().StringVar(&instanceName, "name", "", "instance name for multi-tenant setups (e.g., google-work); changes config file and NATS registration")
+	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "", "log level: trace, debug, info, warn, error (default: log.level from config, else info)")
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

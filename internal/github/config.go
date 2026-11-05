@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 
 	"github.com/sekia-ai/sekia/internal/secrets"
@@ -16,6 +17,15 @@ type Config struct {
 	Webhook  WebhookConfig  `mapstructure:"webhook"`
 	Poll     PollConfig     `mapstructure:"poll"`
 	Security SecurityConfig `mapstructure:"security"`
+	Log      LogConfig      `mapstructure:"log"`
+
+	// ConfigFile is the config file that was read, if any. Config reload re-reads it.
+	ConfigFile string `mapstructure:"-"`
+}
+
+// LogConfig holds logging settings.
+type LogConfig struct {
+	Level string `mapstructure:"level"` // zerolog level name: trace, debug, info, warn, error
 }
 
 // SecurityConfig holds application-level security settings.
@@ -43,13 +53,13 @@ type WebhookConfig struct {
 
 // PollConfig holds GitHub REST API polling settings.
 type PollConfig struct {
-	Enabled  bool          `mapstructure:"enabled"`
-	Interval time.Duration `mapstructure:"interval"`
-	Repos    []string      `mapstructure:"repos"`
-	PerTick  int           `mapstructure:"per_tick"`
-	Labels   []string      `mapstructure:"labels"`
-	State    string        `mapstructure:"state"`
-	MatchPRs bool          `mapstructure:"match_prs"`
+	Enabled       bool          `mapstructure:"enabled"`
+	Interval      time.Duration `mapstructure:"interval"`
+	SweepInterval time.Duration `mapstructure:"sweep_interval"` // label/PR-match modes: how often to re-emit every matching item (0 = only at startup)
+	Repos         []string      `mapstructure:"repos"`
+	Labels        []string      `mapstructure:"labels"`
+	State         string        `mapstructure:"state"`
+	MatchPRs      bool          `mapstructure:"match_prs"`
 }
 
 // LoadConfig reads configuration from file, env, and defaults.
@@ -63,11 +73,12 @@ func LoadConfig(cfgFile, instanceName string) (Config, error) {
 	v.SetDefault("webhook.path", "/webhook")
 	v.SetDefault("poll.enabled", false)
 	v.SetDefault("poll.interval", "30s")
+	v.SetDefault("poll.sweep_interval", "1h")
 	v.SetDefault("poll.repos", []string{})
-	v.SetDefault("poll.per_tick", 100)
 	v.SetDefault("poll.labels", []string{})
 	v.SetDefault("poll.state", "open")
 	v.SetDefault("poll.match_prs", false)
+	v.SetDefault("log.level", "info")
 
 	v.SetConfigType("toml")
 
@@ -90,6 +101,7 @@ func LoadConfig(cfgFile, instanceName string) (Config, error) {
 	v.BindEnv("nats.url", "SEKIA_NATS_URL")
 	v.BindEnv("nats.token", "SEKIA_NATS_TOKEN")
 	v.BindEnv("security.command_secret", "SEKIA_COMMAND_SECRET")
+	v.BindEnv("log.level", "SEKIA_LOG_LEVEL")
 
 	// Config file is optional.
 	_ = v.ReadInConfig()
@@ -103,6 +115,7 @@ func LoadConfig(cfgFile, instanceName string) (Config, error) {
 	if err := v.Unmarshal(&cfg); err != nil {
 		return cfg, err
 	}
+	cfg.ConfigFile = v.ConfigFileUsed()
 
 	if cfg.GitHub.Token == "" {
 		return cfg, fmt.Errorf("github.token is required (set via config file or GITHUB_TOKEN env var)")
@@ -112,8 +125,12 @@ func LoadConfig(cfgFile, instanceName string) (Config, error) {
 		return cfg, fmt.Errorf("poll.repos is required when poll.enabled is true")
 	}
 
-	if cfg.Poll.Enabled && cfg.Poll.PerTick < 1 {
-		return cfg, fmt.Errorf("poll.per_tick must be at least 1")
+	if cfg.Poll.Enabled && cfg.Poll.Interval < time.Second {
+		return cfg, fmt.Errorf("poll.interval must be at least 1s")
+	}
+
+	if cfg.Poll.SweepInterval < 0 {
+		return cfg, fmt.Errorf("poll.sweep_interval must not be negative")
 	}
 
 	switch cfg.Poll.State {
@@ -129,6 +146,10 @@ func LoadConfig(cfgFile, instanceName string) (Config, error) {
 
 	if cfg.Webhook.Listen == "" && !cfg.Poll.Enabled {
 		return cfg, fmt.Errorf("at least one of webhook.listen or poll.enabled must be configured")
+	}
+
+	if _, err := zerolog.ParseLevel(cfg.Log.Level); err != nil {
+		return cfg, fmt.Errorf("log.level %q is not a valid level", cfg.Log.Level)
 	}
 
 	return cfg, nil

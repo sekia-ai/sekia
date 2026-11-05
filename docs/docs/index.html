@@ -271,7 +271,7 @@ Agent binary executes command via external API</code></pre>
   <table class="config-table">
     <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
     <tbody>
-      <tr><td>socket</td><td>string</td><td><code>~/.config/sekia/sekiad.sock</code></td><td>SEKIA_SERVER_SOCKET</td><td>Unix socket path for the API (or <code>$XDG_RUNTIME_DIR/sekia/sekiad.sock</code> when set)</td></tr>
+      <tr><td>socket</td><td>string</td><td><code>$XDG_RUNTIME_DIR/sekia/sekiad.sock</code></td><td>SEKIA_SERVER_SOCKET</td><td>Unix socket path for the API. Without <code>XDG_RUNTIME_DIR</code> the daemon uses <code>/run/user/&lt;uid&gt;/sekia/sekiad.sock</code> when that directory exists, else <code>~/.config/sekia/sekiad.sock</code>; sekiactl applies the same rule</td></tr>
     </tbody>
   </table>
 
@@ -306,6 +306,14 @@ Agent binary executes command via external API</code></pre>
     </tbody>
   </table>
 
+  <h3>[log]</h3>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>level</td><td>string</td><td><code>info</code></td><td>SEKIA_LOG_LEVEL</td><td>Log level: <code>trace</code>, <code>debug</code>, <code>info</code>, <code>warn</code>, <code>error</code>. The <code>--log-level</code> flag overrides it. Every binary has the same section</td></tr>
+    </tbody>
+  </table>
+
   <h3>[secrets]</h3>
   <table class="config-table">
     <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
@@ -320,7 +328,7 @@ Agent binary executes command via external API</code></pre>
   <pre><code><span class="cm"># ~/.config/sekia/sekia.toml</span>
 
 [server]
-<span class="cm"># socket defaults to ~/.config/sekia/sekiad.sock (or $XDG_RUNTIME_DIR/sekia/sekiad.sock)</span>
+<span class="cm"># socket defaults to $XDG_RUNTIME_DIR/sekia/sekiad.sock, /run/user/&lt;uid&gt;/sekia/sekiad.sock or ~/.config/sekia/sekiad.sock</span>
 <span class="cm"># socket = "/tmp/sekiad.sock"  # override for Docker or custom setups</span>
 
 [nats]
@@ -332,6 +340,9 @@ dir = <span class="str">"~/.config/sekia/workflows"</span>
 hot_reload = <span class="kw">true</span>
 handler_timeout = <span class="str">"30s"</span>
 verify_integrity = <span class="kw">false</span>
+
+[log]
+level = <span class="str">"info"</span>  <span class="cm"># or SEKIA_LOG_LEVEL / --log-level</span>
 
 <span class="cm"># [security]</span>
 <span class="cm"># command_secret = "your-shared-secret"      # or SEKIA_COMMAND_SECRET</span>
@@ -352,7 +363,7 @@ verify_integrity = <span class="kw">false</span>
   <table>
     <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
     <tbody>
-      <tr><td><code>--socket</code></td><td><code>~/.config/sekia/sekiad.sock</code></td><td>Path to sekiad Unix socket</td></tr>
+      <tr><td><code>--socket</code></td><td><code>$XDG_RUNTIME_DIR/sekia/sekiad.sock</code></td><td>Path to sekiad Unix socket; falls back to <code>/run/user/&lt;uid&gt;/sekia/sekiad.sock</code>, then <code>~/.config/sekia/sekiad.sock</code></td></tr>
       <tr><td><code>--version</code></td><td>&mdash;</td><td>Show version and exit</td></tr>
     </tbody>
   </table>
@@ -410,11 +421,11 @@ $ sekiactl config reload --target sekiad</code></pre>
   <table>
     <thead><tr><th>Agent</th><th>Reloadable settings</th><th>Requires restart</th></tr></thead>
     <tbody>
-      <tr><td>github-agent</td><td>poll.interval, poll.repos, poll.labels, poll.per_tick, poll.state</td><td>github.token, webhook.listen, webhook.secret</td></tr>
+      <tr><td>github-agent</td><td>poll.interval, poll.sweep_interval, poll.repos, poll.labels, poll.state, poll.match_prs</td><td>github.token, webhook.listen, webhook.secret</td></tr>
       <tr><td>google-agent</td><td>gmail.poll_interval, gmail.query, gmail.max_messages</td><td>google.client_id, google.client_secret, google.token_path</td></tr>
     </tbody>
   </table>
-  <p>Both agents also hot-reload <code>security.command_secret</code>.</p>
+  <p>Both agents also hot-reload <code>security.command_secret</code>. A reload re-reads the config file the component started with (<code>--config</code> and <code>--name</code> are honored).</p>
 
   <h3>Secret value formats</h3>
   <p>Secret values in TOML config files can be stored inline as <code>KMS[&lt;base64&gt;]</code> strings encrypted with AWS KMS. Every binary resolves them at startup, so the rest of the process only ever sees plaintext. Plaintext values continue to work &mdash; encryption is opt-in per value.</p>
@@ -789,9 +800,10 @@ sekiactl service remove github-work</code></pre>
       <tr><td>enabled</td><td>bool</td><td><code>false</code></td><td>SEKIA_POLL_ENABLED</td><td>Enable REST API polling</td></tr>
       <tr><td>interval</td><td>duration</td><td><code>30s</code></td><td>SEKIA_POLL_INTERVAL</td><td>Polling interval</td></tr>
       <tr><td>repos</td><td>[]string</td><td>&mdash;</td><td>SEKIA_POLL_REPOS</td><td>List of <code>"owner/repo"</code> to poll (required when enabled)</td></tr>
-      <tr><td>per_tick</td><td>int</td><td><code>100</code></td><td>SEKIA_POLL_PER_TICK</td><td>Max items fetched per tick (1&ndash;100)</td></tr>
+      <tr><td>sweep_interval</td><td>duration</td><td><code>1h</code></td><td>SEKIA_POLL_SWEEP_INTERVAL</td><td>Label and PR-match modes: how often every matching item is emitted again. <code>0</code> keeps only the startup sweep</td></tr>
       <tr><td>labels</td><td>[]string</td><td>&mdash;</td><td>SEKIA_POLL_LABELS</td><td>Filter issues by labels (enables label-filtered mode)</td></tr>
       <tr><td>state</td><td>string</td><td><code>open</code></td><td>SEKIA_POLL_STATE</td><td>Issue state filter: <code>open</code>, <code>closed</code>, or <code>all</code></td></tr>
+      <tr><td>match_prs</td><td>bool</td><td><code>false</code></td><td>SEKIA_POLL_MATCH_PRS</td><td>PR-match mode: emit <code>github.pr.matched</code> for PRs in <code>state</code></td></tr>
     </tbody>
   </table>
 
@@ -803,17 +815,31 @@ sekiactl service remove github-work</code></pre>
     </tbody>
   </table>
 
+  <h4>[log]</h4>
+  <table class="config-table">
+    <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Env Var</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>level</td><td>string</td><td><code>info</code></td><td>SEKIA_LOG_LEVEL</td><td>Log level: <code>trace</code>, <code>debug</code>, <code>info</code>, <code>warn</code>, <code>error</code>. The <code>--log-level</code> flag overrides it. Every binary has the same section</td></tr>
+    </tbody>
+  </table>
+
   <h3>Webhook vs Polling</h3>
   <p><strong>Webhooks</strong> provide real-time, fine-grained events (labeled, assigned, reopened) but require a publicly accessible URL. <strong>Polling</strong> works behind firewalls but can only detect opened/closed/updated states. Both can run simultaneously; polled events include <code>payload.polled = true</code>.</p>
 
+  <h3>How polling works</h3>
+  <p>Every tick fetches only the items updated since the previous successful tick, 100 per page and sorted by updated time, so a steady-state tick costs one API call per repo (and per label). Errors leave the watermark untouched and back off exponentially; a GitHub rate-limit response pauses polling until the reset time GitHub reports, and <code>Retry-After</code> on secondary limits is honored. Every API call has a 30-second timeout.</p>
+
   <h3>Label-filtered mode</h3>
-  <p>When <code>poll.labels</code> is set (and <code>match_prs</code> is false), the poller switches to label-filtered mode: it queries issues by label and state instead of time, skips PRs/comments, and emits <code>github.issue.matched</code> events instead of the standard event types.</p>
+  <p>When <code>poll.labels</code> is set (and <code>match_prs</code> is false), the poller runs one <code>since</code>-filtered query per label (OR semantics, deduplicated across labels), skips PRs and comments, and emits <code>github.issue.matched</code> for each issue instead of the time-based events.</p>
 
   <h3>PR-match mode</h3>
-  <p>When <code>poll.match_prs = true</code>, the poller cycles through all PRs matching <code>state</code> (optionally filtered by <code>labels</code>) every interval. Emits <code>github.pr.matched</code> events with full PR metadata including author, draft status, and labels. Useful for auto-approval or triage workflows.</p>
+  <p>When <code>poll.match_prs = true</code>, the poller lists PRs in <code>state</code> (optionally carrying all of <code>labels</code>) sorted by updated time, stops at the first PR older than its watermark, and emits <code>github.pr.matched</code> with full PR metadata including author, draft status, labels and branches. Useful for auto-approval or triage workflows.</p>
+
+  <h3>Sweeps</h3>
+  <p>In both matched modes the first tick is a full sweep that emits every matching item, and a sweep repeats every <code>poll.sweep_interval</code> (default <code>1h</code>; <code>0</code> keeps only the startup sweep). This replays events that were lost while the daemon or an agent was down. Between sweeps an item is emitted again only when its GitHub updated time changes, for example after new commits or a dismissed review. Matched events carry <code>payload.sweep</code> (<code>true</code> during a sweep), and workflows acting on them should be idempotent: <code>approve_pr</code> already is.</p>
 
   <h3>Rate limits</h3>
-  <p>At startup, the agent logs a warning if the estimated API call rate (3 calls/repo/cycle) exceeds 80% of GitHub's 5,000 requests/hour limit.</p>
+  <p>At startup, the agent logs a warning if the estimated steady-state call rate (repos &times; labels per tick, or repos &times; 3 in time mode) exceeds 80% of GitHub's 5,000 requests/hour limit.</p>
 
   <h3>Event types</h3>
   <p>All events are published to <code>sekia.events.github</code>. Filter by <code>event.type</code> in your workflow.</p>
@@ -827,13 +853,13 @@ sekiactl service remove github-work</code></pre>
       <tr><td><code>github.issue.labeled</code></td><td>Webhook only</td><td>owner, repo, number, title, body, author, url, labels, label</td></tr>
       <tr><td><code>github.issue.assigned</code></td><td>Webhook only</td><td>owner, repo, number, title, body, author, url, labels, assignee</td></tr>
       <tr><td><code>github.issue.updated</code></td><td>Polling only</td><td>owner, repo, number, title, body, author, url, labels</td></tr>
-      <tr><td><code>github.issue.matched</code></td><td>Label-filtered polling</td><td>owner, repo, number, title, body, author, url, state, labels</td></tr>
+      <tr><td><code>github.issue.matched</code></td><td>Label-filtered polling</td><td>owner, repo, number, title, body, author, url, state, labels, sweep</td></tr>
       <tr><td><code>github.pr.opened</code></td><td>Webhook + Polling</td><td>owner, repo, number, title, body, author, head_branch, base_branch, url</td></tr>
       <tr><td><code>github.pr.closed</code></td><td>Webhook + Polling</td><td>owner, repo, number, title, body, author, head_branch, base_branch, url</td></tr>
       <tr><td><code>github.pr.merged</code></td><td>Webhook + Polling</td><td>owner, repo, number, title, body, author, head_branch, base_branch, url, merge_commit</td></tr>
       <tr><td><code>github.pr.review_requested</code></td><td>Webhook only</td><td>owner, repo, number, title, body, author, head_branch, base_branch, url, reviewer</td></tr>
       <tr><td><code>github.pr.updated</code></td><td>Polling only</td><td>owner, repo, number, title, body, author, head_branch, base_branch, url</td></tr>
-      <tr><td><code>github.pr.matched</code></td><td>PR-match mode</td><td>owner, repo, number, title, body, author, state, head_branch, base_branch, url, draft, labels</td></tr>
+      <tr><td><code>github.pr.matched</code></td><td>PR-match mode</td><td>owner, repo, number, title, body, author, state, head_branch, base_branch, url, draft, labels, sweep</td></tr>
       <tr><td><code>github.push</code></td><td>Webhook only</td><td>owner, repo, ref, before, after, commits_count, pusher, head_commit_message</td></tr>
       <tr><td><code>github.comment.created</code></td><td>Webhook only</td><td>owner, repo, issue_number, comment_id, body, author, url</td></tr>
     </tbody>
@@ -865,9 +891,13 @@ listen = <span class="str">":8080"</span>
 secret = <span class="str">"my-webhook-secret"</span>
 
 [poll]
-enabled  = <span class="kw">true</span>
-interval = <span class="str">"30s"</span>
-repos    = [<span class="str">"myorg/myrepo"</span>, <span class="str">"myorg/other-repo"</span>]</code></pre>
+enabled        = <span class="kw">true</span>
+interval       = <span class="str">"30s"</span>
+sweep_interval = <span class="str">"1h"</span>
+repos          = [<span class="str">"myorg/myrepo"</span>, <span class="str">"myorg/other-repo"</span>]
+
+[log]
+level = <span class="str">"info"</span></code></pre>
 </section>
 
 <!-- ================================================================== -->
@@ -994,7 +1024,7 @@ query         = <span class="str">"is:unread"</span></code></pre>
 <!-- ================================================================== -->
 <section id="http-api">
   <h2>HTTP API</h2>
-  <p>The daemon serves a JSON API over a Unix socket (default: <code>~/.config/sekia/sekiad.sock</code>). No authentication is required &mdash; the socket file permissions (0600) and parent directory ownership verification provide implicit security.</p>
+  <p>The daemon serves a JSON API over a Unix socket (default: <code>$XDG_RUNTIME_DIR/sekia/sekiad.sock</code>, falling back to <code>/run/user/&lt;uid&gt;/sekia/sekiad.sock</code> or <code>~/.config/sekia/sekiad.sock</code>). No authentication is required &mdash; the socket file permissions (0600) and parent directory ownership verification provide implicit security.</p>
 
   <h3>Accessing the API</h3>
   <pre><code><span class="cm"># Using curl</span>
@@ -1122,7 +1152,7 @@ token = <span class="str">"KMS[AQIDAHhBm4p0...]"</span></code></pre>
   <p>Set <code>secrets.aws_region</code> to override the AWS region, and <code>secrets.kms_key_id</code> (or <code>SEKIA_KMS_KEY_ID</code>) to pick the default key for <code>sekiactl secrets kms-encrypt</code>. KMS key rotation is safe: AWS keeps previous key material, so existing ciphertexts remain decryptable.</p>
 
   <h3>Unix socket security</h3>
-  <p>The daemon API uses a Unix socket (default: <code>~/.config/sekia/sekiad.sock</code>), which inherits file system permissions. The daemon creates the parent directory with mode 0700, verifies it is owned by the current user, rejects symlinks at the socket path, and sets the socket file to mode 0600. This prevents symlink attacks that could occur with world-writable directories like <code>/tmp</code>.</p>
+  <p>The daemon API uses a Unix socket (default: <code>$XDG_RUNTIME_DIR/sekia/sekiad.sock</code>, falling back to <code>/run/user/&lt;uid&gt;/sekia/sekiad.sock</code> or <code>~/.config/sekia/sekiad.sock</code>), which inherits file system permissions. The daemon creates the parent directory with mode 0700, verifies it is owned by the current user, rejects symlinks at the socket path, and sets the socket file to mode 0600. This prevents symlink attacks that could occur with world-writable directories like <code>/tmp</code>.</p>
 
   <h3>CI security scanning</h3>
   <p>Every push and pull request runs three layers of automated security analysis:</p>
@@ -1201,6 +1231,15 @@ sekiactl secrets asm-get prod/sekia/github-token
 sekiactl secrets kms-encrypt --key-id alias/sekia <span class="str">"ghp_mytoken123"</span>
 <span class="cm"># KMS[AQIDAHhBm4p0...]</span></code></pre>
   <p><code>sekiactl secrets keygen</code>, <code>encrypt</code>, <code>decrypt</code> and <code>asm-get</code> are gone; <code>SEKIA_AGE_KEY</code>, <code>SEKIA_AGE_KEY_FILE</code> and <code>secrets.identity</code> are ignored. Existing <code>KMS[...]</code> values keep working unchanged.</p>
+
+  <h3>GitHub polling changed</h3>
+  <p>Every tick now fetches only items updated since the previous tick, 100 per page, instead of crawling one item per tick. <code>poll.per_tick</code> is ignored and can be deleted. Label-filtered and PR-match modes sweep every matching item at startup and every <code>poll.sweep_interval</code> (default <code>1h</code>); matched events carry <code>payload.sweep</code>. Workflows that act on matched events must be idempotent, which <code>approve_pr</code> and label changes already are.</p>
+
+  <h3>Quieter logs</h3>
+  <p>Every binary logs at <code>info</code> by default. 0.2.x logged at debug level, one line per routed event; set <code>[log] level = "debug"</code>, <code>SEKIA_LOG_LEVEL=debug</code> or <code>--log-level debug</code> to get that back.</p>
+
+  <h3>Config reload and sekiactl</h3>
+  <p><code>sekiactl config reload</code> now re-reads the config file each component started with, honoring <code>--config</code> and <code>--name</code>; 0.2.x named instances reloaded the default file. Without <code>XDG_RUNTIME_DIR</code>, <code>sekiactl</code> also looks for the daemon socket in <code>/run/user/&lt;uid&gt;/sekia/</code>, so it finds a systemd-started daemon from an SSH session.</p>
 
   <h3>Files you can delete</h3>
   <ul>

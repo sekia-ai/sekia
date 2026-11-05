@@ -17,15 +17,23 @@ secret = ""
 # Enable GitHub REST API polling as an alternative/supplement to webhooks.
 # Useful when the agent cannot receive inbound webhooks (e.g., behind a firewall).
 enabled = false
+# Every tick fetches only the items updated since the previous tick, 100 per page,
+# so a steady-state tick is one API call per repo (and per label).
 interval = "30s"
-# Maximum items fetched per tick. Controls how many events are emitted each interval.
-# Lower values = gentler on GitHub API rate limits but slower to catch up.
-# Each tick makes at most ceil(per_tick/100) API calls per resource type per repo.
-per_tick = 100
+# Label and PR-match modes emit every matching item on the first tick and again
+# every sweep_interval, so an event lost while a component was down is replayed.
+# "0" disables the periodic sweep (the startup sweep still runs).
+sweep_interval = "1h"
 # Repositories to poll (required when enabled). Format: "owner/repo".
 # repos = ["myorg/myrepo", "myorg/another-repo"]
-# Label-filtered mode: when labels is non-empty, the poller queries issues by
-# label and state instead of using time-based polling. Only issues are fetched
-# (PRs and comments are skipped). Events use type "github.issue.matched".
+# Label-filtered mode: when labels is non-empty, issues carrying ANY of the
+# labels are emitted as "github.issue.matched" (PRs and comments are skipped).
 # labels = ["Severity:Info"]
 # state = "open"  # one of: open, closed, all (default: open)
+# PR-match mode: emit "github.pr.matched" for PRs in `state` (optionally
+# carrying all of `labels`) instead of time-based events.
+# match_prs = false
+
+[log]
+# One of: trace, debug, info, warn, error. Env: SEKIA_LOG_LEVEL. Flag: --log-level
+level = "info"

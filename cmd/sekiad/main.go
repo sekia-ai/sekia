@@ -15,6 +15,7 @@ var version = "dev"
 
 func main() {
 	var cfgFile string
+	var logLevel string
 
 	rootCmd := &cobra.Command{
 		Use:   "sekiad",
@@ -29,6 +30,16 @@ func main() {
 				return fmt.Errorf("load config: %w", err)
 			}
 
+			levelName := cfg.Log.Level
+			if logLevel != "" {
+				levelName = logLevel
+			}
+			level, err := zerolog.ParseLevel(levelName)
+			if err != nil {
+				return fmt.Errorf("invalid log level %q", levelName)
+			}
+			logger = logger.Level(level)
+
 			d := server.NewDaemon(cfg, logger)
 			return d.Run()
 		},
@@ -36,6 +47,7 @@ func main() {
 
 	rootCmd.Version = version
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file path")
+	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "", "log level: trace, debug, info, warn, error (default: log.level from config, else info)")
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

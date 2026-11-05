@@ -26,7 +26,9 @@ type GitHubClient interface {
 	ListCommentsPage(ctx context.Context, owner, repo string, since time.Time, page, perPage int) ([]*gh.IssueComment, int, error)
 
 	// Label-filtered polling — fetch issues by label and state (no time filter).
-	ListIssuesByLabelPage(ctx context.Context, owner, repo string, labels []string, state string, page, perPage int) ([]*gh.Issue, int, error)
+	// ListIssuesByLabelPage lists issues carrying all of labels, sorted by updated time
+	// descending. A non-zero since restricts the result to issues updated at or after it.
+	ListIssuesByLabelPage(ctx context.Context, owner, repo string, labels []string, state string, since time.Time, page, perPage int) ([]*gh.Issue, int, error)
 
 	// PR-match polling — fetch PRs by state, optionally filtered by labels (no time filter).
 	ListPRsByStatePage(ctx context.Context, owner, repo string, state string, labels []string, page, perPage int) ([]*gh.PullRequest, int, error)
@@ -138,10 +140,11 @@ func (c *realGitHubClient) ListCommentsPage(ctx context.Context, owner, repo str
 	return comments, resp.NextPage, nil
 }
 
-func (c *realGitHubClient) ListIssuesByLabelPage(ctx context.Context, owner, repo string, labels []string, state string, page, perPage int) ([]*gh.Issue, int, error) {
+func (c *realGitHubClient) ListIssuesByLabelPage(ctx context.Context, owner, repo string, labels []string, state string, since time.Time, page, perPage int) ([]*gh.Issue, int, error) {
 	opts := &gh.IssueListByRepoOptions{
 		Labels:      labels,
 		State:       state,
+		Since:       since,
 		Sort:        "updated",
 		Direction:   "desc",
 		ListOptions: gh.ListOptions{Page: page, PerPage: perPage},

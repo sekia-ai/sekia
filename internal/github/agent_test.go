@@ -447,7 +447,7 @@ func (m *e2ePollMockClient) EditIssueState(_ context.Context, _, _ string, _ int
 	return nil
 }
 
-func (m *e2ePollMockClient) ListIssuesByLabelPage(_ context.Context, _, _ string, _ []string, _ string, _, _ int) ([]*gh.Issue, int, error) {
+func (m *e2ePollMockClient) ListIssuesByLabelPage(_ context.Context, _, _ string, _ []string, _ string, _ time.Time, _, _ int) ([]*gh.Issue, int, error) {
 	return nil, 0, nil
 }
 

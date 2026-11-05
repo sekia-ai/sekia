@@ -28,6 +28,10 @@ handler_timeout = "30s"
 # agents' security.command_secret. Env: SEKIA_COMMAND_SECRET
 # command_secret = ""
 
+[log]
+# One of: trace, debug, info, warn, error. Env: SEKIA_LOG_LEVEL. Flag: --log-level
+level = "info"
+
 # [secrets]
 # aws_region = "us-east-1"                # AWS region for KMS[...] values
 # kms_key_id = "alias/sekia"              # default KMS key for sekiactl secrets kms-encrypt

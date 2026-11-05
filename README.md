@@ -151,6 +151,8 @@ go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github ./cmd/sekia-google
 ./sekiactl workflows
 ```
 
+`sekiactl` looks for the daemon socket at `$XDG_RUNTIME_DIR/sekia/sekiad.sock`, then `/run/user/<uid>/sekia/sekiad.sock`, then `~/.config/sekia/sekiad.sock`; pass `--socket` to override.
+
 ## Configuration
 
 sekia uses TOML config files searched in `/etc/sekia`, `~/.config/sekia`, and `.`. Environment variables with the `SEKIA_` prefix are also supported.
@@ -159,15 +161,18 @@ Defaults:
 
 | Key | Default |
 |---|---|
-| `server.socket` | `~/.config/sekia/sekiad.sock` (or `$XDG_RUNTIME_DIR/sekia/sekiad.sock`) |
+| `server.socket` | `$XDG_RUNTIME_DIR/sekia/sekiad.sock`, else `/run/user/<uid>/sekia/sekiad.sock` when that directory exists, else `~/.config/sekia/sekiad.sock` |
 | `nats.embedded` | `true` |
 | `nats.data_dir` | `~/.local/share/sekia/nats` |
 | `workflows.dir` | `~/.config/sekia/workflows` |
 | `workflows.hot_reload` | `true` |
 | `workflows.handler_timeout` | `30s` |
 | `workflows.verify_integrity` | `false` |
+| `log.level` | `info` |
 
 Set `nats.host` and `nats.port` to expose NATS over TCP for agents running outside the daemon process, and `nats.token` (env `SEKIA_NATS_TOKEN`) to require a shared token. `security.command_secret` (env `SEKIA_COMMAND_SECRET`) signs workflow commands with HMAC-SHA256; agents verify them with the same secret from their own `[security]` section.
+
+`log.level` (env `SEKIA_LOG_LEVEL`, or the `--log-level` flag) sets the zerolog level for every binary; the default `info` keeps the service logs small. `sekiactl config reload` makes each component re-read the config file it was started with.
 
 See [configs/sekia.toml](configs/sekia.toml) for an example.
 
@@ -373,7 +378,7 @@ interval = "30s"
 repos = ["myorg/myrepo"]
 ```
 
-To use polling only (no webhook server), set `webhook.listen = ""`.
+Each tick fetches only the issues, PRs and comments updated since the previous tick, 100 per page, so a steady-state tick costs one API call per repo and label. GitHub rate-limit responses pause polling until the reset time GitHub reports; other errors back off exponentially and never move the watermark. To use polling only (no webhook server), set `webhook.listen = ""`.
 
 **Config**: [configs/sekia-github.toml](configs/sekia-github.toml). Env vars: `GITHUB_TOKEN`, `GITHUB_WEBHOOK_SECRET`, `SEKIA_NATS_URL`.
 
@@ -387,13 +392,14 @@ To use polling only (no webhook server), set `webhook.listen = ""`.
 | PR opened/closed/merged/review_requested | `github.pr.<action>` | Webhook |
 | PR opened/closed/merged | `github.pr.opened`, `github.pr.closed`, `github.pr.merged` | Polling |
 | PR updated (any change) | `github.pr.updated` | Polling only |
-| PR matched (cycling) | `github.pr.matched` | PR-match mode (`match_prs = true`) |
+| Issue matched | `github.issue.matched` | Label-filtered mode (`labels` set) |
+| PR matched | `github.pr.matched` | PR-match mode (`match_prs = true`) |
 | Push | `github.push` | Webhook only |
 | Issue comment created | `github.comment.created` | Both |
 
 Polled events include `payload.polled = true` so workflows can distinguish them from webhook events if needed.
 
-**PR-match mode**: Set `match_prs = true` in `[poll]` to cycle through all PRs matching `state` (and optionally `labels`) every interval. Emits `github.pr.matched` events with full PR metadata including `author`, `draft`, `labels`, branches. Useful for auto-approval or triage workflows.
+**Label-filtered and PR-match modes**: set `labels` to emit `github.issue.matched` for every issue carrying any of the labels, or `match_prs = true` to emit `github.pr.matched` for every PR in `state` (optionally carrying all of `labels`), with full metadata including `author`, `draft`, `labels` and branches. The first tick is a full sweep of every matching item and a sweep repeats every `sweep_interval` (default `1h`, `0` disables), so an event lost while the daemon or an agent was down is replayed; between sweeps an item is emitted again only when GitHub's updated time changes, for example after new commits or a dismissed review. `payload.sweep` tells the two apart. Useful for auto-approval or triage workflows, which must be idempotent.
 
 **Commands**:
 
@@ -502,6 +508,10 @@ end)
 - **Removed secrets backends**: age (`ENC[...]`) and AWS Secrets Manager (`ASM[...]`), along with `sekiactl secrets keygen|encrypt|decrypt|asm-get`, `SEKIA_AGE_KEY`, `SEKIA_AGE_KEY_FILE` and `secrets.identity`. `ENC[...]` and `ASM[...]` values are no longer recognized and will be used as literal strings; re-encrypt them with `sekiactl secrets kms-encrypt` (or replace them with plaintext) before upgrading. Only `KMS[...]` remains.
 - **Removed Google Calendar support**: the `google.calendar.event.*` events and the `create_event`, `update_event` and `delete_event` commands are gone. `sekia-google` is Gmail only and requires `gmail.enabled = true`.
 - **Files you can delete**: `~/.config/sekia/persona.md`, `~/.config/sekia/sentinel.md`, `~/.config/sekia/age.key` and the `~/.config/sekia/skills/` directory are no longer read.
+- **GitHub polling changed**: every tick now fetches only items updated since the previous tick, 100 per page. `poll.per_tick` is ignored and can be deleted. Label-filtered and PR-match modes sweep every matching item at startup and every `poll.sweep_interval` (default `1h`); matched events carry `payload.sweep`. Workflows acting on matched events must be idempotent.
+- **Quieter logs**: every binary now logs at `info` by default. 0.2.x logged at debug level; set `[log] level = "debug"` or `SEKIA_LOG_LEVEL=debug` to get that back.
+- **Config reload** re-reads the file the component started with, honoring `--config` and `--name`. Previously named instances reloaded the default file.
+- **sekiactl socket discovery**: without `XDG_RUNTIME_DIR`, `sekiactl` now also looks in `/run/user/<uid>/sekia/`, so it finds a daemon started by systemd from an SSH session.
 
 ## Testing
 

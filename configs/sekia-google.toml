@@ -19,3 +19,7 @@ user_id = "me"
 
 [security]
 # command_secret = ""
+
+[log]
+# One of: trace, debug, info, warn, error. Env: SEKIA_LOG_LEVEL. Flag: --log-level
+level = "info"

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -21,14 +22,20 @@ import (
 
 const (
 	defaultAgentName = "github-agent"
-	agentVersion     = "0.3.0"
+
+	// apiTimeout bounds every GitHub API request so a stalled connection
+	// cannot hang the poller or a command forever.
+	apiTimeout   = 30 * time.Second
+	agentVersion = "0.3.0"
 )
 
 // GitHubAgent bridges GitHub webhooks and/or REST API polling to the sekia
 // event bus and executes GitHub API commands dispatched by workflows.
 type GitHubAgent struct {
 	cfg          Config
-	instanceName string // agent name for NATS registration and command subscription
+	cfgMu        sync.RWMutex // guards cfg, which config reload replaces
+	configName   string       // raw --name value, used to locate the config file on reload
+	instanceName string       // agent name for NATS registration and command subscription
 	ghClient     GitHubClient
 	agent        *agent.Agent
 	webhook      *WebhookServer
@@ -50,16 +57,19 @@ type GitHubAgent struct {
 // instanceName overrides the default agent name for NATS registration.
 // Pass "" to use the default ("github-agent").
 func NewAgent(cfg Config, instanceName string, logger zerolog.Logger) *GitHubAgent {
+	configName := instanceName
 	if instanceName == "" {
 		instanceName = defaultAgentName
 	}
 
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: cfg.GitHub.Token})
 	httpClient := oauth2.NewClient(context.Background(), ts)
+	httpClient.Timeout = apiTimeout
 	ghc := gh.NewClient(httpClient)
 
 	return &GitHubAgent{
 		cfg:          cfg,
+		configName:   configName,
 		instanceName: instanceName,
 		ghClient:     &realGitHubClient{client: ghc, httpClient: httpClient, token: cfg.GitHub.Token},
 		logger:       logger.With().Str("component", instanceName).Logger(),
@@ -222,17 +232,7 @@ func (ga *GitHubAgent) startPoller() (chan error, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse poll repos: %w", err)
 	}
-	ga.poller = NewPoller(PollerConfig{
-		Client:   ga.ghClient,
-		Interval: ga.cfg.Poll.Interval,
-		PerTick:  ga.cfg.Poll.PerTick,
-		Repos:    repos,
-		Labels:   ga.cfg.Poll.Labels,
-		State:    ga.cfg.Poll.State,
-		MatchPRs: ga.cfg.Poll.MatchPRs,
-		OnEvent:  ga.publishEvent,
-		Logger:   ga.logger,
-	})
+	ga.poller = NewPoller(ga.pollerConfig(repos))
 
 	var ctx context.Context
 	ctx, ga.pollerCancel = context.WithCancel(context.Background())
@@ -241,7 +241,13 @@ func (ga *GitHubAgent) startPoller() (chan error, error) {
 		errCh <- ga.poller.Run(ctx)
 	}()
 
-	callsPerHour := float64(len(repos)) * 3 * (3600 / ga.cfg.Poll.Interval.Seconds())
+	callsPerTick := len(repos) * 3 // time mode: issues, PRs, comments
+	if ga.cfg.Poll.MatchPRs {
+		callsPerTick = len(repos)
+	} else if len(ga.cfg.Poll.Labels) > 0 {
+		callsPerTick = len(repos) * len(ga.cfg.Poll.Labels)
+	}
+	callsPerHour := float64(callsPerTick) * (3600 / ga.cfg.Poll.Interval.Seconds())
 	if callsPerHour > 4000 {
 		ga.logger.Warn().
 			Float64("estimated_calls_per_hour", callsPerHour).
@@ -258,7 +264,7 @@ func NewTestAgentWithPolling(natsURL string, natsOpts []nats.Option, ghClient Gi
 		cfg: Config{
 			NATS:    NATSConfig{URL: natsURL},
 			Webhook: WebhookConfig{Listen: webhookListen, Path: "/webhook"},
-			Poll:    PollConfig{Enabled: true, Interval: pollInterval, Repos: repos, PerTick: 100, State: "open"},
+			Poll:    PollConfig{Enabled: true, Interval: pollInterval, Repos: repos, State: "open"},
 		},
 		instanceName: defaultAgentName,
 		ghClient:     ghClient,
@@ -295,25 +301,58 @@ func (ga *GitHubAgent) shutdown() error {
 	return nil
 }
 
-// reloadConfig re-reads the config file and applies safe-to-change settings.
+// pollerConfig builds the poller settings from the current config.
+func (ga *GitHubAgent) pollerConfig(repos []RepoRef) PollerConfig {
+	return PollerConfig{
+		Client:        ga.ghClient,
+		Interval:      ga.cfg.Poll.Interval,
+		SweepInterval: ga.cfg.Poll.SweepInterval,
+		Repos:         repos,
+		Labels:        ga.cfg.Poll.Labels,
+		State:         ga.cfg.Poll.State,
+		MatchPRs:      ga.cfg.Poll.MatchPRs,
+		OnEvent:       ga.publishEvent,
+		Logger:        ga.logger,
+	}
+}
+
+// commandSecret returns the current command signing secret.
+func (ga *GitHubAgent) commandSecret() string {
+	ga.cfgMu.RLock()
+	defer ga.cfgMu.RUnlock()
+	return ga.cfg.Security.CommandSecret
+}
+
+// reloadConfig re-reads the config file this instance was started with and
+// applies the settings that are safe to change at runtime: everything under
+// [poll] and security.command_secret. The GitHub token, webhook listener and
+// NATS connection require a restart.
 func (ga *GitHubAgent) reloadConfig() {
 	ga.logger.Info().Msg("reloading github agent configuration")
 
-	newCfg, err := LoadConfig("", "")
+	ga.cfgMu.RLock()
+	cfgFile := ga.cfg.ConfigFile
+	ga.cfgMu.RUnlock()
+
+	newCfg, err := LoadConfig(cfgFile, ga.configName)
 	if err != nil {
 		ga.logger.Error().Err(err).Msg("failed to reload config")
 		return
 	}
 
-	// Apply poll settings that are safe to change at runtime.
-	if ga.cfg.Poll.Interval != newCfg.Poll.Interval {
-		ga.logger.Info().Dur("interval", newCfg.Poll.Interval).Msg("updated poll interval (takes effect next cycle)")
+	ga.cfgMu.Lock()
+	ga.cfg.Poll = newCfg.Poll
+	ga.cfg.Security.CommandSecret = newCfg.Security.CommandSecret
+	ga.cfgMu.Unlock()
+
+	if ga.poller != nil && newCfg.Poll.Enabled {
+		repos, err := ParseRepos(newCfg.Poll.Repos)
+		if err != nil {
+			ga.logger.Error().Err(err).Msg("reload: invalid poll.repos, keeping previous poller settings")
+		} else {
+			ga.poller.Update(ga.pollerConfig(repos))
+		}
 	}
-	ga.cfg.Poll.Interval = newCfg.Poll.Interval
-	ga.cfg.Poll.Repos = newCfg.Poll.Repos
-	ga.cfg.Poll.Labels = newCfg.Poll.Labels
-	ga.cfg.Poll.PerTick = newCfg.Poll.PerTick
-	ga.cfg.Poll.State = newCfg.Poll.State
 
 	ga.logger.Info().Msg("github agent configuration reloaded")
 }
@@ -361,7 +400,7 @@ func (ga *GitHubAgent) executeCommand(msg *nats.Msg) {
 		return
 	}
 
-	if !protocol.VerifyCommand(&cmd, ga.cfg.Security.CommandSecret) {
+	if !protocol.VerifyCommand(&cmd, ga.commandSecret()) {
 		ga.agent.RecordError()
 		ga.logger.Warn().
 			Str("command", cmd.Command).

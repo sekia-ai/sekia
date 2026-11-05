@@ -194,7 +194,7 @@ func (d *Daemon) NATSConnectOpts() []nats.Option {
 func (d *Daemon) reloadConfig() {
 	d.logger.Info().Msg("reloading daemon configuration")
 
-	newCfg, err := LoadConfig("")
+	newCfg, err := LoadConfig(d.cfg.ConfigFile)
 	if err != nil {
 		d.logger.Error().Err(err).Msg("failed to reload config")
 		return
