@@ -1202,15 +1202,6 @@ sekiactl secrets kms-encrypt --key-id alias/sekia <span class="str">"ghp_mytoken
 <span class="cm"># KMS[AQIDAHhBm4p0...]</span></code></pre>
   <p><code>sekiactl secrets keygen</code>, <code>encrypt</code>, <code>decrypt</code> and <code>asm-get</code> are gone; <code>SEKIA_AGE_KEY</code>, <code>SEKIA_AGE_KEY_FILE</code> and <code>secrets.identity</code> are ignored. Existing <code>KMS[...]</code> values keep working unchanged.</p>
 
-  <h3>GitHub polling changed</h3>
-  <p>Every tick now fetches only items updated since the previous tick, 100 per page, instead of crawling one item per tick. <code>poll.per_tick</code> is ignored and can be deleted. Label-filtered and PR-match modes sweep every matching item at startup and every <code>poll.sweep_interval</code> (default <code>1h</code>); matched events carry <code>payload.sweep</code>. Workflows that act on matched events must be idempotent, which <code>approve_pr</code> and label changes already are.</p>
-
-  <h3>Quieter logs</h3>
-  <p>Every binary logs at <code>info</code> by default. 0.2.x logged at debug level, one line per routed event; set <code>[log] level = "debug"</code>, <code>SEKIA_LOG_LEVEL=debug</code> or <code>--log-level debug</code> to get that back.</p>
-
-  <h3>Config reload and sekiactl</h3>
-  <p><code>sekiactl config reload</code> now re-reads the config file each component started with, honoring <code>--config</code> and <code>--name</code>; 0.2.x named instances reloaded the default file. Without <code>XDG_RUNTIME_DIR</code>, <code>sekiactl</code> also looks for the daemon socket in <code>/run/user/&lt;uid&gt;/sekia/</code>, so it finds a systemd-started daemon from an SSH session.</p>
-
   <h3>Files you can delete</h3>
   <ul>
     <li><code>~/.config/sekia/persona.md</code></li>
