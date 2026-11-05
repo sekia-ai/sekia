@@ -502,6 +502,10 @@ end)
 - **Removed secrets backends**: age (`ENC[...]`) and AWS Secrets Manager (`ASM[...]`), along with `sekiactl secrets keygen|encrypt|decrypt|asm-get`, `SEKIA_AGE_KEY`, `SEKIA_AGE_KEY_FILE` and `secrets.identity`. `ENC[...]` and `ASM[...]` values are no longer recognized and will be used as literal strings; re-encrypt them with `sekiactl secrets kms-encrypt` (or replace them with plaintext) before upgrading. Only `KMS[...]` remains.
 - **Removed Google Calendar support**: the `google.calendar.event.*` events and the `create_event`, `update_event` and `delete_event` commands are gone. `sekia-google` is Gmail only and requires `gmail.enabled = true`.
 - **Files you can delete**: `~/.config/sekia/persona.md`, `~/.config/sekia/sentinel.md`, `~/.config/sekia/age.key` and the `~/.config/sekia/skills/` directory are no longer read.
+- **GitHub polling changed**: every tick now fetches only items updated since the previous tick, 100 per page. `poll.per_tick` is ignored and can be deleted. Label-filtered and PR-match modes sweep every matching item at startup and every `poll.sweep_interval` (default `1h`); matched events carry `payload.sweep`. Workflows acting on matched events must be idempotent.
+- **Quieter logs**: every binary now logs at `info` by default. 0.2.x logged at debug level; set `[log] level = "debug"` or `SEKIA_LOG_LEVEL=debug` to get that back.
+- **Config reload** re-reads the file the component started with, honoring `--config` and `--name`. Previously named instances reloaded the default file.
+- **sekiactl socket discovery**: without `XDG_RUNTIME_DIR`, `sekiactl` now also looks in `/run/user/<uid>/sekia/`, so it finds a daemon started by systemd from an SSH session.
 
 ## Testing
 
