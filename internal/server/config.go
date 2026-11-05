@@ -8,29 +8,16 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/sekia-ai/sekia/internal/ai"
 	"github.com/sekia-ai/sekia/internal/secrets"
-	"github.com/sekia-ai/sekia/internal/sentinel"
 	"github.com/sekia-ai/sekia/pkg/sockpath"
 )
 
-// ConversationConfig holds conversation store settings.
-type ConversationConfig struct {
-	MaxHistory int           `mapstructure:"max_history"`
-	TTL        time.Duration `mapstructure:"ttl"`
-}
-
 // Config is the top-level daemon configuration.
 type Config struct {
-	Server       ServerConfig       `mapstructure:"server"`
-	NATS         NATSConfig         `mapstructure:"nats"`
-	Workflows    WorkflowConfig     `mapstructure:"workflows"`
-	Web          WebConfig          `mapstructure:"web"`
-	AI           ai.Config          `mapstructure:"ai"`
-	Sentinel     sentinel.Config    `mapstructure:"sentinel"`
-	Skills       SkillsConfig       `mapstructure:"skills"`
-	Conversation ConversationConfig `mapstructure:"conversation"`
-	Security     SecurityConfig     `mapstructure:"security"`
+	Server    ServerConfig   `mapstructure:"server"`
+	NATS      NATSConfig     `mapstructure:"nats"`
+	Workflows WorkflowConfig `mapstructure:"workflows"`
+	Security  SecurityConfig `mapstructure:"security"`
 }
 
 // SecurityConfig holds application-level security settings.
@@ -38,16 +25,8 @@ type SecurityConfig struct {
 	CommandSecret string `mapstructure:"command_secret"`
 }
 
-// WebConfig holds web dashboard settings.
-type WebConfig struct {
-	Listen   string `mapstructure:"listen"`
-	Username string `mapstructure:"username"`
-	Password string `mapstructure:"password"` // #nosec G117 -- config deserialization, not hardcoded
-}
-
-// ServerConfig holds HTTP/socket settings.
+// ServerConfig holds the control API socket settings.
 type ServerConfig struct {
-	Listen string `mapstructure:"listen"`
 	Socket string `mapstructure:"socket"`
 }
 
@@ -58,12 +37,6 @@ type NATSConfig struct {
 	Host     string `mapstructure:"host"`
 	Port     int    `mapstructure:"port"`
 	Token    string `mapstructure:"token"`
-}
-
-// SkillsConfig holds skill system settings.
-type SkillsConfig struct {
-	Dir       string `mapstructure:"dir"`
-	HotReload bool   `mapstructure:"hot_reload"`
 }
 
 // WorkflowConfig holds Lua workflow engine settings.
@@ -78,7 +51,6 @@ type WorkflowConfig struct {
 func LoadConfig(cfgFile string) (Config, error) {
 	v := viper.New()
 
-	v.SetDefault("server.listen", "127.0.0.1:7600")
 	v.SetDefault("server.socket", sockpath.DefaultSocketPath())
 	v.SetDefault("nats.embedded", true)
 
@@ -91,22 +63,6 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v.SetDefault("workflows.hot_reload", true)
 	v.SetDefault("workflows.handler_timeout", 30*time.Second)
 	v.SetDefault("workflows.verify_integrity", false)
-
-	v.SetDefault("ai.provider", "anthropic")
-	v.SetDefault("ai.model", "claude-sonnet-4-20250514")
-	v.SetDefault("ai.max_tokens", 1024)
-	v.SetDefault("ai.temperature", 0.0)
-	v.SetDefault("ai.persona_path", filepath.Join(configDir, "persona.md"))
-
-	v.SetDefault("skills.dir", filepath.Join(configDir, "skills"))
-	v.SetDefault("skills.hot_reload", true)
-
-	v.SetDefault("conversation.max_history", 50)
-	v.SetDefault("conversation.ttl", 1*time.Hour)
-
-	v.SetDefault("sentinel.enabled", false)
-	v.SetDefault("sentinel.interval", 5*time.Minute)
-	v.SetDefault("sentinel.checklist_path", filepath.Join(configDir, "sentinel.md"))
 
 	v.SetConfigType("toml")
 
@@ -123,14 +79,12 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v.AutomaticEnv()
 
 	v.BindEnv("nats.token", "SEKIA_NATS_TOKEN")
-	v.BindEnv("web.username", "SEKIA_WEB_USERNAME")
-	v.BindEnv("web.password", "SEKIA_WEB_PASSWORD")
 	v.BindEnv("security.command_secret", "SEKIA_COMMAND_SECRET")
 
 	// Config file is optional.
 	_ = v.ReadInConfig()
 
-	// Resolve any encrypted or referenced values (ENC[...], KMS[...], ASM[...]).
+	// Resolve any KMS[...] encrypted values.
 	if err := secrets.ResolveViperConfig(v); err != nil {
 		return Config{}, fmt.Errorf("resolve config secrets: %w", err)
 	}

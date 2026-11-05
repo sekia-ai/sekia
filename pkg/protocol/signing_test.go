@@ -84,7 +84,7 @@ func TestVerifyWrongSecret(t *testing.T) {
 	cmd := &Command{
 		Command: "send_message",
 		Payload: map[string]any{"channel": "general"},
-		Source:  "mcp",
+		Source:  "workflow:test",
 	}
 
 	if err := SignCommand(cmd, "secret-a"); err != nil {

@@ -18,7 +18,7 @@ func TestSubjectMatches(t *testing.T) {
 		want    bool
 	}{
 		{"sekia.events.github", "sekia.events.github", true},
-		{"sekia.events.github", "sekia.events.slack", false},
+		{"sekia.events.github", "sekia.events.google", false},
 		{"sekia.events.*", "sekia.events.github", true},
 		{"sekia.events.*", "sekia.events.github.issues", false},
 		{"sekia.events.>", "sekia.events.github", true},
@@ -55,7 +55,7 @@ end)
 	wfPath := filepath.Join(tmpDir, "echo.lua")
 	os.WriteFile(wfPath, []byte(workflowCode), 0644)
 
-	eng := New(nc, tmpDir, nil, 0, "", testLogger())
+	eng := New(nc, tmpDir, 0, "", testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}
@@ -122,7 +122,7 @@ end)
 	wfPath := filepath.Join(tmpDir, "looper.lua")
 	os.WriteFile(wfPath, []byte(workflowCode), 0644)
 
-	eng := New(nc, tmpDir, nil, 0, "", testLogger())
+	eng := New(nc, tmpDir, 0, "", testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}
@@ -160,7 +160,7 @@ end)
 	wfPath := filepath.Join(tmpDir, "catchall.lua")
 	os.WriteFile(wfPath, []byte(workflowCode), 0644)
 
-	eng := New(nc, tmpDir, nil, 0, "", testLogger())
+	eng := New(nc, tmpDir, 0, "", testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}
@@ -180,7 +180,7 @@ end)
 	defer sub.Unsubscribe()
 
 	// Publish events on different subjects — both should match.
-	for _, src := range []string{"sekia.events.github", "sekia.events.slack"} {
+	for _, src := range []string{"sekia.events.github", "sekia.events.google"} {
 		ev := protocol.NewEvent("test", "external", map[string]any{})
 		data, _ := json.Marshal(ev)
 		nc.Publish(src, data)
@@ -208,16 +208,16 @@ sekia.on("sekia.events.github", function(event)
 	sekia.command("agent-a", "handle", { from = "wf-a" })
 end)
 `
-	// Workflow B handles slack events.
+	// Workflow B handles google events.
 	wfB := `
-sekia.on("sekia.events.slack", function(event)
+sekia.on("sekia.events.google", function(event)
 	sekia.command("agent-b", "handle", { from = "wf-b" })
 end)
 `
 	os.WriteFile(filepath.Join(tmpDir, "wf_a.lua"), []byte(wfA), 0644)
 	os.WriteFile(filepath.Join(tmpDir, "wf_b.lua"), []byte(wfB), 0644)
 
-	eng := New(nc, tmpDir, nil, 0, "", testLogger())
+	eng := New(nc, tmpDir, 0, "", testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}
@@ -277,7 +277,7 @@ end)
 	wfPath := filepath.Join(tmpDir, "erroring.lua")
 	os.WriteFile(wfPath, []byte(workflowCode), 0644)
 
-	eng := New(nc, tmpDir, nil, 0, "", testLogger())
+	eng := New(nc, tmpDir, 0, "", testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}
@@ -317,7 +317,7 @@ end)
 	os.WriteFile(wfPath, []byte(workflowCode), 0644)
 
 	// Use a short timeout (200ms) so the test doesn't hang.
-	eng := New(nc, tmpDir, nil, 200*time.Millisecond, "", testLogger())
+	eng := New(nc, tmpDir, 200*time.Millisecond, "", testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}
@@ -394,7 +394,7 @@ end)
 	wfPath := filepath.Join(tmpDir, "reloadable.lua")
 	os.WriteFile(wfPath, []byte(workflowCode), 0644)
 
-	eng := New(nc, tmpDir, nil, 0, "", testLogger())
+	eng := New(nc, tmpDir, 0, "", testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}
@@ -466,7 +466,7 @@ end)
 	wfPath := filepath.Join(tmpDir, "concurrent.lua")
 	os.WriteFile(wfPath, []byte(workflowCode), 0644)
 
-	eng := New(nc, tmpDir, nil, 0, "", testLogger())
+	eng := New(nc, tmpDir, 0, "", testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}
@@ -528,7 +528,7 @@ end)
 	wfPath := filepath.Join(tmpDir, "wf.lua")
 	os.WriteFile(wfPath, []byte(workflowCode), 0644)
 
-	eng := New(nc, tmpDir, nil, 0, "", testLogger())
+	eng := New(nc, tmpDir, 0, "", testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}

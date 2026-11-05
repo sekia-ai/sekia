@@ -28,36 +28,9 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}}
 
-  - id: sekia-slack
-    main: ./cmd/sekia-slack
-    binary: sekia-slack
-    goos: [linux, darwin]
-    goarch: [amd64, arm64]
-    env: [CGO_ENABLED=0]
-    ldflags:
-      - -s -w -X main.version={{.Version}}
-
-  - id: sekia-linear
-    main: ./cmd/sekia-linear
-    binary: sekia-linear
-    goos: [linux, darwin]
-    goarch: [amd64, arm64]
-    env: [CGO_ENABLED=0]
-    ldflags:
-      - -s -w -X main.version={{.Version}}
-
   - id: sekia-google
     main: ./cmd/sekia-google
     binary: sekia-google
-    goos: [linux, darwin]
-    goarch: [amd64, arm64]
-    env: [CGO_ENABLED=0]
-    ldflags:
-      - -s -w -X main.version={{.Version}}
-
-  - id: sekia-mcp
-    main: ./cmd/sekia-mcp
-    binary: sekia-mcp
     goos: [linux, darwin]
     goarch: [amd64, arm64]
     env: [CGO_ENABLED=0]
@@ -79,30 +52,9 @@ archives:
       - goos: windows
         format: zip
 
-  - id: sekia-slack
-    builds: [sekia-slack]
-    name_template: "sekia-slack_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    format_overrides:
-      - goos: windows
-        format: zip
-
-  - id: sekia-linear
-    builds: [sekia-linear]
-    name_template: "sekia-linear_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    format_overrides:
-      - goos: windows
-        format: zip
-
   - id: sekia-google
     builds: [sekia-google]
     name_template: "sekia-google_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    format_overrides:
-      - goos: windows
-        format: zip
-
-  - id: sekia-mcp
-    builds: [sekia-mcp]
-    name_template: "sekia-mcp_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
         format: zip
@@ -178,50 +130,6 @@ brews:
     test: |
       system bin/"sekia-github", "--help"
 
-  - name: sekia-slack
-    ids: [sekia-slack]
-    repository:
-      owner: sekia-ai
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    directory: Formula
-    homepage: "https://github.com/sekia-ai/sekia"
-    description: "sekia Slack agent - Socket Mode bridge"
-    license: "Apache-2.0"
-    dependencies:
-      - name: sekia-ai/tap/sekia
-    install: |
-      bin.install "sekia-slack"
-    service: |
-      run [opt_bin/"sekia-slack"]
-      keep_alive true
-      log_path var/"log/sekia-slack.log"
-      error_log_path var/"log/sekia-slack.log"
-    test: |
-      system bin/"sekia-slack", "--help"
-
-  - name: sekia-linear
-    ids: [sekia-linear]
-    repository:
-      owner: sekia-ai
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    directory: Formula
-    homepage: "https://github.com/sekia-ai/sekia"
-    description: "sekia Linear agent - GraphQL polling bridge"
-    license: "Apache-2.0"
-    dependencies:
-      - name: sekia-ai/tap/sekia
-    install: |
-      bin.install "sekia-linear"
-    service: |
-      run [opt_bin/"sekia-linear"]
-      keep_alive true
-      log_path var/"log/sekia-linear.log"
-      error_log_path var/"log/sekia-linear.log"
-    test: |
-      system bin/"sekia-linear", "--help"
-
   - name: sekia-google
     ids: [sekia-google]
     repository:
@@ -230,7 +138,7 @@ brews:
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: Formula
     homepage: "https://github.com/sekia-ai/sekia"
-    description: "sekia Google agent - Gmail and Calendar bridge"
+    description: "sekia Google agent - Gmail bridge"
     license: "Apache-2.0"
     dependencies:
       - name: sekia-ai/tap/sekia
@@ -243,20 +151,3 @@ brews:
       error_log_path var/"log/sekia-google.log"
     test: |
       system bin/"sekia-google", "--help"
-
-  - name: sekia-mcp
-    ids: [sekia-mcp]
-    repository:
-      owner: sekia-ai
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    directory: Formula
-    homepage: "https://github.com/sekia-ai/sekia"
-    description: "sekia MCP server - Model Context Protocol adapter"
-    license: "Apache-2.0"
-    dependencies:
-      - name: sekia-ai/tap/sekia
-    install: |
-      bin.install "sekia-mcp"
-    test: |
-      system bin/"sekia-mcp", "--help"

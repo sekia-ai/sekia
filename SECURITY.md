@@ -4,7 +4,8 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| latest  | :white_check_mark: |
+| 0.3.x   | :white_check_mark: |
+| < 0.3   | :x:                |
 
 ## Reporting a Vulnerability
 
@@ -29,36 +30,21 @@ sekia is a multi-agent event bus that handles credentials and automates actions 
 ### Authentication & Secrets
 
 - **Never commit secrets.** API keys, OAuth tokens, and webhook secrets are configured via environment variables or config files outside the repository.
-- Agent tokens (`GITHUB_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `LINEAR_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) should follow the principle of least privilege.
+- Agent tokens (`GITHUB_TOKEN`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) should follow the principle of least privilege.
 - The Google agent stores OAuth2 tokens on disk (`GOOGLE_TOKEN_PATH`). Ensure the token file has restrictive permissions (`600`).
 
 ### Config Encryption
 
-sekia supports native encryption and secret resolution for values in TOML config files with three backends:
-
-- **age** (`ENC[...]`) — local X25519 encryption via [age](https://age-encryption.org/). Generate keys with `sekiactl secrets keygen`.
-- **AWS KMS** (`KMS[...]`) — encrypt/decrypt via the AWS KMS API. KMS auto-rotation is fully supported.
-- **AWS Secrets Manager** (`ASM[...]`) — fetch plaintext secrets by name or ARN. Only plaintext secrets are supported (binary secrets are rejected).
-
-All three formats can be mixed within the same config file and are decrypted transparently at startup.
+sekia supports native encryption for values in TOML config files via **AWS KMS** (`KMS[...]`). Every binary decrypts `KMS[...]` values transparently at startup and refuses to start if a value cannot be decrypted. KMS auto-rotation is fully supported.
 
 ```bash
-# age
-sekiactl secrets keygen
-sekiactl secrets encrypt "ghp_mytoken123"           # → ENC[...]
-
-# AWS KMS
-sekiactl secrets kms-encrypt --key-id alias/sekia "ghp_mytoken123"  # → KMS[...]
+sekiactl secrets kms-encrypt "ghp_mytoken123" --key-id alias/sekia  # → KMS[...]
 
 # Use in config
-# github.token = "ENC[YWdlLWVuY3J5cHRpb24...]"
-# webhook.secret = "KMS[AQIDAHhB...]"
-# nats.token = "ASM[prod/sekia/nats-token]"
+# github.token = "KMS[AQIDAHhB...]"
 ```
 
-**Off-machine key support:** For age, the decryption key does not need to reside on the same machine. Set `SEKIA_AGE_KEY` (raw key string) or `SEKIA_AGE_KEY_FILE` (path to key file) via your secrets manager, CI/CD pipeline, or orchestration tool. Hardware keys are supported via `age-plugin-yubikey`. For AWS backends, credentials use the standard SDK v2 default chain (environment, profile, instance role, ECS task role).
-
-Key files are stored with `0600` permissions and their parent directories with `0700`.
+AWS credentials use the standard SDK v2 default chain (environment, profile, instance role, ECS task role). The KMS key ID is embedded in the ciphertext; no key material is stored alongside sekia.
 
 ### Lua Workflow Sandboxing
 
@@ -67,13 +53,12 @@ Key files are stored with `0600` permissions and their parent directories with `
 
 ### Named Instance Services
 
-Named agent instances managed via `sekiactl service create` generate launchd plists (macOS) or systemd units (Linux). The `--env KEY=VALUE` flag stores environment variables in **plaintext** within these service files. Prefer using encrypted config values (`ENC[...]`, `KMS[...]`, `ASM[...]`) in TOML config files instead. Service files are created with `0644` permissions in standard user service directories (`~/Library/LaunchAgents/` or `~/.config/systemd/user/`).
+Named agent instances managed via `sekiactl service create` generate launchd plists (macOS) or systemd units (Linux). The `--env KEY=VALUE` flag stores environment variables in **plaintext** within these service files. Prefer using encrypted config values (`KMS[...]`) in TOML config files instead. Service files are created with `0644` permissions in standard user service directories (`~/Library/LaunchAgents/` or `~/.config/systemd/user/`).
 
 ### Network Exposure
 
-- The embedded NATS server runs in-process with `DontListen: true` by default — no TCP port is opened for NATS.
+- The embedded NATS server runs in-process with `DontListen: true` by default — no TCP port is opened for NATS. When `nats.host`/`nats.port` are set so that external agents can connect, set `nats.token` (env `SEKIA_NATS_TOKEN`) so every connection must authenticate.
 - The Unix socket API is local-only (filesystem permissions).
-- The web dashboard is disabled by default (`web.listen = ""`). If enabled, it includes CSRF protection (double-submit cookie), security headers (`CSP`, `X-Frame-Options`, `X-Content-Type-Options`, `HSTS`), and a cap of 50 concurrent SSE connections.
 - The GitHub webhook server validates payloads via HMAC-SHA256 (`X-Hub-Signature-256`) when a `webhook.secret` is configured.
 
 ### Supply Chain

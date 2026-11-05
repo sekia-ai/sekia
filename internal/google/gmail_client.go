@@ -15,14 +15,14 @@ import (
 
 // EmailMessage is a minimal representation of an email from the Gmail API.
 type EmailMessage struct {
-	ID        string   // Gmail message ID
-	ThreadID  string   // Gmail thread ID
-	MessageID string   // RFC 2822 Message-ID header
+	ID        string // Gmail message ID
+	ThreadID  string // Gmail thread ID
+	MessageID string // RFC 2822 Message-ID header
 	From      string
 	To        string
 	Subject   string
-	Body      string   // Plain-text body (extracted from text/plain MIME part)
-	Snippet   string   // Gmail API snippet (plain-text preview, always available)
+	Body      string // Plain-text body (extracted from text/plain MIME part)
+	Snippet   string // Gmail API snippet (plain-text preview, always available)
 	Date      string
 	Labels    []string
 }

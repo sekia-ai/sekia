@@ -292,7 +292,7 @@ func TestParseRepos(t *testing.T) {
 
 // paginatingMockClient supports multi-page responses for cursor tests.
 type paginatingMockClient struct {
-	mu     sync.Mutex
+	mu sync.Mutex
 	// issuePages[page] returns (issues, nextPage). Pages are 1-based.
 	issuePages map[int]struct {
 		issues   []*gh.Issue
@@ -740,14 +740,14 @@ func TestPollerLabelMode(t *testing.T) {
 	}
 
 	p := NewPoller(PollerConfig{
-		Client:  mock,
+		Client:   mock,
 		Interval: time.Hour,
-		PerTick: 100,
-		Repos:   []RepoRef{{Owner: "o", Repo: "r"}},
-		Labels:  []string{"Severity:Info"},
-		State:   "open",
-		OnEvent: onEvent,
-		Logger:  zerolog.Nop(),
+		PerTick:  100,
+		Repos:    []RepoRef{{Owner: "o", Repo: "r"}},
+		Labels:   []string{"Severity:Info"},
+		State:    "open",
+		OnEvent:  onEvent,
+		Logger:   zerolog.Nop(),
 	})
 
 	ctx := context.Background()
@@ -783,14 +783,14 @@ func TestPollerLabelModeSkipsPRsAndComments(t *testing.T) {
 	onEvent := func(ev protocol.Event) { events = append(events, ev) }
 
 	p := NewPoller(PollerConfig{
-		Client:  mock,
+		Client:   mock,
 		Interval: time.Hour,
-		PerTick: 100,
-		Repos:   []RepoRef{{Owner: "o", Repo: "r"}},
-		Labels:  []string{"bug"},
-		State:   "open",
-		OnEvent: onEvent,
-		Logger:  zerolog.Nop(),
+		PerTick:  100,
+		Repos:    []RepoRef{{Owner: "o", Repo: "r"}},
+		Labels:   []string{"bug"},
+		State:    "open",
+		OnEvent:  onEvent,
+		Logger:   zerolog.Nop(),
 	})
 
 	ctx := context.Background()
@@ -830,14 +830,14 @@ func TestPollerLabelModePerTickBound(t *testing.T) {
 
 	// perTick=2: first tick gets page 1 (2 items), second tick gets page 2 (1 item).
 	p := NewPoller(PollerConfig{
-		Client:  mock,
+		Client:   mock,
 		Interval: time.Hour,
-		PerTick: 2,
-		Repos:   []RepoRef{{Owner: "o", Repo: "r"}},
-		Labels:  []string{"bug"},
-		State:   "open",
-		OnEvent: onEvent,
-		Logger:  zerolog.Nop(),
+		PerTick:  2,
+		Repos:    []RepoRef{{Owner: "o", Repo: "r"}},
+		Labels:   []string{"bug"},
+		State:    "open",
+		OnEvent:  onEvent,
+		Logger:   zerolog.Nop(),
 	})
 
 	ctx := context.Background()
@@ -877,14 +877,14 @@ func TestPollerLabelModeDoesNotAdvanceLastSyncTime(t *testing.T) {
 	}
 
 	p := NewPoller(PollerConfig{
-		Client:  mock,
+		Client:   mock,
 		Interval: time.Hour,
-		PerTick: 100,
-		Repos:   []RepoRef{{Owner: "o", Repo: "r"}},
-		Labels:  []string{"bug"},
-		State:   "open",
-		OnEvent: func(protocol.Event) {},
-		Logger:  zerolog.Nop(),
+		PerTick:  100,
+		Repos:    []RepoRef{{Owner: "o", Repo: "r"}},
+		Labels:   []string{"bug"},
+		State:    "open",
+		OnEvent:  func(protocol.Event) {},
+		Logger:   zerolog.Nop(),
 	})
 	original := p.lastSyncTime
 

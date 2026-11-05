@@ -17,11 +17,5 @@ poll_interval = "30s"
 user_id = "me"
 # query = "label:important"  # optional: filter polled messages
 
-[calendar]
-enabled = false
-poll_interval = "60s"
-calendar_id = "primary"
-upcoming_mins = 0  # set to e.g. 15 to get notifications 15 min before events
-
 [security]
 # command_secret = ""

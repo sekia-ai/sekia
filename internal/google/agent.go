@@ -19,20 +19,19 @@ import (
 
 const (
 	defaultAgentName = "google-agent"
-	agentVersion     = "0.2.3"
+	agentVersion     = "0.3.0"
 )
 
-// GoogleAgent bridges Google services (Gmail, Calendar) to the sekia event bus
+// GoogleAgent bridges Gmail to the sekia event bus
 // and executes commands dispatched by workflows.
 type GoogleAgent struct {
-	cfg            Config
-	instanceName   string // agent name for NATS registration and command subscription
-	gmailClient    GmailClient
-	calendarClient CalendarClient
-	agent          *agent.Agent
-	logger         zerolog.Logger
-	stopCh         chan struct{}
-	readyCh        chan struct{}
+	cfg          Config
+	instanceName string // agent name for NATS registration and command subscription
+	gmailClient  GmailClient
+	agent        *agent.Agent
+	logger       zerolog.Logger
+	stopCh       chan struct{}
+	readyCh      chan struct{}
 
 	// Overridable for testing.
 	natsOpts []nats.Option
@@ -70,14 +69,6 @@ func NewAgent(cfg Config, instanceName string, logger zerolog.Logger) (*GoogleAg
 		ga.gmailClient = gmailClient
 	}
 
-	if cfg.Calendar.Enabled {
-		calendarClient, err := newRealCalendarClient(httpClient)
-		if err != nil {
-			return nil, fmt.Errorf("create calendar client: %w", err)
-		}
-		ga.calendarClient = calendarClient
-	}
-
 	return ga, nil
 }
 
@@ -87,9 +78,7 @@ func NewTestAgent(
 	natsURL string,
 	natsOpts []nats.Option,
 	gmailClient GmailClient,
-	calendarClient CalendarClient,
 	gmailPollInterval time.Duration,
-	calendarPollInterval time.Duration,
 	logger zerolog.Logger,
 ) *GoogleAgent {
 	return &GoogleAgent{
@@ -100,19 +89,13 @@ func NewTestAgent(
 				PollInterval: gmailPollInterval,
 				UserID:       "me",
 			},
-			Calendar: CalendarConfig{
-				Enabled:      calendarClient != nil,
-				PollInterval: calendarPollInterval,
-				CalendarID:   "primary",
-			},
 		},
-		instanceName:   defaultAgentName,
-		gmailClient:    gmailClient,
-		calendarClient: calendarClient,
-		natsOpts:       natsOpts,
-		logger:         logger.With().Str("component", defaultAgentName).Logger(),
-		stopCh:         make(chan struct{}),
-		readyCh:        make(chan struct{}),
+		instanceName: defaultAgentName,
+		gmailClient:  gmailClient,
+		natsOpts:     natsOpts,
+		logger:       logger.With().Str("component", defaultAgentName).Logger(),
+		stopCh:       make(chan struct{}),
+		readyCh:      make(chan struct{}),
 	}
 }
 
@@ -126,10 +109,6 @@ func (ga *GoogleAgent) Run() error {
 	if ga.cfg.Gmail.Enabled {
 		capabilities = append(capabilities, "gmail-api")
 		commands = append(commands, "send_email", "reply_email", "add_label", "remove_label", "archive", "trash", "untrash", "delete")
-	}
-	if ga.cfg.Calendar.Enabled {
-		capabilities = append(capabilities, "calendar-api")
-		commands = append(commands, "create_event", "update_event", "delete_event")
 	}
 
 	// 2. Connect to NATS via the agent SDK.
@@ -167,7 +146,7 @@ func (ga *GoogleAgent) Run() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 1)
 
 	if ga.cfg.Gmail.Enabled && ga.gmailClient != nil {
 		poller := NewGmailPoller(
@@ -176,18 +155,6 @@ func (ga *GoogleAgent) Run() error {
 			ga.cfg.Gmail.UserID,
 			ga.cfg.Gmail.Query,
 			ga.cfg.Gmail.MaxMessages,
-			ga.publishEvent,
-			ga.logger,
-		)
-		go func() { errCh <- poller.Run(ctx) }()
-	}
-
-	if ga.cfg.Calendar.Enabled && ga.calendarClient != nil {
-		poller := NewCalendarPoller(
-			ga.calendarClient,
-			ga.cfg.Calendar.PollInterval,
-			ga.cfg.Calendar.CalendarID,
-			ga.cfg.Calendar.UpcomingMins,
 			ga.publishEvent,
 			ga.logger,
 		)
@@ -258,12 +225,6 @@ func (ga *GoogleAgent) reloadConfig() {
 	ga.cfg.Gmail.Query = newCfg.Gmail.Query
 	ga.cfg.Gmail.MaxMessages = newCfg.Gmail.MaxMessages
 
-	if ga.cfg.Calendar.PollInterval != newCfg.Calendar.PollInterval {
-		ga.logger.Info().Dur("interval", newCfg.Calendar.PollInterval).Msg("updated calendar poll interval (takes effect next cycle)")
-	}
-	ga.cfg.Calendar.PollInterval = newCfg.Calendar.PollInterval
-	ga.cfg.Calendar.UpcomingMins = newCfg.Calendar.UpcomingMins
-
 	ga.cfg.Security.CommandSecret = newCfg.Security.CommandSecret
 
 	ga.logger.Info().Msg("google agent configuration reloaded")
@@ -309,7 +270,6 @@ func (ga *GoogleAgent) handleCommand(msg *nats.Msg) {
 
 	var err error
 	switch cmd.Command {
-	// Gmail commands
 	case "send_email":
 		err = cmdGmailSendEmail(ctx, ga.gmailClient, ga.cfg.Gmail.UserID, cmd.Payload)
 	case "reply_email":
@@ -326,14 +286,6 @@ func (ga *GoogleAgent) handleCommand(msg *nats.Msg) {
 		err = cmdGmailUntrash(ctx, ga.gmailClient, ga.cfg.Gmail.UserID, cmd.Payload)
 	case "delete":
 		err = cmdGmailDelete(ctx, ga.gmailClient, ga.cfg.Gmail.UserID, cmd.Payload)
-
-	// Calendar commands
-	case "create_event":
-		err = cmdCalendarCreateEvent(ctx, ga.calendarClient, ga.cfg.Calendar.CalendarID, cmd.Payload)
-	case "update_event":
-		err = cmdCalendarUpdateEvent(ctx, ga.calendarClient, ga.cfg.Calendar.CalendarID, cmd.Payload)
-	case "delete_event":
-		err = cmdCalendarDeleteEvent(ctx, ga.calendarClient, ga.cfg.Calendar.CalendarID, cmd.Payload)
 
 	default:
 		err = fmt.Errorf("unknown command: %s", cmd.Command)

@@ -50,7 +50,7 @@ for running a named agent instance in the background.
 Examples:
   sekiactl service create sekia-github --name github-work
   sekiactl service create sekia-github --name github-personal --config /path/to/config.toml
-  sekiactl service create sekia-slack --name slack-work --env SLACK_BOT_TOKEN=xoxb-...`,
+  sekiactl service create sekia-google --name gmail-work --env GOOGLE_CLIENT_ID=...`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			binary := args[0]

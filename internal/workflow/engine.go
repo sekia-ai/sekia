@@ -15,26 +15,18 @@ import (
 	"github.com/rs/zerolog"
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/sekia-ai/sekia/internal/ai"
 	"github.com/sekia-ai/sekia/pkg/protocol"
 )
 
 // WorkflowInfo describes a loaded workflow for the API.
 type WorkflowInfo struct {
-	Name     string   `json:"name"`
-	FilePath string   `json:"file_path"`
-	Handlers int      `json:"handlers"`
-	Patterns []string `json:"patterns"`
+	Name     string    `json:"name"`
+	FilePath string    `json:"file_path"`
+	Handlers int       `json:"handlers"`
+	Patterns []string  `json:"patterns"`
 	LoadedAt time.Time `json:"loaded_at"`
-	Events   int64    `json:"events"`
-	Errors   int64    `json:"errors"`
-}
-
-// scheduleEntry holds a timer-driven callback registered via sekia.schedule().
-type scheduleEntry struct {
-	Interval time.Duration
-	Fn       *lua.LFunction
-	ticker   *time.Ticker
+	Events   int64     `json:"events"`
+	Errors   int64     `json:"errors"`
 }
 
 // workflowState tracks a loaded workflow and its isolated Lua VM.
@@ -48,18 +40,12 @@ type workflowState struct {
 	errors         atomic.Int64
 	handlerTimeout time.Duration
 
-	eventCh   chan *nats.Msg
-	done      chan struct{}
-	schedules []scheduleEntry
+	eventCh chan *nats.Msg
+	done    chan struct{}
 }
 
 // ErrIntegrityViolation is returned when a workflow file fails SHA256 manifest verification.
 var ErrIntegrityViolation = errors.New("integrity violation")
-
-// SkillResolver provides skill instructions for the sekia.skill() Lua function.
-type SkillResolver interface {
-	FullInstructions(name string) string
-}
 
 // Engine manages Lua workflow scripts and routes NATS events to Lua handlers.
 type Engine struct {
@@ -69,26 +55,20 @@ type Engine struct {
 	logger          zerolog.Logger
 	dir             string
 	sub             *nats.Subscription
-	llm             ai.LLMClient
 	handlerTimeout  time.Duration
 	commandSecret   string
 	verifyIntegrity bool
-	skillsIndex     string
-	skillResolver   SkillResolver
-	convoStore      ConversationStore
 }
 
 // New creates a workflow engine. Does not start it.
-// The llm parameter is optional (may be nil if AI is not configured).
 // handlerTimeout limits how long a single Lua handler call may run (0 = no limit).
 // commandSecret is used for HMAC-SHA256 signing of outgoing commands (empty = no signing).
-func New(nc *nats.Conn, dir string, llm ai.LLMClient, handlerTimeout time.Duration, commandSecret string, logger zerolog.Logger) *Engine {
+func New(nc *nats.Conn, dir string, handlerTimeout time.Duration, commandSecret string, logger zerolog.Logger) *Engine {
 	return &Engine{
 		workflows:      make(map[string]*workflowState),
 		nc:             nc,
 		logger:         logger.With().Str("component", "workflow").Logger(),
 		dir:            dir,
-		llm:            llm,
 		handlerTimeout: handlerTimeout,
 		commandSecret:  commandSecret,
 	}
@@ -164,34 +144,6 @@ func (e *Engine) SetHandlerTimeout(d time.Duration) {
 	e.handlerTimeout = d
 }
 
-// SetLLMClient updates the LLM client for all future workflow loads.
-func (e *Engine) SetLLMClient(llm ai.LLMClient) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.llm = llm
-}
-
-// SetSkillsIndex sets the compact skills index injected into AI prompts.
-func (e *Engine) SetSkillsIndex(index string) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.skillsIndex = index
-}
-
-// SetSkillResolver sets the resolver used by sekia.skill() in Lua.
-func (e *Engine) SetSkillResolver(r SkillResolver) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.skillResolver = r
-}
-
-// SetConversationStore sets the conversation store used by sekia.conversation() in Lua.
-func (e *Engine) SetConversationStore(cs ConversationStore) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.convoStore = cs
-}
-
 // SetVerifyIntegrity enables or disables SHA256 manifest verification for workflow loading.
 func (e *Engine) SetVerifyIntegrity(v bool) {
 	e.mu.Lock()
@@ -223,11 +175,7 @@ func (e *Engine) LoadWorkflow(name, filePath string) error {
 		name:          name,
 		nc:            e.nc,
 		logger:        wfLogger,
-		llm:           e.llm,
 		commandSecret: e.commandSecret,
-		skillsIndex:   e.skillsIndex,
-		skillResolver: e.skillResolver,
-		convoStore:    e.convoStore,
 	}
 	registerSekiaModule(L, modCtx)
 
@@ -245,7 +193,6 @@ func (e *Engine) LoadWorkflow(name, filePath string) error {
 		handlerTimeout: e.handlerTimeout,
 		eventCh:        make(chan *nats.Msg, 4096),
 		done:           make(chan struct{}),
-		schedules:      modCtx.schedules,
 	}
 
 	go ws.run()
@@ -333,39 +280,12 @@ func (e *Engine) handleEvent(msg *nats.Msg) {
 	}
 }
 
-// run is the per-workflow goroutine that processes events and schedules sequentially.
+// run is the per-workflow goroutine that processes events sequentially.
 func (ws *workflowState) run() {
 	defer close(ws.done)
 
-	// Start schedule tickers and merge into a single channel.
-	type scheduleTick struct {
-		fn *lua.LFunction
-	}
-	scheduleCh := make(chan scheduleTick, 16)
-	for i := range ws.schedules {
-		s := &ws.schedules[i]
-		s.ticker = time.NewTicker(s.Interval)
-		go func(t *time.Ticker, fn *lua.LFunction) {
-			for range t.C {
-				scheduleCh <- scheduleTick{fn: fn}
-			}
-		}(s.ticker, s.Fn)
-	}
-
-	for {
-		select {
-		case msg, ok := <-ws.eventCh:
-			if !ok {
-				// Channel closed — stop all tickers and drain scheduleCh.
-				for i := range ws.schedules {
-					ws.schedules[i].ticker.Stop()
-				}
-				return
-			}
-			ws.processEvent(msg)
-		case tick := <-scheduleCh:
-			ws.callScheduleHandler(tick.fn)
-		}
+	for msg := range ws.eventCh {
+		ws.processEvent(msg)
 	}
 }
 
@@ -392,31 +312,6 @@ func (ws *workflowState) processEvent(msg *nats.Msg) {
 		ws.callHandler(h, ev.ID, eventTable)
 	}
 	ws.events.Add(1)
-}
-
-func (ws *workflowState) callScheduleHandler(fn *lua.LFunction) {
-	var cancel context.CancelFunc
-	if ws.handlerTimeout > 0 {
-		var ctx context.Context
-		ctx, cancel = context.WithTimeout(context.Background(), ws.handlerTimeout)
-		ws.L.SetContext(ctx)
-	}
-
-	err := ws.L.CallByParam(lua.P{
-		Fn:      fn,
-		NRet:    0,
-		Protect: true,
-	})
-
-	if cancel != nil {
-		cancel()
-		ws.L.SetContext(nil)
-	}
-
-	if err != nil {
-		ws.errors.Add(1)
-		ws.modCtx.logger.Error().Err(err).Msg("schedule handler error")
-	}
 }
 
 // callHandler invokes a single Lua handler with an optional execution timeout.

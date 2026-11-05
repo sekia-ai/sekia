@@ -94,7 +94,7 @@ func LoadConfig(cfgFile, instanceName string) (Config, error) {
 	// Config file is optional.
 	_ = v.ReadInConfig()
 
-	// Resolve any encrypted or referenced values (ENC[...], KMS[...], ASM[...]).
+	// Resolve any KMS[...] encrypted values.
 	if err := secrets.ResolveViperConfig(v); err != nil {
 		return Config{}, fmt.Errorf("resolve config secrets: %w", err)
 	}
