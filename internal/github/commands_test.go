@@ -68,7 +68,7 @@ func (m *mockGitHubClient) ListCommentsPage(_ context.Context, _, _ string, _ ti
 	return nil, 0, nil
 }
 
-func (m *mockGitHubClient) ListIssuesByLabelPage(_ context.Context, _, _ string, _ []string, _ string, _, _ int) ([]*gh.Issue, int, error) {
+func (m *mockGitHubClient) ListIssuesByLabelPage(_ context.Context, _, _ string, _ []string, _ string, _ time.Time, _, _ int) ([]*gh.Issue, int, error) {
 	return nil, 0, nil
 }
 

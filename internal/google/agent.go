@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -26,7 +27,9 @@ const (
 // and executes commands dispatched by workflows.
 type GoogleAgent struct {
 	cfg          Config
-	instanceName string // agent name for NATS registration and command subscription
+	cfgMu        sync.RWMutex // guards cfg, which config reload replaces
+	configName   string       // raw --name value, used to locate the config file on reload
+	instanceName string       // agent name for NATS registration and command subscription
 	gmailClient  GmailClient
 	agent        *agent.Agent
 	logger       zerolog.Logger
@@ -41,6 +44,7 @@ type GoogleAgent struct {
 // instanceName overrides the default agent name for NATS registration.
 // Pass "" to use the default ("google-agent").
 func NewAgent(cfg Config, instanceName string, logger zerolog.Logger) (*GoogleAgent, error) {
+	configName := instanceName
 	if instanceName == "" {
 		instanceName = defaultAgentName
 	}
@@ -55,6 +59,7 @@ func NewAgent(cfg Config, instanceName string, logger zerolog.Logger) (*GoogleAg
 
 	ga := &GoogleAgent{
 		cfg:          cfg,
+		configName:   configName,
 		instanceName: instanceName,
 		logger:       logger.With().Str("component", instanceName).Logger(),
 		stopCh:       make(chan struct{}),
@@ -206,26 +211,38 @@ func (ga *GoogleAgent) shutdown() error {
 	return nil
 }
 
-// reloadConfig re-reads the config file and applies safe-to-change settings.
+// commandSecret returns the current command signing secret.
+func (ga *GoogleAgent) commandSecret() string {
+	ga.cfgMu.RLock()
+	defer ga.cfgMu.RUnlock()
+	return ga.cfg.Security.CommandSecret
+}
+
+// reloadConfig re-reads the config file this instance was started with and
+// applies the settings that are safe to change at runtime. OAuth2 credentials
+// and the token path require a restart.
 func (ga *GoogleAgent) reloadConfig() {
 	ga.logger.Info().Msg("reloading google agent configuration")
 
-	newCfg, err := LoadConfig("", "")
+	ga.cfgMu.RLock()
+	cfgFile := ga.cfg.ConfigFile
+	ga.cfgMu.RUnlock()
+
+	newCfg, err := LoadConfig(cfgFile, ga.configName)
 	if err != nil {
 		ga.logger.Error().Err(err).Msg("failed to reload config")
 		return
 	}
 
-	// Apply settings that are safe to change at runtime.
-	// Note: OAuth2 credentials and tokens require a restart.
+	ga.cfgMu.Lock()
 	if ga.cfg.Gmail.PollInterval != newCfg.Gmail.PollInterval {
-		ga.logger.Info().Dur("interval", newCfg.Gmail.PollInterval).Msg("updated gmail poll interval (takes effect next cycle)")
+		ga.logger.Info().Dur("interval", newCfg.Gmail.PollInterval).Msg("updated gmail poll interval (takes effect after restart)")
 	}
 	ga.cfg.Gmail.PollInterval = newCfg.Gmail.PollInterval
 	ga.cfg.Gmail.Query = newCfg.Gmail.Query
 	ga.cfg.Gmail.MaxMessages = newCfg.Gmail.MaxMessages
-
 	ga.cfg.Security.CommandSecret = newCfg.Security.CommandSecret
+	ga.cfgMu.Unlock()
 
 	ga.logger.Info().Msg("google agent configuration reloaded")
 }
@@ -251,7 +268,7 @@ func (ga *GoogleAgent) handleCommand(msg *nats.Msg) {
 		return
 	}
 
-	if !protocol.VerifyCommand(&cmd, ga.cfg.Security.CommandSecret) {
+	if !protocol.VerifyCommand(&cmd, ga.commandSecret()) {
 		ga.agent.RecordError()
 		ga.logger.Warn().
 			Str("command", cmd.Command).

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 
 	"github.com/sekia-ai/sekia/internal/secrets"
@@ -18,6 +19,15 @@ type Config struct {
 	NATS      NATSConfig     `mapstructure:"nats"`
 	Workflows WorkflowConfig `mapstructure:"workflows"`
 	Security  SecurityConfig `mapstructure:"security"`
+	Log       LogConfig      `mapstructure:"log"`
+
+	// ConfigFile is the config file that was read, if any. Config reload re-reads it.
+	ConfigFile string `mapstructure:"-"`
+}
+
+// LogConfig holds logging settings.
+type LogConfig struct {
+	Level string `mapstructure:"level"` // zerolog level name: trace, debug, info, warn, error
 }
 
 // SecurityConfig holds application-level security settings.
@@ -63,6 +73,7 @@ func LoadConfig(cfgFile string) (Config, error) {
 	v.SetDefault("workflows.hot_reload", true)
 	v.SetDefault("workflows.handler_timeout", 30*time.Second)
 	v.SetDefault("workflows.verify_integrity", false)
+	v.SetDefault("log.level", "info")
 
 	v.SetConfigType("toml")
 
@@ -80,6 +91,7 @@ func LoadConfig(cfgFile string) (Config, error) {
 
 	v.BindEnv("nats.token", "SEKIA_NATS_TOKEN")
 	v.BindEnv("security.command_secret", "SEKIA_COMMAND_SECRET")
+	v.BindEnv("log.level", "SEKIA_LOG_LEVEL")
 
 	// Config file is optional.
 	_ = v.ReadInConfig()
@@ -92,6 +104,11 @@ func LoadConfig(cfgFile string) (Config, error) {
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
 		return cfg, err
+	}
+	cfg.ConfigFile = v.ConfigFileUsed()
+
+	if _, err := zerolog.ParseLevel(cfg.Log.Level); err != nil {
+		return cfg, fmt.Errorf("log.level %q is not a valid level", cfg.Log.Level)
 	}
 	return cfg, nil
 }

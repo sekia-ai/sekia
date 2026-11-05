@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 
 	"github.com/sekia-ai/sekia/internal/secrets"
@@ -18,6 +19,15 @@ type Config struct {
 	Google   GoogleConfig   `mapstructure:"google"`
 	Gmail    GmailConfig    `mapstructure:"gmail"`
 	Security SecurityConfig `mapstructure:"security"`
+	Log      LogConfig      `mapstructure:"log"`
+
+	// ConfigFile is the config file that was read, if any. Config reload re-reads it.
+	ConfigFile string `mapstructure:"-"`
+}
+
+// LogConfig holds logging settings.
+type LogConfig struct {
+	Level string `mapstructure:"level"` // zerolog level name: trace, debug, info, warn, error
 }
 
 // NATSConfig holds NATS connection settings.
@@ -60,6 +70,7 @@ func LoadConfig(cfgFile, instanceName string) (Config, error) {
 	v.SetDefault("gmail.poll_interval", "30s")
 	v.SetDefault("gmail.user_id", "me")
 	v.SetDefault("gmail.max_messages", 20)
+	v.SetDefault("log.level", "info")
 
 	v.SetConfigType("toml")
 
@@ -82,6 +93,7 @@ func LoadConfig(cfgFile, instanceName string) (Config, error) {
 	v.BindEnv("nats.url", "SEKIA_NATS_URL")
 	v.BindEnv("nats.token", "SEKIA_NATS_TOKEN")
 	v.BindEnv("security.command_secret", "SEKIA_COMMAND_SECRET")
+	v.BindEnv("log.level", "SEKIA_LOG_LEVEL")
 
 	_ = v.ReadInConfig() // config file is optional
 
@@ -93,6 +105,11 @@ func LoadConfig(cfgFile, instanceName string) (Config, error) {
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
 		return cfg, err
+	}
+	cfg.ConfigFile = v.ConfigFileUsed()
+
+	if _, err := zerolog.ParseLevel(cfg.Log.Level); err != nil {
+		return cfg, fmt.Errorf("log.level %q is not a valid level", cfg.Log.Level)
 	}
 
 	// Expand ~ in token_path (Go doesn't do this automatically).

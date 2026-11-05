@@ -3,6 +3,8 @@ package github
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -13,244 +15,679 @@ import (
 	"github.com/sekia-ai/sekia/pkg/protocol"
 )
 
-// pollMockClient is a thread-safe mock for polling tests.
-type pollMockClient struct {
-	mu       sync.Mutex
-	issues   []*gh.Issue
-	prs      []*gh.PullRequest
-	comments []*gh.IssueComment
-	issueErr error
-	prErr    error
-	calls    []mockCall
+// fakeGitHub is an in-memory GitHubClient for poller tests. List methods sort
+// by updated time descending, honor `since` where the real API does, and page
+// with the requested page size, so tests can assert on API call counts.
+type fakeGitHub struct {
+	mu sync.Mutex
+
+	labelIssues map[string][]*gh.Issue // label -> issues carrying it
+	prs         []*gh.PullRequest
+	issues      []*gh.Issue // time mode
+	comments    []*gh.IssueComment
+
+	err   error // returned by every list call while set
+	calls map[string]int
+	since []time.Time // since values received by ListIssuesByLabelPage
 }
 
-func (m *pollMockClient) AddLabels(_ context.Context, owner, repo string, number int, labels []string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.calls = append(m.calls, mockCall{"AddLabels", owner, repo, number, labels})
-	return nil
+func newFakeGitHub() *fakeGitHub {
+	return &fakeGitHub{labelIssues: map[string][]*gh.Issue{}, calls: map[string]int{}}
 }
 
-func (m *pollMockClient) RemoveLabel(_ context.Context, owner, repo string, number int, label string) error {
-	return nil
+func (f *fakeGitHub) count(method string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls[method]
 }
 
-func (m *pollMockClient) CreateComment(_ context.Context, owner, repo string, number int, body string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.calls = append(m.calls, mockCall{"CreateComment", owner, repo, number, []string{body}})
-	return nil
+func (f *fakeGitHub) resetCounts() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = map[string]int{}
+	f.since = nil
 }
 
-func (m *pollMockClient) EditIssueState(_ context.Context, _, _ string, _ int, _ string) error {
+func (f *fakeGitHub) record(method string) error {
+	f.calls[method]++
+	return f.err
+}
+
+func (f *fakeGitHub) AddLabels(context.Context, string, string, int, []string) error { return nil }
+func (f *fakeGitHub) RemoveLabel(context.Context, string, string, int, string) error { return nil }
+func (f *fakeGitHub) CreateComment(context.Context, string, string, int, string) error {
 	return nil
 }
-func (m *pollMockClient) ApprovePR(_ context.Context, _, _ string, _ int, _ string) error {
-	return nil
-}
-func (m *pollMockClient) AddToProject(_ context.Context, _, _ string, _ int, _ string, _ []ProjectField) (string, error) {
+func (f *fakeGitHub) EditIssueState(context.Context, string, string, int, string) error { return nil }
+func (f *fakeGitHub) ApprovePR(context.Context, string, string, int, string) error      { return nil }
+func (f *fakeGitHub) AddToProject(context.Context, string, string, int, string, []ProjectField) (string, error) {
 	return "", nil
 }
-func (m *pollMockClient) ListPRsByStatePage(_ context.Context, _, _ string, _ string, _ []string, _, _ int) ([]*gh.PullRequest, int, error) {
-	return nil, 0, nil
-}
 
-func (m *pollMockClient) ListIssuesPage(_ context.Context, _, _ string, _ time.Time, _, _ int) ([]*gh.Issue, int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.issueErr != nil {
-		return nil, 0, m.issueErr
+func (f *fakeGitHub) ListIssuesByLabelPage(_ context.Context, _, _ string, labels []string, _ string, since time.Time, page, perPage int) ([]*gh.Issue, int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.record("ListIssuesByLabelPage"); err != nil {
+		return nil, 0, err
 	}
-	issues := m.issues
-	m.issues = nil
-	return issues, 0, nil
-}
-
-func (m *pollMockClient) ListPRsPage(_ context.Context, _, _ string, _ time.Time, _, _ int) ([]*gh.PullRequest, int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.prErr != nil {
-		return nil, 0, m.prErr
+	f.since = append(f.since, since)
+	var all []*gh.Issue
+	for _, is := range f.labelIssues[labels[0]] {
+		if since.IsZero() || !is.GetUpdatedAt().Time.Before(since) {
+			all = append(all, is)
+		}
 	}
-	prs := m.prs
-	m.prs = nil
-	return prs, 0, nil
+	sort.Slice(all, func(i, j int) bool { return all[i].GetUpdatedAt().Time.After(all[j].GetUpdatedAt().Time) })
+	return pageOf(all, page, perPage)
 }
 
-func (m *pollMockClient) ListCommentsPage(_ context.Context, _, _ string, _ time.Time, _, _ int) ([]*gh.IssueComment, int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	comments := m.comments
-	m.comments = nil
-	return comments, 0, nil
+func (f *fakeGitHub) ListPRsByStatePage(_ context.Context, _, _ string, _ string, _ []string, page, perPage int) ([]*gh.PullRequest, int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.record("ListPRsByStatePage"); err != nil {
+		return nil, 0, err
+	}
+	all := append([]*gh.PullRequest(nil), f.prs...)
+	sort.Slice(all, func(i, j int) bool { return all[i].GetUpdatedAt().Time.After(all[j].GetUpdatedAt().Time) })
+	return pageOf(all, page, perPage)
 }
 
-func (m *pollMockClient) ListIssuesByLabelPage(_ context.Context, _, _ string, _ []string, _ string, _, _ int) ([]*gh.Issue, int, error) {
-	return nil, 0, nil
+func (f *fakeGitHub) ListIssuesPage(_ context.Context, _, _ string, since time.Time, page, perPage int) ([]*gh.Issue, int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.record("ListIssuesPage"); err != nil {
+		return nil, 0, err
+	}
+	var all []*gh.Issue
+	for _, is := range f.issues {
+		if !is.GetUpdatedAt().Time.Before(since) {
+			all = append(all, is)
+		}
+	}
+	return pageOf(all, page, perPage)
 }
 
-func TestPollerNewIssue(t *testing.T) {
-	now := time.Now()
-	created := gh.Timestamp{Time: now}
-	mock := &pollMockClient{
-		issues: []*gh.Issue{{
-			Number:    gh.Ptr(1),
-			Title:     gh.Ptr("New"),
-			Body:      gh.Ptr(""),
-			State:     gh.Ptr("open"),
-			HTMLURL:   gh.Ptr("https://github.com/o/r/issues/1"),
-			User:      &gh.User{Login: gh.Ptr("alice")},
-			CreatedAt: &created,
-		}},
+func (f *fakeGitHub) ListPRsPage(_ context.Context, _, _ string, since time.Time, page, perPage int) ([]*gh.PullRequest, int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.record("ListPRsPage"); err != nil {
+		return nil, 0, err
+	}
+	var all []*gh.PullRequest
+	for _, pr := range f.prs {
+		if !pr.GetUpdatedAt().Time.Before(since) {
+			all = append(all, pr)
+		}
+	}
+	return pageOf(all, page, perPage)
+}
+
+func (f *fakeGitHub) ListCommentsPage(_ context.Context, _, _ string, since time.Time, page, perPage int) ([]*gh.IssueComment, int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.record("ListCommentsPage"); err != nil {
+		return nil, 0, err
+	}
+	var all []*gh.IssueComment
+	for _, c := range f.comments {
+		if !c.GetUpdatedAt().Time.Before(since) {
+			all = append(all, c)
+		}
+	}
+	return pageOf(all, page, perPage)
+}
+
+// pageOf slices items for a 1-based page and reports the next page (0 = none).
+func pageOf[T any](items []T, page, perPage int) ([]T, int, error) {
+	start := (page - 1) * perPage
+	if start >= len(items) {
+		return nil, 0, nil
+	}
+	end := start + perPage
+	next := page + 1
+	if end >= len(items) {
+		end = len(items)
+		next = 0
+	}
+	return items[start:end], next, nil
+}
+
+// --- Fixtures ---
+
+var t0 = time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+
+func issueAt(num int, updated time.Time, labels ...string) *gh.Issue {
+	is := &gh.Issue{
+		Number:    gh.Ptr(num),
+		Title:     gh.Ptr(fmt.Sprintf("Issue %d", num)),
+		Body:      gh.Ptr(""),
+		State:     gh.Ptr("open"),
+		HTMLURL:   gh.Ptr(fmt.Sprintf("https://github.com/o/r/issues/%d", num)),
+		User:      &gh.User{Login: gh.Ptr("alice")},
+		CreatedAt: &gh.Timestamp{Time: updated.Add(-time.Hour)},
+		UpdatedAt: &gh.Timestamp{Time: updated},
+	}
+	for _, l := range labels {
+		is.Labels = append(is.Labels, &gh.Label{Name: gh.Ptr(l)})
+	}
+	return is
+}
+
+func prAt(num int, updated time.Time) *gh.PullRequest {
+	return &gh.PullRequest{
+		Number:    gh.Ptr(num),
+		Title:     gh.Ptr(fmt.Sprintf("PR %d", num)),
+		Body:      gh.Ptr(""),
+		State:     gh.Ptr("open"),
+		HTMLURL:   gh.Ptr(fmt.Sprintf("https://github.com/o/r/pull/%d", num)),
+		User:      &gh.User{Login: gh.Ptr("thien")},
+		Head:      &gh.PullRequestBranch{Ref: gh.Ptr("feature")},
+		Base:      &gh.PullRequestBranch{Ref: gh.Ptr("main")},
+		CreatedAt: &gh.Timestamp{Time: updated.Add(-time.Hour)},
+		UpdatedAt: &gh.Timestamp{Time: updated},
+	}
+}
+
+// recorder collects emitted events.
+type recorder struct {
+	mu     sync.Mutex
+	events []protocol.Event
+}
+
+func (r *recorder) onEvent(ev protocol.Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, ev)
+}
+
+func (r *recorder) take() []protocol.Event {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	evs := r.events
+	r.events = nil
+	return evs
+}
+
+func numbersOf(evs []protocol.Event) []int {
+	nums := make([]int, 0, len(evs))
+	for _, ev := range evs {
+		nums = append(nums, ev.Payload["number"].(int))
+	}
+	sort.Ints(nums)
+	return nums
+}
+
+func newTestPoller(client GitHubClient, rec *recorder, cfg PollerConfig) *Poller {
+	cfg.Client = client
+	cfg.OnEvent = rec.onEvent
+	cfg.Logger = zerolog.Nop()
+	if cfg.Interval == 0 {
+		cfg.Interval = 10 * time.Second
+	}
+	if len(cfg.Repos) == 0 {
+		cfg.Repos = []RepoRef{{Owner: "o", Repo: "r"}}
+	}
+	if cfg.State == "" {
+		cfg.State = "open"
+	}
+	p := NewPoller(cfg)
+	p.now = func() time.Time { return t0 }
+	return p
+}
+
+// --- Label mode ---
+
+func TestLabelModeSweepThenIncremental(t *testing.T) {
+	fake := newFakeGitHub()
+	// Label "a": 250 issues (3 pages). Label "b": 50 issues, 20 of them also carry "a".
+	for n := 1; n <= 250; n++ {
+		fake.labelIssues["a"] = append(fake.labelIssues["a"], issueAt(n, t0.Add(-time.Duration(n)*time.Minute), "a"))
+	}
+	for n := 231; n <= 280; n++ {
+		fake.labelIssues["b"] = append(fake.labelIssues["b"], issueAt(n, t0.Add(-time.Duration(n)*time.Minute), "b"))
+	}
+	// A PR shows up in the issues list and must be skipped.
+	pr := issueAt(999, t0.Add(-time.Second), "a")
+	pr.PullRequestLinks = &gh.PullRequestLinks{}
+	fake.labelIssues["a"] = append(fake.labelIssues["a"], pr)
+
+	rec := &recorder{}
+	p := newTestPoller(fake, rec, PollerConfig{Labels: []string{"a", "b"}})
+	ctx := context.Background()
+
+	// Tick 1: full sweep, every issue once, PR skipped.
+	p.tick(ctx)
+	evs := rec.take()
+	if len(evs) != 280 {
+		t.Fatalf("sweep emitted %d events, want 280", len(evs))
+	}
+	for _, ev := range evs {
+		if ev.Type != "github.issue.matched" {
+			t.Fatalf("event type %q", ev.Type)
+		}
+		if ev.Payload["sweep"] != true {
+			t.Fatalf("sweep flag = %v during sweep", ev.Payload["sweep"])
+		}
+		if ev.Payload["number"].(int) == 999 {
+			t.Fatal("PR row was emitted as an issue")
+		}
+	}
+	if got := fake.count("ListIssuesByLabelPage"); got != 4 {
+		t.Errorf("sweep made %d label calls, want 4 (3 pages + 1 page)", got)
+	}
+	if !p.watermark.Equal(t0.Add(-time.Minute)) {
+		t.Errorf("watermark = %v, want newest updated_at %v", p.watermark, t0.Add(-time.Minute))
 	}
 
-	var events []protocol.Event
-	var mu sync.Mutex
-	onEvent := func(ev protocol.Event) {
-		mu.Lock()
-		events = append(events, ev)
-		mu.Unlock()
+	// Tick 2: nothing changed, one call per label, nothing emitted.
+	fake.resetCounts()
+	p.tick(ctx)
+	if evs := rec.take(); len(evs) != 0 {
+		t.Fatalf("incremental tick emitted %d events, want 0", len(evs))
+	}
+	if got := fake.count("ListIssuesByLabelPage"); got != 2 {
+		t.Errorf("incremental tick made %d calls, want 2", got)
+	}
+	for _, s := range fake.since {
+		if s.IsZero() || s.After(p.watermark) {
+			t.Errorf("since %v not within watermark %v", s, p.watermark)
+		}
 	}
 
-	p := NewPoller(PollerConfig{Client: mock, Interval: time.Hour, PerTick: 100, Repos: []RepoRef{{Owner: "o", Repo: "r"}}, OnEvent: onEvent, Logger: zerolog.Nop()})
-	p.lastSyncTime = now.Add(-1 * time.Minute)
+	// Tick 3: issue 5 was updated; only it is emitted, without the sweep flag.
+	fake.mu.Lock()
+	fake.labelIssues["a"][4].UpdatedAt = &gh.Timestamp{Time: t0.Add(time.Minute)}
+	fake.mu.Unlock()
+	p.tick(ctx)
+	evs = rec.take()
+	if got := numbersOf(evs); len(got) != 1 || got[0] != 5 {
+		t.Fatalf("after update emitted %v, want [5]", got)
+	}
+	if evs[0].Payload["sweep"] != false {
+		t.Errorf("sweep flag = %v on incremental emission", evs[0].Payload["sweep"])
+	}
+	if !p.watermark.Equal(t0.Add(time.Minute)) {
+		t.Errorf("watermark = %v, want %v", p.watermark, t0.Add(time.Minute))
+	}
+}
 
+func TestLabelModeORSemantics(t *testing.T) {
+	fake := newFakeGitHub()
+	fake.labelIssues["bug"] = []*gh.Issue{issueAt(1, t0, "bug")}
+	fake.labelIssues["urgent"] = []*gh.Issue{issueAt(2, t0, "urgent")}
+	rec := &recorder{}
+	p := newTestPoller(fake, rec, PollerConfig{Labels: []string{"bug", "urgent"}})
+	p.tick(context.Background())
+	if got := numbersOf(rec.take()); fmt.Sprint(got) != "[1 2]" {
+		t.Fatalf("emitted %v, want [1 2]", got)
+	}
+}
+
+// --- PR-match mode ---
+
+func TestPRMatchModeStopsAtWatermark(t *testing.T) {
+	fake := newFakeGitHub()
+	for n := 1; n <= 150; n++ {
+		fake.prs = append(fake.prs, prAt(n, t0.Add(-time.Duration(n)*time.Minute)))
+	}
+	rec := &recorder{}
+	p := newTestPoller(fake, rec, PollerConfig{MatchPRs: true})
+	ctx := context.Background()
+
+	p.tick(ctx)
+	evs := rec.take()
+	if len(evs) != 150 || evs[0].Type != "github.pr.matched" {
+		t.Fatalf("sweep emitted %d %s events, want 150 github.pr.matched", len(evs), evs[0].Type)
+	}
+	if got := fake.count("ListPRsByStatePage"); got != 2 {
+		t.Errorf("sweep made %d calls, want 2", got)
+	}
+
+	// The PR list API has no since filter: the poller must stop after the
+	// first page once it sees an item older than the watermark.
+	fake.resetCounts()
+	p.tick(ctx)
+	if evs := rec.take(); len(evs) != 0 {
+		t.Fatalf("incremental tick emitted %d events, want 0", len(evs))
+	}
+	if got := fake.count("ListPRsByStatePage"); got != 1 {
+		t.Errorf("incremental tick made %d calls, want 1", got)
+	}
+
+	// New commits on PR 3 bump its updated time: emitted again.
+	fake.mu.Lock()
+	fake.prs[2].UpdatedAt = &gh.Timestamp{Time: t0.Add(time.Minute)}
+	fake.mu.Unlock()
+	p.tick(ctx)
+	if got := numbersOf(rec.take()); fmt.Sprint(got) != "[3]" {
+		t.Fatalf("after update emitted %v, want [3]", got)
+	}
+
+	// A brand new PR is emitted on the next tick.
+	fake.mu.Lock()
+	fake.prs = append(fake.prs, prAt(151, t0.Add(2*time.Minute)))
+	fake.mu.Unlock()
+	p.tick(ctx)
+	if got := numbersOf(rec.take()); fmt.Sprint(got) != "[151]" {
+		t.Fatalf("new PR emitted %v, want [151]", got)
+	}
+}
+
+// --- Sweeps ---
+
+func TestSweepIntervalRepeatsSweep(t *testing.T) {
+	fake := newFakeGitHub()
+	fake.labelIssues["a"] = []*gh.Issue{issueAt(1, t0.Add(-time.Minute), "a"), issueAt(2, t0.Add(-2*time.Minute), "a")}
+	rec := &recorder{}
+	p := newTestPoller(fake, rec, PollerConfig{Labels: []string{"a"}, SweepInterval: time.Hour})
+	ctx := context.Background()
+
+	now := t0
+	p.now = func() time.Time { return now }
+
+	p.tick(ctx) // startup sweep
+	if len(rec.take()) != 2 {
+		t.Fatal("startup sweep did not emit both issues")
+	}
+
+	now = t0.Add(10 * time.Second)
+	p.tick(ctx) // incremental: nothing changed
+	if len(rec.take()) != 0 {
+		t.Fatal("incremental tick re-emitted unchanged issues")
+	}
+
+	now = t0.Add(time.Hour + time.Second)
+	p.tick(ctx) // periodic sweep
+	evs := rec.take()
+	if len(evs) != 2 {
+		t.Fatalf("periodic sweep emitted %d events, want 2", len(evs))
+	}
+	if evs[0].Payload["sweep"] != true {
+		t.Error("periodic sweep did not set the sweep flag")
+	}
+	if !p.lastSweep.Equal(now) {
+		t.Errorf("lastSweep = %v, want %v", p.lastSweep, now)
+	}
+}
+
+func TestSweepIntervalZeroDisablesPeriodicSweep(t *testing.T) {
+	fake := newFakeGitHub()
+	fake.labelIssues["a"] = []*gh.Issue{issueAt(1, t0.Add(-time.Minute), "a")}
+	rec := &recorder{}
+	p := newTestPoller(fake, rec, PollerConfig{Labels: []string{"a"}, SweepInterval: 0})
+	now := t0
+	p.now = func() time.Time { return now }
+	ctx := context.Background()
+
+	p.tick(ctx)
+	rec.take()
+	now = t0.Add(48 * time.Hour)
+	p.tick(ctx)
+	if evs := rec.take(); len(evs) != 0 {
+		t.Fatalf("sweep ran with sweep_interval 0: %d events", len(evs))
+	}
+}
+
+// --- Errors and backoff ---
+
+func TestErrorKeepsWatermarkAndBacksOff(t *testing.T) {
+	fake := newFakeGitHub()
+	fake.labelIssues["a"] = []*gh.Issue{issueAt(1, t0.Add(-time.Minute), "a")}
+	rec := &recorder{}
+	p := newTestPoller(fake, rec, PollerConfig{Labels: []string{"a"}, Interval: 10 * time.Second})
+	now := t0
+	p.now = func() time.Time { return now }
+	ctx := context.Background()
+
+	p.tick(ctx)
+	rec.take()
+	wm := p.watermark
+
+	// Tick 2 fails: watermark unchanged, backoff scheduled (2 * interval).
+	fake.mu.Lock()
+	fake.err = errors.New("boom")
+	fake.mu.Unlock()
+	now = t0.Add(10 * time.Second)
+	p.tick(ctx)
+	if !p.watermark.Equal(wm) {
+		t.Errorf("watermark moved on error: %v -> %v", wm, p.watermark)
+	}
+	if want := now.Add(20 * time.Second); !p.backoffUntil.Equal(want) {
+		t.Errorf("backoffUntil = %v, want %v", p.backoffUntil, want)
+	}
+
+	// Tick 3 inside the backoff window: no API call at all.
+	fake.resetCounts()
+	now = t0.Add(20 * time.Second)
+	p.tick(ctx)
+	if got := fake.count("ListIssuesByLabelPage"); got != 0 {
+		t.Errorf("tick during backoff made %d calls, want 0", got)
+	}
+
+	// Second consecutive failure doubles the wait.
+	now = t0.Add(31 * time.Second)
+	p.tick(ctx)
+	if want := now.Add(40 * time.Second); !p.backoffUntil.Equal(want) {
+		t.Errorf("backoffUntil after 2 failures = %v, want %v", p.backoffUntil, want)
+	}
+
+	// Recovery: the next successful tick resets the failure count and emits changes.
+	fake.mu.Lock()
+	fake.err = nil
+	fake.labelIssues["a"][0].UpdatedAt = &gh.Timestamp{Time: t0.Add(time.Minute)}
+	fake.mu.Unlock()
+	now = t0.Add(2 * time.Minute)
+	p.tick(ctx)
+	if got := numbersOf(rec.take()); fmt.Sprint(got) != "[1]" {
+		t.Fatalf("after recovery emitted %v, want [1]", got)
+	}
+	if p.failures != 0 {
+		t.Errorf("failures = %d after success, want 0", p.failures)
+	}
+}
+
+func TestRateLimitErrorWaitsForReset(t *testing.T) {
+	fake := newFakeGitHub()
+	rec := &recorder{}
+	p := newTestPoller(fake, rec, PollerConfig{Labels: []string{"a"}})
+	reset := t0.Add(7 * time.Minute)
+	fake.err = &gh.RateLimitError{Rate: gh.Rate{Reset: gh.Timestamp{Time: reset}}, Message: "rate limited"}
+
+	p.tick(context.Background())
+	if want := reset.Add(time.Second); !p.backoffUntil.Equal(want) {
+		t.Errorf("backoffUntil = %v, want reset+1s %v", p.backoffUntil, want)
+	}
+}
+
+func TestAbuseRateLimitHonorsRetryAfter(t *testing.T) {
+	fake := newFakeGitHub()
+	rec := &recorder{}
+	p := newTestPoller(fake, rec, PollerConfig{Labels: []string{"a"}})
+	retry := 90 * time.Second
+	fake.err = &gh.AbuseRateLimitError{RetryAfter: &retry, Message: "slow down"}
+
+	p.tick(context.Background())
+	if want := t0.Add(retry); !p.backoffUntil.Equal(want) {
+		t.Errorf("backoffUntil = %v, want %v", p.backoffUntil, want)
+	}
+}
+
+func TestBackoffIsCapped(t *testing.T) {
+	fake := newFakeGitHub()
+	rec := &recorder{}
+	p := newTestPoller(fake, rec, PollerConfig{Labels: []string{"a"}, Interval: 10 * time.Minute})
+	fake.err = errors.New("down")
+	now := t0
+	p.now = func() time.Time { return now }
+	for i := 0; i < 6; i++ {
+		now = p.backoffUntil.Add(time.Second)
+		p.tick(context.Background())
+	}
+	if got := p.backoffUntil.Sub(now); got != maxBackoff {
+		t.Errorf("backoff after repeated failures = %v, want cap %v", got, maxBackoff)
+	}
+}
+
+// --- Config reload ---
+
+func TestUpdateChangesSettingsAndForcesSweep(t *testing.T) {
+	fake := newFakeGitHub()
+	fake.labelIssues["a"] = []*gh.Issue{issueAt(1, t0.Add(-time.Minute), "a")}
+	fake.labelIssues["b"] = []*gh.Issue{issueAt(2, t0.Add(-time.Minute), "b")}
+	rec := &recorder{}
+	p := newTestPoller(fake, rec, PollerConfig{Labels: []string{"a"}, Interval: 10 * time.Second})
+	ctx := context.Background()
+
+	p.tick(ctx)
+	if got := numbersOf(rec.take()); fmt.Sprint(got) != "[1]" {
+		t.Fatalf("initial sweep emitted %v, want [1]", got)
+	}
+
+	p.Update(PollerConfig{
+		Interval: 20 * time.Second, SweepInterval: time.Hour,
+		Repos: []RepoRef{{Owner: "o", Repo: "r"}}, Labels: []string{"b"}, State: "open",
+	})
+	select {
+	case d := <-p.intervalCh:
+		if d != 20*time.Second {
+			t.Errorf("interval signal = %v, want 20s", d)
+		}
+	default:
+		t.Error("interval change did not signal Run")
+	}
+	if !p.watermark.IsZero() {
+		t.Error("label change did not reset the watermark")
+	}
+
+	p.tick(ctx)
+	evs := rec.take()
+	if got := numbersOf(evs); fmt.Sprint(got) != "[2]" {
+		t.Fatalf("after label change emitted %v, want [2]", got)
+	}
+	if evs[0].Payload["sweep"] != true {
+		t.Error("tick after settings change was not a sweep")
+	}
+}
+
+func TestUpdateSameSettingsKeepsWatermark(t *testing.T) {
+	fake := newFakeGitHub()
+	fake.labelIssues["a"] = []*gh.Issue{issueAt(1, t0.Add(-time.Minute), "a")}
+	rec := &recorder{}
+	cfg := PollerConfig{Labels: []string{"a"}, Interval: 10 * time.Second, Repos: []RepoRef{{Owner: "o", Repo: "r"}}, State: "open"}
+	p := newTestPoller(fake, rec, cfg)
+	p.tick(context.Background())
+	rec.take()
+	wm := p.watermark
+
+	p.Update(cfg)
+	if !p.watermark.Equal(wm) {
+		t.Error("identical settings reset the watermark")
+	}
+	select {
+	case <-p.intervalCh:
+		t.Error("unchanged interval signalled Run")
+	default:
+	}
+}
+
+// --- Time mode ---
+
+func TestTimeModeEmitsOpenedUpdatedAndComments(t *testing.T) {
+	fake := newFakeGitHub()
+	since := t0.Add(-5 * time.Minute)
+
+	opened := issueAt(10, t0.Add(-time.Minute))
+	opened.CreatedAt = &gh.Timestamp{Time: t0.Add(-2 * time.Minute)} // created after since
+	updated := issueAt(11, t0.Add(-time.Minute))
+	updated.CreatedAt = &gh.Timestamp{Time: t0.Add(-24 * time.Hour)} // created before since
+	old := issueAt(12, t0.Add(-time.Hour))                           // not updated since the watermark
+	prRow := issueAt(13, t0.Add(-time.Minute))
+	prRow.PullRequestLinks = &gh.PullRequestLinks{}
+	fake.issues = []*gh.Issue{opened, updated, old, prRow}
+
+	newPR := prAt(20, t0.Add(-time.Minute))
+	newPR.CreatedAt = &gh.Timestamp{Time: t0.Add(-time.Minute)}
+	fake.prs = []*gh.PullRequest{newPR}
+
+	fake.comments = []*gh.IssueComment{{
+		ID:        gh.Ptr(int64(1)),
+		Body:      gh.Ptr("hello"),
+		User:      &gh.User{Login: gh.Ptr("bob")},
+		UpdatedAt: &gh.Timestamp{Time: t0.Add(-time.Minute)},
+		IssueURL:  gh.Ptr("https://api.github.com/repos/o/r/issues/10"),
+	}}
+
+	rec := &recorder{}
+	p := newTestPoller(fake, rec, PollerConfig{})
+	p.lastSync = since
+
+	p.tick(context.Background())
+	evs := rec.take()
+	types := map[string]int{}
+	for _, ev := range evs {
+		types[ev.Type]++
+	}
+	want := map[string]int{"github.issue.opened": 1, "github.issue.updated": 1, "github.pr.opened": 1, "github.comment.created": 1}
+	for k, v := range want {
+		if types[k] != v {
+			t.Errorf("%s: got %d, want %d (all: %v)", k, types[k], v, types)
+		}
+	}
+	if len(evs) != 4 {
+		t.Errorf("emitted %d events, want 4: %v", len(evs), types)
+	}
+	if !p.lastSync.Equal(t0) {
+		t.Errorf("lastSync = %v, want tick time %v", p.lastSync, t0)
+	}
+
+	// Error keeps lastSync.
+	fake.mu.Lock()
+	fake.err = errors.New("boom")
+	fake.mu.Unlock()
+	p.now = func() time.Time { return t0.Add(time.Minute) }
+	p.tick(context.Background())
+	if !p.lastSync.Equal(t0) {
+		t.Errorf("lastSync moved on error: %v", p.lastSync)
+	}
+}
+
+func TestTimeModeMultipleRepos(t *testing.T) {
+	fake := newFakeGitHub()
+	fake.issues = []*gh.Issue{issueAt(1, t0.Add(-time.Minute))}
+	rec := &recorder{}
+	p := newTestPoller(fake, rec, PollerConfig{Repos: []RepoRef{{Owner: "a", Repo: "x"}, {Owner: "b", Repo: "y"}}})
+	p.lastSync = t0.Add(-5 * time.Minute)
+	p.tick(context.Background())
+	evs := rec.take()
+	if len(evs) != 2 {
+		t.Fatalf("emitted %d events for 2 repos, want 2", len(evs))
+	}
+	owners := map[string]bool{}
+	for _, ev := range evs {
+		owners[ev.Payload["owner"].(string)] = true
+	}
+	if !owners["a"] || !owners["b"] {
+		t.Errorf("owners = %v, want a and b", owners)
+	}
+}
+
+// --- Misc ---
+
+func TestRunStopsOnContextCancel(t *testing.T) {
+	fake := newFakeGitHub()
+	rec := &recorder{}
+	p := newTestPoller(fake, rec, PollerConfig{Labels: []string{"a"}, Interval: time.Hour})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- p.Run(ctx) }()
-
-	// Wait for initial poll.
-	time.Sleep(200 * time.Millisecond)
 	cancel()
-	<-done
-
-	mu.Lock()
-	defer mu.Unlock()
-	if len(events) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(events))
-	}
-	if events[0].Type != "github.issue.opened" {
-		t.Errorf("got type %q, want github.issue.opened", events[0].Type)
-	}
-}
-
-func TestPollerSkipsPRsFromIssuesList(t *testing.T) {
-	now := time.Now()
-	created := gh.Timestamp{Time: now}
-	mock := &pollMockClient{
-		issues: []*gh.Issue{{
-			Number:           gh.Ptr(2),
-			Title:            gh.Ptr("PR as issue"),
-			Body:             gh.Ptr(""),
-			State:            gh.Ptr("open"),
-			HTMLURL:          gh.Ptr("https://github.com/o/r/pull/2"),
-			User:             &gh.User{Login: gh.Ptr("bob")},
-			CreatedAt:        &created,
-			PullRequestLinks: &gh.PullRequestLinks{URL: gh.Ptr("https://api.github.com/repos/o/r/pulls/2")},
-		}},
-	}
-
-	var events []protocol.Event
-	onEvent := func(ev protocol.Event) { events = append(events, ev) }
-
-	p := NewPoller(PollerConfig{Client: mock, Interval: time.Hour, PerTick: 100, Repos: []RepoRef{{Owner: "o", Repo: "r"}}, OnEvent: onEvent, Logger: zerolog.Nop()})
-	p.lastSyncTime = now.Add(-1 * time.Minute)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- p.Run(ctx) }()
-
-	time.Sleep(200 * time.Millisecond)
-	cancel()
-	<-done
-
-	if len(events) != 0 {
-		t.Errorf("expected 0 events (PR should be skipped), got %d", len(events))
-	}
-}
-
-func TestPollerMultipleRepos(t *testing.T) {
-	now := time.Now()
-	created := gh.Timestamp{Time: now}
-
-	// The mock returns issues once (first repo gets them, second gets nil).
-	// We just verify the poll completes without errors.
-	mock := &pollMockClient{
-		issues: []*gh.Issue{{
-			Number:    gh.Ptr(1),
-			Title:     gh.Ptr("Issue"),
-			Body:      gh.Ptr(""),
-			State:     gh.Ptr("open"),
-			HTMLURL:   gh.Ptr("https://github.com/a/b/issues/1"),
-			User:      &gh.User{Login: gh.Ptr("alice")},
-			CreatedAt: &created,
-		}},
-	}
-
-	var events []protocol.Event
-	var mu sync.Mutex
-	onEvent := func(ev protocol.Event) {
-		mu.Lock()
-		events = append(events, ev)
-		mu.Unlock()
-	}
-
-	repos := []RepoRef{{Owner: "a", Repo: "b"}, {Owner: "c", Repo: "d"}}
-	p := NewPoller(PollerConfig{Client: mock, Interval: time.Hour, PerTick: 100, Repos: repos, OnEvent: onEvent, Logger: zerolog.Nop()})
-	p.lastSyncTime = now.Add(-1 * time.Minute)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- p.Run(ctx) }()
-
-	time.Sleep(200 * time.Millisecond)
-	cancel()
-	<-done
-
-	mu.Lock()
-	defer mu.Unlock()
-	if len(events) != 1 {
-		t.Errorf("expected 1 event, got %d", len(events))
-	}
-}
-
-func TestPollerAPIErrorNoAdvance(t *testing.T) {
-	mock := &pollMockClient{
-		issueErr: errors.New("rate limited"),
-	}
-
-	p := NewPoller(PollerConfig{Client: mock, Interval: time.Hour, PerTick: 100, Repos: []RepoRef{{Owner: "o", Repo: "r"}}, OnEvent: func(protocol.Event) {}, Logger: zerolog.Nop()})
-	original := p.lastSyncTime
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- p.Run(ctx) }()
-
-	time.Sleep(200 * time.Millisecond)
-	cancel()
-	<-done
-
-	if !p.lastSyncTime.Equal(original) {
-		t.Errorf("lastSyncTime should not advance on error; was %v, now %v", original, p.lastSyncTime)
-	}
-}
-
-func TestPollerLastSyncTimeAdvances(t *testing.T) {
-	mock := &pollMockClient{} // no issues, no errors
-
-	p := NewPoller(PollerConfig{Client: mock, Interval: time.Hour, PerTick: 100, Repos: []RepoRef{{Owner: "o", Repo: "r"}}, OnEvent: func(protocol.Event) {}, Logger: zerolog.Nop()})
-	original := p.lastSyncTime
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- p.Run(ctx) }()
-
-	time.Sleep(200 * time.Millisecond)
-	cancel()
-	<-done
-
-	if !p.lastSyncTime.After(original) {
-		t.Errorf("lastSyncTime should advance on success; was %v, now %v", original, p.lastSyncTime)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run returned %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after cancel")
 	}
 }
 
@@ -285,701 +722,5 @@ func TestParseRepos(t *testing.T) {
 				t.Errorf("got %d refs, want %d", len(refs), tt.wantN)
 			}
 		})
-	}
-}
-
-// --- Cursor / per_tick tests ---
-
-// paginatingMockClient supports multi-page responses for cursor tests.
-type paginatingMockClient struct {
-	mu sync.Mutex
-	// issuePages[page] returns (issues, nextPage). Pages are 1-based.
-	issuePages map[int]struct {
-		issues   []*gh.Issue
-		nextPage int
-	}
-	prPages map[int]struct {
-		prs      []*gh.PullRequest
-		nextPage int
-	}
-	commentPages map[int]struct {
-		comments []*gh.IssueComment
-		nextPage int
-	}
-	issueErr error
-}
-
-func (m *paginatingMockClient) AddLabels(_ context.Context, _, _ string, _ int, _ []string) error {
-	return nil
-}
-func (m *paginatingMockClient) RemoveLabel(_ context.Context, _, _ string, _ int, _ string) error {
-	return nil
-}
-func (m *paginatingMockClient) CreateComment(_ context.Context, _, _ string, _ int, _ string) error {
-	return nil
-}
-func (m *paginatingMockClient) EditIssueState(_ context.Context, _, _ string, _ int, _ string) error {
-	return nil
-}
-func (m *paginatingMockClient) ApprovePR(_ context.Context, _, _ string, _ int, _ string) error {
-	return nil
-}
-func (m *paginatingMockClient) AddToProject(_ context.Context, _, _ string, _ int, _ string, _ []ProjectField) (string, error) {
-	return "", nil
-}
-func (m *paginatingMockClient) ListPRsByStatePage(_ context.Context, _, _ string, _ string, _ []string, _, _ int) ([]*gh.PullRequest, int, error) {
-	return nil, 0, nil
-}
-
-func (m *paginatingMockClient) ListIssuesPage(_ context.Context, _, _ string, _ time.Time, page, _ int) ([]*gh.Issue, int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.issueErr != nil {
-		return nil, 0, m.issueErr
-	}
-	if p, ok := m.issuePages[page]; ok {
-		return p.issues, p.nextPage, nil
-	}
-	return nil, 0, nil
-}
-
-func (m *paginatingMockClient) ListPRsPage(_ context.Context, _, _ string, _ time.Time, page, _ int) ([]*gh.PullRequest, int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if p, ok := m.prPages[page]; ok {
-		return p.prs, p.nextPage, nil
-	}
-	return nil, 0, nil
-}
-
-func (m *paginatingMockClient) ListCommentsPage(_ context.Context, _, _ string, _ time.Time, page, _ int) ([]*gh.IssueComment, int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if p, ok := m.commentPages[page]; ok {
-		return p.comments, p.nextPage, nil
-	}
-	return nil, 0, nil
-}
-
-func (m *paginatingMockClient) ListIssuesByLabelPage(_ context.Context, _, _ string, _ []string, _ string, _, _ int) ([]*gh.Issue, int, error) {
-	return nil, 0, nil
-}
-
-func makeIssue(num int, created time.Time) *gh.Issue {
-	ts := gh.Timestamp{Time: created}
-	return &gh.Issue{
-		Number:    gh.Ptr(num),
-		Title:     gh.Ptr("Issue"),
-		Body:      gh.Ptr(""),
-		State:     gh.Ptr("open"),
-		HTMLURL:   gh.Ptr("https://github.com/o/r/issues/1"),
-		User:      &gh.User{Login: gh.Ptr("alice")},
-		CreatedAt: &ts,
-	}
-}
-
-func TestPollerPerTickBound(t *testing.T) {
-	now := time.Now()
-
-	// 5 issues across 3 pages: page1=[#1,#2], page2=[#3,#4], page3=[#5]
-	mock := &paginatingMockClient{
-		issuePages: map[int]struct {
-			issues   []*gh.Issue
-			nextPage int
-		}{
-			1: {issues: []*gh.Issue{makeIssue(1, now), makeIssue(2, now)}, nextPage: 2},
-			2: {issues: []*gh.Issue{makeIssue(3, now), makeIssue(4, now)}, nextPage: 3},
-			3: {issues: []*gh.Issue{makeIssue(5, now)}, nextPage: 0},
-		},
-	}
-
-	var mu sync.Mutex
-	var events []protocol.Event
-	onEvent := func(ev protocol.Event) {
-		mu.Lock()
-		events = append(events, ev)
-		mu.Unlock()
-	}
-
-	// perTick=2: each tick fetches one page of up to 2 items.
-	p := NewPoller(PollerConfig{Client: mock, Interval: time.Hour, PerTick: 2, Repos: []RepoRef{{Owner: "o", Repo: "r"}}, OnEvent: onEvent, Logger: zerolog.Nop()})
-	p.lastSyncTime = now.Add(-1 * time.Minute)
-
-	ctx := context.Background()
-
-	// Tick 1: should emit 2 events (page 1).
-	p.tick(ctx)
-	mu.Lock()
-	if len(events) != 2 {
-		t.Fatalf("tick 1: expected 2 events, got %d", len(events))
-	}
-	mu.Unlock()
-
-	// Cycle should still be active.
-	if !p.inCycle {
-		t.Fatal("expected cycle to still be active after tick 1")
-	}
-
-	// Tick 2: should emit 2 more events (page 2).
-	p.tick(ctx)
-	mu.Lock()
-	if len(events) != 4 {
-		t.Fatalf("tick 2: expected 4 events total, got %d", len(events))
-	}
-	mu.Unlock()
-
-	// Tick 3: should emit 1 event (page 3) and then drain PRs+comments (empty).
-	p.tick(ctx)
-	mu.Lock()
-	if len(events) != 5 {
-		t.Fatalf("tick 3: expected 5 events total, got %d", len(events))
-	}
-	mu.Unlock()
-
-	// Cycle should be complete.
-	if p.inCycle {
-		t.Fatal("expected cycle to be complete after all items consumed")
-	}
-}
-
-func TestPollerCursorResumesAcrossTicks(t *testing.T) {
-	now := time.Now()
-
-	// 2 issues on page 1, 1 PR on page 1.
-	mock := &paginatingMockClient{
-		issuePages: map[int]struct {
-			issues   []*gh.Issue
-			nextPage int
-		}{
-			1: {issues: []*gh.Issue{makeIssue(1, now), makeIssue(2, now)}, nextPage: 0},
-		},
-		prPages: map[int]struct {
-			prs      []*gh.PullRequest
-			nextPage int
-		}{
-			1: {prs: []*gh.PullRequest{{
-				Number:    gh.Ptr(10),
-				Title:     gh.Ptr("PR"),
-				Body:      gh.Ptr(""),
-				State:     gh.Ptr("open"),
-				HTMLURL:   gh.Ptr("https://github.com/o/r/pull/10"),
-				User:      &gh.User{Login: gh.Ptr("bob")},
-				Head:      &gh.PullRequestBranch{Ref: gh.Ptr("feat")},
-				Base:      &gh.PullRequestBranch{Ref: gh.Ptr("main")},
-				CreatedAt: &gh.Timestamp{Time: now},
-			}}, nextPage: 0},
-		},
-	}
-
-	var mu sync.Mutex
-	var events []protocol.Event
-	onEvent := func(ev protocol.Event) {
-		mu.Lock()
-		events = append(events, ev)
-		mu.Unlock()
-	}
-
-	// perTick=2: first tick gets 2 issues, second tick gets 1 PR.
-	p := NewPoller(PollerConfig{Client: mock, Interval: time.Hour, PerTick: 2, Repos: []RepoRef{{Owner: "o", Repo: "r"}}, OnEvent: onEvent, Logger: zerolog.Nop()})
-	p.lastSyncTime = now.Add(-1 * time.Minute)
-
-	ctx := context.Background()
-
-	p.tick(ctx)
-	mu.Lock()
-	if len(events) != 2 {
-		t.Fatalf("tick 1: expected 2 events, got %d", len(events))
-	}
-	if events[0].Type != "github.issue.opened" {
-		t.Errorf("tick 1 event 0: got %q, want github.issue.opened", events[0].Type)
-	}
-	mu.Unlock()
-
-	p.tick(ctx)
-	mu.Lock()
-	if len(events) != 3 {
-		t.Fatalf("tick 2: expected 3 events total, got %d", len(events))
-	}
-	if events[2].Type != "github.pr.opened" {
-		t.Errorf("tick 2 event 2: got %q, want github.pr.opened", events[2].Type)
-	}
-	mu.Unlock()
-
-	if p.inCycle {
-		t.Fatal("expected cycle to be complete")
-	}
-}
-
-func TestPollerCycleAdvancesLastSyncTime(t *testing.T) {
-	now := time.Now()
-
-	mock := &paginatingMockClient{
-		issuePages: map[int]struct {
-			issues   []*gh.Issue
-			nextPage int
-		}{
-			1: {issues: []*gh.Issue{makeIssue(1, now), makeIssue(2, now)}, nextPage: 0},
-		},
-	}
-
-	p := NewPoller(PollerConfig{Client: mock, Interval: time.Hour, PerTick: 1, Repos: []RepoRef{{Owner: "o", Repo: "r"}}, OnEvent: func(protocol.Event) {}, Logger: zerolog.Nop()})
-	original := p.lastSyncTime
-
-	ctx := context.Background()
-
-	// Tick 1: fetches page with 2 issues but perTick=1, so only 1 page fetched.
-	// Wait — perPage = min(budget, 100) = 1, so GitHub returns 1 item.
-	// Actually paginatingMockClient ignores perPage, returns full page.
-	// With perTick=1, budget=1, it fetches one page (2 items emitted), budget goes to -1.
-	// That's fine for this test — the point is lastSyncTime shouldn't advance yet
-	// because there are still PRs and comments phases.
-	p.tick(ctx)
-
-	// After first tick with perTick=1: issues consumed (2 items), budget exhausted.
-	// PRs and comments not yet visited. Cycle still active.
-	if !p.inCycle {
-		// If cycle completed in one tick (all phases empty), that's also valid.
-		// Check if lastSyncTime advanced.
-		if p.lastSyncTime.After(original) {
-			return // cycle completed in one tick, test passes.
-		}
-	}
-
-	if p.lastSyncTime.After(original) {
-		t.Error("lastSyncTime should not advance until cycle is complete")
-	}
-
-	// Drain remaining ticks until cycle completes.
-	for i := 0; i < 10 && p.inCycle; i++ {
-		p.tick(ctx)
-	}
-
-	if p.inCycle {
-		t.Fatal("cycle should have completed")
-	}
-	if !p.lastSyncTime.After(original) {
-		t.Error("lastSyncTime should have advanced after cycle completed")
-	}
-}
-
-func TestPollerErrorRetainsPosition(t *testing.T) {
-	now := time.Now()
-
-	mock := &paginatingMockClient{
-		issuePages: map[int]struct {
-			issues   []*gh.Issue
-			nextPage int
-		}{
-			1: {issues: []*gh.Issue{makeIssue(1, now)}, nextPage: 0},
-		},
-		// PRs will error.
-		prPages: map[int]struct {
-			prs      []*gh.PullRequest
-			nextPage int
-		}{},
-	}
-
-	var eventCount int
-	p := NewPoller(PollerConfig{Client: mock, Interval: time.Hour, PerTick: 100, Repos: []RepoRef{{Owner: "o", Repo: "r"}}, OnEvent: func(protocol.Event) {
-		eventCount++
-	}, Logger: zerolog.Nop()})
-	p.lastSyncTime = now.Add(-1 * time.Minute)
-	original := p.lastSyncTime
-
-	ctx := context.Background()
-
-	// Tick 1: issues succeed (1 event), PRs return empty, comments return empty.
-	// Actually this will succeed fully because empty pages just advance the cursor.
-	// To test error retention, we need to inject an error.
-	// Let's set issueErr after first tick.
-	p.tick(ctx)
-	if eventCount != 1 {
-		t.Fatalf("tick 1: expected 1 event, got %d", eventCount)
-	}
-
-	// The cycle completed because all pages were empty. Start a new scenario:
-	// Reset and inject an error for the issues phase.
-	mock.issueErr = errors.New("server error")
-	p.lastSyncTime = original
-
-	// Force a new cycle.
-	p.inCycle = false
-	p.tick(ctx)
-
-	// Error should prevent lastSyncTime from advancing.
-	if p.lastSyncTime.After(original) {
-		t.Error("lastSyncTime should not advance on error")
-	}
-
-	// Cursor should still be in the cycle (retained position).
-	if !p.inCycle {
-		t.Error("cycle should still be active after error")
-	}
-	if p.cursor.phase != phaseIssues {
-		t.Errorf("cursor should be at issues phase, got %d", p.cursor.phase)
-	}
-
-	// Clear the error. Next tick should succeed from the same position.
-	mock.mu.Lock()
-	mock.issueErr = nil
-	mock.issuePages = map[int]struct {
-		issues   []*gh.Issue
-		nextPage int
-	}{
-		1: {issues: []*gh.Issue{makeIssue(10, now)}, nextPage: 0},
-	}
-	mock.mu.Unlock()
-
-	p.tick(ctx)
-	if eventCount != 2 {
-		t.Fatalf("tick 3: expected 2 events total, got %d", eventCount)
-	}
-}
-
-// --- Label-mode tests ---
-
-type labelPageResponse struct {
-	issues   []*gh.Issue
-	nextPage int
-}
-
-// labelMockClient supports label-filtered polling tests.
-// byLabel maps each label string to its per-page responses.
-type labelMockClient struct {
-	mu       sync.Mutex
-	byLabel  map[string]map[int]labelPageResponse
-	labelErr error
-}
-
-func (m *labelMockClient) AddLabels(_ context.Context, _, _ string, _ int, _ []string) error {
-	return nil
-}
-func (m *labelMockClient) RemoveLabel(_ context.Context, _, _ string, _ int, _ string) error {
-	return nil
-}
-func (m *labelMockClient) CreateComment(_ context.Context, _, _ string, _ int, _ string) error {
-	return nil
-}
-func (m *labelMockClient) EditIssueState(_ context.Context, _, _ string, _ int, _ string) error {
-	return nil
-}
-func (m *labelMockClient) ApprovePR(_ context.Context, _, _ string, _ int, _ string) error {
-	return nil
-}
-func (m *labelMockClient) AddToProject(_ context.Context, _, _ string, _ int, _ string, _ []ProjectField) (string, error) {
-	return "", nil
-}
-func (m *labelMockClient) ListPRsByStatePage(_ context.Context, _, _ string, _ string, _ []string, _, _ int) ([]*gh.PullRequest, int, error) {
-	return nil, 0, nil
-}
-func (m *labelMockClient) ListIssuesPage(_ context.Context, _, _ string, _ time.Time, _, _ int) ([]*gh.Issue, int, error) {
-	return nil, 0, nil
-}
-func (m *labelMockClient) ListPRsPage(_ context.Context, _, _ string, _ time.Time, _, _ int) ([]*gh.PullRequest, int, error) {
-	return nil, 0, nil
-}
-func (m *labelMockClient) ListCommentsPage(_ context.Context, _, _ string, _ time.Time, _, _ int) ([]*gh.IssueComment, int, error) {
-	return nil, 0, nil
-}
-
-func (m *labelMockClient) ListIssuesByLabelPage(_ context.Context, _, _ string, labels []string, _ string, page, _ int) ([]*gh.Issue, int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.labelErr != nil {
-		return nil, 0, m.labelErr
-	}
-	if len(labels) == 0 {
-		return nil, 0, nil
-	}
-	pages, ok := m.byLabel[labels[0]]
-	if !ok {
-		return nil, 0, nil
-	}
-	if p, ok := pages[page]; ok {
-		return p.issues, p.nextPage, nil
-	}
-	return nil, 0, nil
-}
-
-func makeIssueWithLabels(num int, labels []string) *gh.Issue {
-	ts := gh.Timestamp{Time: time.Now()}
-	ghLabels := make([]*gh.Label, len(labels))
-	for i, l := range labels {
-		ghLabels[i] = &gh.Label{Name: gh.Ptr(l)}
-	}
-	return &gh.Issue{
-		Number:    gh.Ptr(num),
-		Title:     gh.Ptr("Issue"),
-		Body:      gh.Ptr(""),
-		State:     gh.Ptr("open"),
-		HTMLURL:   gh.Ptr("https://github.com/o/r/issues/1"),
-		User:      &gh.User{Login: gh.Ptr("alice")},
-		CreatedAt: &ts,
-		Labels:    ghLabels,
-	}
-}
-
-func TestPollerLabelMode(t *testing.T) {
-	mock := &labelMockClient{
-		byLabel: map[string]map[int]labelPageResponse{
-			"Severity:Info": {
-				1: {issues: []*gh.Issue{
-					makeIssueWithLabels(1, []string{"Severity:Info"}),
-					makeIssueWithLabels(2, []string{"Severity:Info", "Other"}),
-				}, nextPage: 0},
-			},
-		},
-	}
-
-	var mu sync.Mutex
-	var events []protocol.Event
-	onEvent := func(ev protocol.Event) {
-		mu.Lock()
-		events = append(events, ev)
-		mu.Unlock()
-	}
-
-	p := NewPoller(PollerConfig{
-		Client:   mock,
-		Interval: time.Hour,
-		PerTick:  100,
-		Repos:    []RepoRef{{Owner: "o", Repo: "r"}},
-		Labels:   []string{"Severity:Info"},
-		State:    "open",
-		OnEvent:  onEvent,
-		Logger:   zerolog.Nop(),
-	})
-
-	ctx := context.Background()
-	p.tick(ctx)
-
-	mu.Lock()
-	defer mu.Unlock()
-	if len(events) != 2 {
-		t.Fatalf("expected 2 events, got %d", len(events))
-	}
-	if events[0].Type != "github.issue.matched" {
-		t.Errorf("got type %q, want github.issue.matched", events[0].Type)
-	}
-	// Verify labels are in the payload.
-	labels, ok := events[0].Payload["labels"].([]string)
-	if !ok || len(labels) != 1 || labels[0] != "Severity:Info" {
-		t.Errorf("unexpected labels in payload: %v", events[0].Payload["labels"])
-	}
-}
-
-func TestPollerLabelModeSkipsPRsAndComments(t *testing.T) {
-	mock := &labelMockClient{
-		byLabel: map[string]map[int]labelPageResponse{
-			"bug": {
-				1: {issues: []*gh.Issue{
-					makeIssueWithLabels(1, []string{"bug"}),
-				}, nextPage: 0},
-			},
-		},
-	}
-
-	var events []protocol.Event
-	onEvent := func(ev protocol.Event) { events = append(events, ev) }
-
-	p := NewPoller(PollerConfig{
-		Client:   mock,
-		Interval: time.Hour,
-		PerTick:  100,
-		Repos:    []RepoRef{{Owner: "o", Repo: "r"}},
-		Labels:   []string{"bug"},
-		State:    "open",
-		OnEvent:  onEvent,
-		Logger:   zerolog.Nop(),
-	})
-
-	ctx := context.Background()
-	p.tick(ctx)
-
-	// Cycle should complete after one tick (issues only, no PRs/comments).
-	if p.inCycle {
-		t.Fatal("expected cycle to complete — label mode should skip PRs and comments")
-	}
-	if len(events) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(events))
-	}
-}
-
-func TestPollerLabelModePerTickBound(t *testing.T) {
-	mock := &labelMockClient{
-		byLabel: map[string]map[int]labelPageResponse{
-			"bug": {
-				1: {issues: []*gh.Issue{
-					makeIssueWithLabels(1, []string{"bug"}),
-					makeIssueWithLabels(2, []string{"bug"}),
-				}, nextPage: 2},
-				2: {issues: []*gh.Issue{
-					makeIssueWithLabels(3, []string{"bug"}),
-				}, nextPage: 0},
-			},
-		},
-	}
-
-	var mu sync.Mutex
-	var events []protocol.Event
-	onEvent := func(ev protocol.Event) {
-		mu.Lock()
-		events = append(events, ev)
-		mu.Unlock()
-	}
-
-	// perTick=2: first tick gets page 1 (2 items), second tick gets page 2 (1 item).
-	p := NewPoller(PollerConfig{
-		Client:   mock,
-		Interval: time.Hour,
-		PerTick:  2,
-		Repos:    []RepoRef{{Owner: "o", Repo: "r"}},
-		Labels:   []string{"bug"},
-		State:    "open",
-		OnEvent:  onEvent,
-		Logger:   zerolog.Nop(),
-	})
-
-	ctx := context.Background()
-
-	p.tick(ctx)
-	mu.Lock()
-	if len(events) != 2 {
-		t.Fatalf("tick 1: expected 2 events, got %d", len(events))
-	}
-	mu.Unlock()
-
-	if !p.inCycle {
-		t.Fatal("expected cycle to still be active after tick 1")
-	}
-
-	p.tick(ctx)
-	mu.Lock()
-	if len(events) != 3 {
-		t.Fatalf("tick 2: expected 3 events total, got %d", len(events))
-	}
-	mu.Unlock()
-
-	if p.inCycle {
-		t.Fatal("expected cycle to be complete after all items consumed")
-	}
-}
-
-func TestPollerLabelModeDoesNotAdvanceLastSyncTime(t *testing.T) {
-	mock := &labelMockClient{
-		byLabel: map[string]map[int]labelPageResponse{
-			"bug": {
-				1: {issues: []*gh.Issue{
-					makeIssueWithLabels(1, []string{"bug"}),
-				}, nextPage: 0},
-			},
-		},
-	}
-
-	p := NewPoller(PollerConfig{
-		Client:   mock,
-		Interval: time.Hour,
-		PerTick:  100,
-		Repos:    []RepoRef{{Owner: "o", Repo: "r"}},
-		Labels:   []string{"bug"},
-		State:    "open",
-		OnEvent:  func(protocol.Event) {},
-		Logger:   zerolog.Nop(),
-	})
-	original := p.lastSyncTime
-
-	ctx := context.Background()
-	p.tick(ctx)
-
-	if !p.lastSyncTime.Equal(original) {
-		t.Error("label mode should not advance lastSyncTime")
-	}
-}
-
-func TestPollerLabelModeORSemantics(t *testing.T) {
-	// Two labels, each matching different issues. Both should be emitted.
-	mock := &labelMockClient{
-		byLabel: map[string]map[int]labelPageResponse{
-			"Severity:Info": {
-				1: {issues: []*gh.Issue{
-					makeIssueWithLabels(1, []string{"Severity:Info"}),
-				}, nextPage: 0},
-			},
-			"Source:RunReveal": {
-				1: {issues: []*gh.Issue{
-					makeIssueWithLabels(2, []string{"Source:RunReveal"}),
-				}, nextPage: 0},
-			},
-		},
-	}
-
-	var events []protocol.Event
-	onEvent := func(ev protocol.Event) { events = append(events, ev) }
-
-	p := NewPoller(PollerConfig{
-		Client:   mock,
-		Interval: time.Hour,
-		PerTick:  100,
-		Repos:    []RepoRef{{Owner: "o", Repo: "r"}},
-		Labels:   []string{"Severity:Info", "Source:RunReveal"},
-		State:    "open",
-		OnEvent:  onEvent,
-		Logger:   zerolog.Nop(),
-	})
-
-	ctx := context.Background()
-	p.tick(ctx)
-
-	if len(events) != 2 {
-		t.Fatalf("expected 2 events (one per label), got %d", len(events))
-	}
-	// Verify both issues are present.
-	nums := map[int]bool{}
-	for _, ev := range events {
-		if n, ok := ev.Payload["number"]; ok {
-			nums[n.(int)] = true
-		}
-	}
-	if !nums[1] || !nums[2] {
-		t.Errorf("expected issues #1 and #2, got %v", nums)
-	}
-}
-
-func TestPollerLabelModeDeduplication(t *testing.T) {
-	// Issue #1 has both labels — should only be emitted once.
-	mock := &labelMockClient{
-		byLabel: map[string]map[int]labelPageResponse{
-			"Severity:Info": {
-				1: {issues: []*gh.Issue{
-					makeIssueWithLabels(1, []string{"Severity:Info", "Source:RunReveal"}),
-				}, nextPage: 0},
-			},
-			"Source:RunReveal": {
-				1: {issues: []*gh.Issue{
-					makeIssueWithLabels(1, []string{"Severity:Info", "Source:RunReveal"}),
-				}, nextPage: 0},
-			},
-		},
-	}
-
-	var events []protocol.Event
-	onEvent := func(ev protocol.Event) { events = append(events, ev) }
-
-	p := NewPoller(PollerConfig{
-		Client:   mock,
-		Interval: time.Hour,
-		PerTick:  100,
-		Repos:    []RepoRef{{Owner: "o", Repo: "r"}},
-		Labels:   []string{"Severity:Info", "Source:RunReveal"},
-		State:    "open",
-		OnEvent:  onEvent,
-		Logger:   zerolog.Nop(),
-	})
-
-	ctx := context.Background()
-	p.tick(ctx)
-
-	if len(events) != 1 {
-		t.Fatalf("expected 1 event (deduplicated), got %d", len(events))
 	}
 }
