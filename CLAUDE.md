@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Build all binaries
-go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github ./cmd/sekia-slack ./cmd/sekia-linear ./cmd/sekia-google ./cmd/sekia-mcp
+go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github ./cmd/sekia-google
 
 # Run all tests
 go test ./...
@@ -26,32 +26,32 @@ go test -run TestEndToEnd ./internal/server
 go vet ./...
 ```
 
-No Makefile or custom scripts — standard Go toolchain only.
+The `Makefile` only wraps the commands above (`make build`, `make test`, `make vet`, `make clean`, `make docker`); nothing beyond the standard Go toolchain is required.
 
 ## Architecture
 
-sekia is a multi-agent event bus. Seven binaries (`sekiad` daemon, `sekiactl` CLI, `sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-google`, `sekia-mcp` MCP server) communicate over NATS. The daemon and CLI also use a Unix socket.
+sekia is a multi-agent event bus. Four binaries (`sekiad` daemon, `sekiactl` CLI, `sekia-github`, `sekia-google`) communicate over NATS. The daemon and CLI also use a Unix socket.
 
 ### Dependency flow
 
 ```
-cmd/sekiad          cmd/sekiactl        cmd/sekia-github  cmd/sekia-slack  cmd/sekia-linear  cmd/sekia-google  cmd/sekia-mcp
-    │                    │                    │                  │                 │                 │                 │
-    ▼                    ▼                    ▼                  ▼                 ▼                 ▼                 ▼
-internal/server     cmd/sekiactl/cmd    internal/github    internal/slack   internal/linear   internal/google   internal/mcp
-    │                    │                    │                  │                 │                 │                 │
-    ├─► internal/natsserver   (embedded NATS + JetStream)       │                 │                 │                 │
-    ├─► internal/registry     (agent tracking)                  │                 │                 │                 │
-    ├─► internal/workflow     (Lua workflow engine)              │                 │                 │                 │
-    ├─► internal/api          (HTTP-over-Unix-socket API) ◄─────┼─────────────────┼─────────────────┼─────────────────┘
-    ├─► internal/web          (embedded web dashboard)          │                 │                 │        (reads via Unix socket)
-    │                    │                    │                  │                 │                 │
-    └────────┬───────────┘                    └──────────────────┴─────────────────┴─────────────────┘
-             ▼                                                  │
-        pkg/protocol  ◄─────────────────────────────────────────┘
+cmd/sekiad          cmd/sekiactl        cmd/sekia-github   cmd/sekia-google
+    │                    │                    │                  │
+    ▼                    ▼                    ▼                  ▼
+internal/server     cmd/sekiactl/cmd    internal/github    internal/google
+    │                    │                    │                  │
+    ├─► internal/natsserver   (embedded NATS + JetStream)        │
+    ├─► internal/registry     (agent tracking)                   │
+    ├─► internal/workflow     (Lua workflow engine)              │
+    ├─► internal/api          (HTTP-over-Unix-socket API)        │
+    │                    │                    │                  │
+    └────────┬───────────┘                    └────────┬─────────┘
+             ▼                                         │
+        pkg/protocol  ◄────────────────────────────────┤
              ▲         (shared wire types — Event, Registration, Heartbeat, API responses)
-             │
-        pkg/agent             (SDK for building agents — auto-register, auto-heartbeat)
+             │                                         │
+        pkg/agent     ◄────────────────────────────────┘
+                       (SDK for building agents — auto-register, auto-heartbeat)
 ```
 
 ### Key wiring: Daemon.Run() startup sequence
@@ -59,10 +59,10 @@ internal/server     cmd/sekiactl/cmd    internal/github    internal/slack   inte
 1. Start embedded NATS with JetStream (`internal/natsserver`)
 2. Create registry, which subscribes to `sekia.registry` and `sekia.heartbeat.>` (`internal/registry`)
 3. Start workflow engine, load `.lua` files, optionally start fsnotify watcher (`internal/workflow`)
-4. Start HTTP API on Unix socket (`internal/api`)
-5. Start web UI on TCP port if configured (`internal/web`)
+4. Subscribe to the config-reload subjects
+5. Start HTTP API on Unix socket (`internal/api`)
 6. Block on OS signal or `Stop()` channel
-7. Shutdown in reverse order (web → API → workflow engine → registry → NATS)
+7. Shutdown in reverse order (API → workflow engine → registry → NATS)
 
 ### NATS subjects
 
@@ -81,9 +81,22 @@ internal/server     cmd/sekiactl/cmd    internal/github    internal/slack   inte
 - **Go 1.22+ ServeMux routing** (`"GET /api/v1/status"`) — no external HTTP framework.
 - **Config via Viper**: TOML files searched in `/etc/sekia`, `~/.config/sekia`, `.`; env vars with `SEKIA_` prefix; code defaults.
 
+### Daemon config and API
+
+**Config**: `sekia.toml` sections — `[server]` (`socket`), `[nats]` (`embedded`, `data_dir`, `host`, `port`, `token`; env `SEKIA_NATS_TOKEN`), `[workflows]` (`dir`, `hot_reload`, `handler_timeout`, `verify_integrity`), `[security]` (`command_secret`; env `SEKIA_COMMAND_SECRET`), `[secrets]` (`aws_region`, `kms_key_id`; env `SEKIA_KMS_KEY_ID`). Commands sent by workflows are HMAC-SHA256 signed with `security.command_secret`; agents verify them with the same secret.
+
+**API endpoints** (`internal/api`, HTTP over the Unix socket):
+- `GET /api/v1/status`
+- `GET /api/v1/agents`
+- `GET /api/v1/workflows`
+- `POST /api/v1/workflows/reload`
+- `POST /api/v1/config/reload?target=<name|*>` — ask the daemon and every agent, or a single component, to re-read its config
+
+**CLI** (`cmd/sekiactl/cmd/`, global flag `--socket`): `status`, `agents`, `workflows [list|reload|sign]`, `config reload [--target <name>]`, `secrets kms-encrypt|kms-decrypt`, `service create|start|stop|restart|remove|list`.
+
 ### Named instances (multi-tenancy)
 
-All agent binaries (`sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-google`) support `--name <instance>` for running multiple instances of the same agent type against different configurations.
+All agent binaries (`sekia-github`, `sekia-google`) support `--name <instance>` for running multiple instances of the same agent type against different configurations.
 
 **Behavior when `--name` is set:**
 - Config file becomes `sekia-{agent}-{name}.toml` (e.g., `sekia-github --name work` → `sekia-github-work.toml`)
@@ -129,17 +142,13 @@ Lua-based event→handler→command engine using [gopher-lua](https://github.com
 - `sekia.command(agent, command, payload)` — send command to an agent
 - `sekia.log(level, message)` — log via zerolog
 - `sekia.name` — the workflow's name
-- `sekia.ai(prompt [, opts])` — synchronous LLM call, returns `(result, err)`. Options: `model`, `max_tokens`, `temperature`, `system`
-- `sekia.ai_json(prompt [, opts])` — like `sekia.ai` but requests JSON and returns a parsed Lua table
-- `sekia.skill(name)` — returns full instructions for a named skill (from `SKILL.md` files)
-- `sekia.conversation(platform, channel, thread)` — returns a conversation handle with methods: `:append(role, content)`, `:reply(prompt)`, `:history()`, `:metadata(key, [value])`
-- `sekia.schedule(interval_seconds, handler)` — register a timer-driven handler that fires at the given interval (minimum 1 second)
 
 **Key design decisions:**
 - **Sandboxed**: only `base` (minus `dofile`/`loadfile`/`load`), `table`, `string`, `math` loaded. No `os`/`io`/`debug`.
 - **Per-workflow goroutine**: each workflow gets its own `*lua.LState` and event channel for thread safety.
 - **Self-event guard**: events from `workflow:<name>` skip handlers in the same workflow to prevent infinite loops.
 - **Hot-reload**: fsnotify watches the workflow directory; file changes trigger reload with 500ms debounce.
+- **Handler timeout**: each handler invocation is bounded by `workflows.handler_timeout` (default 30s) so a runaway handler cannot block the workflow goroutine.
 - **Integrity verification** (optional): SHA256 manifest (`workflows.sha256`) checked before loading each `.lua` file. Manifest change via fsnotify triggers `ReloadAll()`.
 
 **Integrity verification:**
@@ -156,83 +165,7 @@ When `workflows.verify_integrity = true`, every `LoadWorkflow()` call reads the 
 - `sekiactl workflows reload` — reload all workflows from disk
 - `sekiactl workflows sign [--dir <path>]` — generate/update SHA256 manifest
 
-### AI integration (`internal/ai/`)
-
-LLM client for the Anthropic Messages API, wired into the Lua workflow engine as `sekia.ai()` and `sekia.ai_json()`.
-
-**Flow**: `Lua handler calls sekia.ai(prompt) → Go LLM client → Anthropic Messages API → response text returned to Lua`
-
-**Key design decisions:**
-- **Inline Lua function** (not a separate agent) — synchronous per-workflow, safe because each workflow has its own goroutine.
-- **Raw `net/http`** — calls Anthropic Messages API directly, no SDK dependency (matches Linear agent pattern).
-- **`LLMClient` interface** for testability — `Daemon.SetLLMClient()` injects a mock for integration tests.
-- **Optional** — if no API key configured, `sekia.ai()` returns `nil, "AI not configured"`.
-- **Error handling** — returns `(nil, error_string)` on failure (never raises Lua errors, unlike `sekia.publish`/`sekia.command`).
-- **120s timeout** per LLM call.
-
-**Persona** (`internal/ai/persona.go`): A markdown file (`~/.config/sekia/persona.md`) loaded at startup and prepended to every AI system prompt. Defines agent personality, communication style, values, and boundaries. Gracefully handles missing file (returns empty string).
-
-**Prompt layering**: `[JSON mode prefix] + [persona.md] + [skills index] + [per-call system prompt]`
-
-**Multi-turn conversations**: `CompleteRequest.Messages []ai.Message` — if non-empty, used instead of single `Prompt` for multi-turn conversation context.
-
-**Config**: `[ai]` section in `sekia.toml` — `api_key`, `model`, `max_tokens`, `temperature`, `persona_path`. Env var: `SEKIA_AI_API_KEY`.
-
-### Sentinel (`internal/sentinel/`)
-
-AI-driven proactive check system. Reads a markdown checklist (`~/.config/sekia/sentinel.md`) on a configurable interval, gathers system context (agents, workflows), sends to the LLM, and publishes events based on the AI's assessment.
-
-**Flow**: `sentinel.md checklist + system context → LLM → parse actions → publish events on sekia.events.sentinel`
-
-**Event types**: `sentinel.action.required`, `sentinel.check.complete`
-
-**Key design decisions:**
-- **AI thinks about what matters** — unlike cron, sentinel evaluates whether something needs attention.
-- **Standard event publishing** — workflows handle sentinel events like any other NATS event.
-- **Optional** — disabled by default, requires both `sentinel.enabled = true` and an AI client.
-
-**Config**: `[sentinel]` section in `sekia.toml` — `enabled`, `interval`, `checklist_path`. Env vars: `SEKIA_SENTINEL_ENABLED`, `SEKIA_SENTINEL_INTERVAL`.
-
-### Skills system (`internal/skills/`)
-
-Directory-based capability definitions with YAML frontmatter + natural language instructions. Skills metadata is injected into AI prompts; optional `handler.lua` files auto-load as workflows.
-
-**Directory structure:**
-```
-~/.config/sekia/skills/
-  pr-review/
-    SKILL.md          # YAML frontmatter + instructions
-    handler.lua       # optional, auto-loaded as workflow with "skill:" prefix
-  triage/
-    SKILL.md
-```
-
-**SKILL.md format**: YAML frontmatter (`name`, `description`, `triggers`, `version`) followed by natural language instructions.
-
-**Key design decisions:**
-- **Skills index** — compact summary of all skills injected into AI prompts so the LLM knows what capabilities are available.
-- **`sekia.skill(name)`** — Lua function returns full instructions for a named skill (lazy loading).
-- **Handler auto-loading** — `handler.lua` files in skill directories are automatically loaded as workflows with `skill:` prefix.
-- **Hot-reload** — skills can be reloaded via API or CLI.
-
-**Config**: `[skills]` section in `sekia.toml` — `dir`, `hot_reload`.
-
-**API endpoints:** `GET /api/v1/skills` — list loaded skills.
-
-**CLI:** `sekiactl skills list` — list loaded skills.
-
-### Conversation store (`internal/conversation/`)
-
-In-memory multi-turn conversation state keyed by (platform, channel, thread), with TTL eviction.
-
-**Key design decisions:**
-- **Thread-safe** — `sync.RWMutex` protects all state.
-- **MaxHistory trimming** — oldest messages are dropped when the limit is exceeded.
-- **TTL cleanup** — background goroutine runs every minute, removes conversations that have exceeded their TTL.
-- **WorkflowAdapter** — bridges `conversation.Store` to `workflow.ConversationStore` interface using `ai.Message`, avoiding circular dependencies.
-- **Metadata** — key/value pairs per conversation for workflow state (e.g., mood, context flags).
-
-**Config**: `[conversation]` section in `sekia.toml` — `max_history` (default 50), `ttl` (default 1h).
+**Shipped examples** (`configs/workflows/`): `github-auto-label.lua`, `gmail-auto-reply.lua`.
 
 ### GitHub agent (`internal/github/`)
 
@@ -271,167 +204,54 @@ Standalone binary (`cmd/sekia-github/`) that bridges GitHub webhooks and/or REST
 
 **Polling config**: `[poll]` section — `enabled` (bool, default false), `interval` (duration, default 30s), `per_tick` (int, default 100, max items per tick), `repos` (list of `"owner/repo"`, required when enabled), `labels` (list of strings, optional), `state` (string, default "open"), `match_prs` (bool, default false). When `labels` is non-empty (and `match_prs` is false) the poller switches to **label-filtered mode**: queries issues by label+state instead of time, only fetches issues (skips PRs/comments), emits `github.issue.matched` events, and does not advance `lastSyncTime`. When `match_prs` is true, the poller switches to **PR-match mode**: cycles through all PRs matching `state` (optionally filtered by `labels`) every interval, emits `github.pr.matched` events, and does not advance `lastSyncTime`. When labels are set with `match_prs`, the Issues API is used (supports label filtering) and results are filtered to PRs only.
 
-### Slack agent (`internal/slack/`)
-
-Standalone binary (`cmd/sekia-slack/`) that connects to Slack via Socket Mode (WebSocket) and executes Slack API commands.
-
-**Flow**: `Slack Socket Mode → sekia-slack → sekia.events.slack → Lua workflow → sekia.commands.slack-agent → sekia-slack → Slack API`
-
-**Event types**: `slack.message.received`, `slack.reaction.added`, `slack.channel.created`, `slack.mention`, `slack.action.button_clicked`
-
-**Commands**: `send_message`, `add_reaction`, `send_reply`, `update_message`
-
-**Block Kit support**: `send_message` and `update_message` accept an optional `blocks` field (array of Block Kit block objects) alongside `text`. When `blocks` is present, the message is sent with `MsgOptionBlocks()` and `text` serves as the notification fallback. Blocks are passed as raw JSON through `slack.Blocks` custom unmarshaler — Lua workflows write Block Kit structures as nested tables directly.
-
-**Interactive messages**: Button clicks and other `block_actions` interactions arrive via Socket Mode as `EventTypeInteractive`, are mapped by `MapInteractionCallback()` to `slack.action.button_clicked` events (or `slack.action.<type>` for non-button actions), and published to NATS. Event payload includes `action_id`, `value`, `block_id`, `user`, `channel`, `message_ts`, `message_text`. Requires **Interactivity** enabled in the Slack app settings (no Request URL needed with Socket Mode).
-
-**Key design decisions:**
-- **Socket Mode** — WebSocket connection to Slack, no public URL needed.
-- **SlackClient interface** for testability — wraps `slack-go/slack`.
-- **Bot self-message filtering** — resolves bot user ID via `AuthTest`, skips own messages.
-- **Test bypass** — `NewTestAgent()` skips Socket Mode; tests publish events directly to NATS.
-
-**Config file**: `sekia-slack.toml`. Env vars: `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SEKIA_NATS_URL`.
-
-**Config reload**: Supports `sekiactl config reload`. Hot-reloads `security.command_secret`. Slack tokens require a restart (Socket Mode connection is long-lived).
-
-### Linear agent (`internal/linear/`)
-
-Standalone binary (`cmd/sekia-linear/`) that polls Linear's GraphQL API and executes Linear API commands.
-
-**Flow**: `Linear GraphQL poll → sekia-linear → sekia.events.linear → Lua workflow → sekia.commands.linear-agent → sekia-linear → Linear API`
-
-**Event types**: `linear.issue.created`, `linear.issue.updated`, `linear.issue.completed`, `linear.comment.created`
-
-**Commands**: `create_issue`, `update_issue`, `create_comment`, `add_label`
-
-**Key design decisions:**
-- **GraphQL polling** — periodic API queries (configurable interval, default 30s), no webhooks needed.
-- **Lightweight GraphQL client** — `net/http` + JSON, no framework dependency.
-- **LinearClient interface** for testability — covers both polling reads and command mutations.
-- **Created vs updated vs completed** — determined by `createdAt` vs `lastSyncTime` and state name.
-
-**Config file**: `sekia-linear.toml`. Env vars: `LINEAR_API_KEY`, `SEKIA_NATS_URL`.
-
-**Config reload**: Supports `sekiactl config reload`. Hot-reloads `poll.interval`, `poll.team_filter`, `security.command_secret`. API key requires a restart.
-
 ### Google agent (`internal/google/`)
 
-Standalone binary (`cmd/sekia-google/`) that bridges Gmail and Google Calendar to the NATS event bus via Google REST APIs with OAuth2 authentication.
+Standalone binary (`cmd/sekia-google/`) that bridges Gmail to the NATS event bus via the Gmail REST API with OAuth2 authentication.
 
-**Flow (Gmail)**: `Gmail REST API poll → sekia-google → sekia.events.google → Lua workflow → sekia.commands.google-agent → sekia-google → Gmail API`
+**Flow**: `Gmail REST API poll → sekia-google → sekia.events.google → Lua workflow → sekia.commands.google-agent → sekia-google → Gmail API`
 
-**Flow (Calendar)**: `Calendar REST API poll → sekia-google → sekia.events.google → Lua workflow → sekia.commands.google-agent → sekia-google → Calendar API`
+**Event types**: `gmail.message.received`
 
-**Gmail event types**: `gmail.message.received`
-
-**Calendar event types**: `google.calendar.event.created`, `google.calendar.event.updated`, `google.calendar.event.deleted`, `google.calendar.event.upcoming`
-
-**Gmail commands**: `send_email`, `reply_email`, `add_label`, `remove_label`, `archive`, `trash`, `untrash`, `delete`
-
-**Calendar commands**: `create_event`, `update_event`, `delete_event`
+**Commands**: `send_email`, `reply_email`, `add_label`, `remove_label`, `archive`, `trash`, `untrash`, `delete`
 
 **Key design decisions:**
 - **OAuth2 authorization code flow with loopback redirect** — user runs `sekia-google auth`, browser opens to Google consent screen, token captured via localhost redirect. Persisted to disk with auto-refresh. Configurable `auth_port` for SSH port forwarding (headless/remote server auth).
 - **Gmail History API** — incremental sync via `historyId` (much more efficient than IMAP polling).
-- **Calendar syncToken** — incremental sync, only fetches changed events. Handles 410 Gone (expired token) with automatic reseed.
-- **Upcoming event notifications** — optional polling for events starting within N minutes, with deduplication.
-- **Single binary, shared token** — one OAuth2 token covers both Gmail and Calendar scopes. `PersistentTokenSource` is thread-safe for concurrent pollers.
-- **GmailClient + CalendarClient interfaces** for testability — both are mockable for unit/integration tests.
-- **Services are independently enableable** — `gmail.enabled` and `calendar.enabled` in config.
+- **`PersistentTokenSource`** — thread-safe token source that writes refreshed tokens back to `token_path`.
+- **GmailClient interface** for testability — mockable for unit/integration tests.
+- **Gmail only** — `gmail.enabled` must be `true`; there is no other service to enable.
 
-**Config file**: `sekia-google.toml`. Env vars: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_TOKEN_PATH`, `SEKIA_NATS_URL`.
+**Config file**: `sekia-google.toml` — `[nats]` (`url`, `token`), `[google]` (`client_id`, `client_secret`, `token_path`, `auth_port`), `[gmail]` (`enabled`, `poll_interval`, `user_id`, `query`, `max_messages`), `[security]` (`command_secret`), `[secrets]`. Env vars: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_TOKEN_PATH`, `SEKIA_NATS_URL`.
 
-**Config reload**: Supports `sekiactl config reload`. Hot-reloads `gmail.poll_interval`, `gmail.query`, `gmail.max_messages`, `calendar.poll_interval`, `calendar.upcoming_mins`, `security.command_secret`. OAuth2 credentials require a restart.
-
-### Web dashboard (`internal/web/`)
-
-Embedded web UI served on a configurable TCP port. Uses server-side HTML templates with htmx for dynamic updates and Alpine.js for minor interactivity.
-
-**Key design decisions:**
-- **Separate TCP listener** — does NOT touch the Unix socket API. Both read from the same `*registry.Registry` and `*workflow.Engine`.
-- **`go:embed`** — all static assets (htmx, Alpine.js, SSE extension, CSS) and templates are embedded in the binary. No CDN dependency.
-- **htmx polling** — status/agents/workflows cards use `hx-get` + `hx-trigger="every 5s"` for partial HTML updates.
-- **SSE live events** — `EventBus` subscribes to `sekia.events.>` on NATS and fans out to browser clients via Server-Sent Events. Ring buffer (50 events) for initial page load. Capped at 50 concurrent SSE connections to prevent DoS.
-- **Disabled by default** — `web.listen` defaults to empty string. Set to e.g. `:8080` to enable.
-- **Security headers** — middleware sets `Content-Security-Policy` (`script-src 'self' 'unsafe-eval'` for Alpine.js), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, and `Strict-Transport-Security`.
-- **CSRF protection** — double-submit cookie pattern (`sekia_csrf` cookie + `X-CSRF-Token` header). Applied to all non-safe HTTP methods (POST, PUT, DELETE, PATCH). Cookie uses `SameSite=Strict` and `Secure` when TLS is active.
-
-**Config**: `[web]` section in `sekia.toml`. Env var: `SEKIA_WEB_LISTEN`.
-
-**Routes**:
-- `GET /web` — full dashboard page
-- `GET /web/partials/status` — status card fragment
-- `GET /web/partials/agents` — agents table fragment
-- `GET /web/partials/workflows` — workflows table fragment
-- `GET /web/events/stream` — SSE endpoint for live events
-- `GET /web/static/*` — vendored JS/CSS assets
-
-### MCP server (`internal/mcp/`)
-
-Standalone binary (`cmd/sekia-mcp/`) that exposes sekia capabilities to AI assistants via the Model Context Protocol. Uses stdio transport — MCP clients (Claude Desktop, Claude Code, Cursor) launch it as a subprocess.
-
-**Flow**: `AI assistant → MCP stdio → sekia-mcp → Unix socket API (reads) + NATS (writes)`
-
-**MCP Tools**:
-- `get_status` — daemon health, uptime, NATS status, agent/workflow counts (reads Unix socket API)
-- `list_agents` — connected agents with capabilities, commands, heartbeat data (reads Unix socket API)
-- `list_workflows` — loaded Lua workflows with handler patterns, event/error counts (reads Unix socket API)
-- `reload_workflows` — hot-reload all .lua files from disk (posts to Unix socket API)
-- `publish_event` — emit synthetic event onto NATS bus to trigger workflows (publishes to NATS)
-- `send_command` — send command to a connected agent (publishes to NATS)
-
-**Key design decisions:**
-- **Standalone binary with stdio** — follows MCP convention; clients launch `sekia-mcp` as subprocess.
-- **Dual communication** — reads daemon state via Unix socket API, writes events/commands via direct NATS connection.
-- **No agent registration** — unlike the other agents, does not use `pkg/agent`. It's a thin protocol adapter, not an event-processing agent.
-- **`DaemonAPI` interface** for testability — tests inject a mock API client.
-- **Library**: `github.com/mark3labs/mcp-go` for MCP protocol handling.
-
-**Config file**: `sekia-mcp.toml`. Env vars: `SEKIA_NATS_URL`, `SEKIA_DAEMON_SOCKET`.
+**Config reload**: Supports `sekiactl config reload`. Hot-reloads `gmail.poll_interval`, `gmail.query`, `gmail.max_messages`, `security.command_secret`. OAuth2 credentials require a restart.
 
 ### Secrets encryption (`internal/secrets/`)
 
-Config value encryption and secret resolution with three backends: age, AWS KMS, and AWS Secrets Manager. Each binary resolves secrets independently at startup via `ResolveViperConfig()`. Plaintext values continue to work — encryption is fully opt-in.
+Config value encryption with AWS KMS. Each binary resolves secrets independently at startup via `ResolveViperConfig()`. Plaintext values continue to work — encryption is fully opt-in.
 
-**Inline value formats:**
+**Inline value format:**
 
 | Format | Backend | Behavior |
 |--------|---------|----------|
-| `ENC[<base64(age-ciphertext)>]` | age (`filippo.io/age`) | Decrypt with local age identity |
 | `KMS[<base64(ciphertext-blob)>]` | AWS KMS | Decrypt via KMS API (key ID embedded in cipherblob) |
-| `ASM[<secret-name-or-arn>]` | AWS Secrets Manager | Fetch plaintext secret by name/ARN |
 
-**Flow**: `LoadConfig() → ResolveViperConfig(v) → detect prefixes → lazy-init backends → resolve all values → v.Set() → Unmarshal() sees plaintext`
-
-**age identity resolution** (priority order):
-1. `SEKIA_AGE_KEY` env var — raw `AGE-SECRET-KEY-1...` string
-2. `SEKIA_AGE_KEY_FILE` env var — path to age identity file
-3. `secrets.identity` config key — path in TOML config
-4. `~/.config/sekia/age.key` — default location (if exists)
-5. None found → age disabled (no error unless `ENC[...]` values exist in config)
+**Flow**: `LoadConfig() → ResolveViperConfig(v) → detect KMS[...] values → lazy-init KMS client → decrypt all values → v.Set() → Unmarshal() sees plaintext`
 
 **AWS config resolution**: Standard AWS SDK v2 default chain (env vars, profile, instance role, ECS/EC2 metadata). Optional region override via `secrets.aws_region` config key.
 
 **Key design decisions:**
-- **Three coexisting backends** — age for local/simple setups, KMS for AWS-managed encryption, ASM for direct secret references. Backends are lazily initialized only when their prefix is detected.
-- **Inline values** — `ENC[...]`, `KMS[...]`, `ASM[...]` strings in TOML, not a separate secrets store.
+- **Inline values** — `KMS[...]` strings in TOML, not a separate secrets store. Any other value is used as a literal string.
 - **Per-process decryption** — each binary resolves its own config. No daemon dependency for secrets.
-- **Unified resolver** — `ResolveViperConfig(v)` replaces the old three-call pattern (`ResolveIdentity` + `DecryptViperConfig` + `HasEncryptedValues`). Walks `v.AllKeys()` once, classifies values by prefix, resolves all in-place.
-- **ASM is plaintext-only** — binary secrets return an error. This is an opinionated choice for simplicity and security (no accidental binary blob injection).
+- **Unified resolver** — `ResolveViperConfig(v)` walks `v.AllKeys()` once, detects `KMS[...]` values, resolves all in-place. The KMS client is initialized only when such a value exists.
 - **KMS auto-rotation safe** — AWS KMS preserves all previous key material versions, so ciphertexts encrypted with older versions still decrypt.
-- **Fail-fast** — any resolution failure aborts startup. Clear error if backend-specific values found but backend not configured.
-- **Testable** — `KMSClient` and `SecretsManagerClient` interfaces for mock injection in tests.
+- **Fail-fast** — any resolution failure aborts startup.
+- **Testable** — `KMSClient` interface for mock injection in tests.
 
 **CLI:**
-- `sekiactl secrets keygen [--output <path>]` — generate age keypair (default `~/.config/sekia/age.key`)
-- `sekiactl secrets encrypt <value> [--recipient <pubkey>]` — encrypt with age, output `ENC[...]`
-- `sekiactl secrets decrypt <ENC[...]>` — decrypt age value (for debugging)
 - `sekiactl secrets kms-encrypt <value> --key-id <id>` — encrypt with AWS KMS, output `KMS[...]`
 - `sekiactl secrets kms-decrypt <KMS[...]>` — decrypt KMS value (for debugging)
-- `sekiactl secrets asm-get <name-or-arn>` — fetch from Secrets Manager (for debugging)
 
-**Config**: `[secrets]` section — `identity` (path to age key file), `aws_region` (optional AWS region override), `kms_key_id` (default KMS key for encryption). Env vars: `SEKIA_AGE_KEY`, `SEKIA_AGE_KEY_FILE`, `SEKIA_KMS_KEY_ID`.
+**Config**: `[secrets]` section — `aws_region` (optional AWS region override), `kms_key_id` (default KMS key for `sekiactl secrets kms-encrypt`). Env var: `SEKIA_KMS_KEY_ID`.
 
 ### Website and documentation (`docs/`)
 
@@ -452,13 +272,16 @@ Static website at `sekia.ai` with comprehensive documentation at `sekia.ai/docs/
 
 **Homebrew**: Each component is a separate formula in the `sekia-ai/homebrew-tap` repository, installed individually:
 - `sekia` — daemon (`sekiad`) + CLI (`sekiactl`)
-- `sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-google` — agent formulas (each depends on `sekia`)
-- `sekia-mcp` — MCP server (no service, stdio-based)
+- `sekia-github`, `sekia-google` — agent formulas (each depends on `sekia`)
 
-**launchd services**: Every formula except `sekia-mcp` includes a Homebrew service definition (`keep_alive true`, logs to `var/log/<formula>.log`). Users manage them with `brew services start/stop/list`.
+**launchd services**: Every formula includes a Homebrew service definition (`keep_alive true`, logs to `var/log/<formula>.log`). Users manage them with `brew services start/stop/list`.
 
-**Archives**: goreleaser builds 7 binaries (linux+darwin, amd64+arm64), packages them into per-component tarballs, signs checksums with cosign, and generates SBOMs.
+**Archives**: goreleaser builds 4 binaries (linux+darwin, amd64+arm64), packages them into three per-component tarballs (`sekia`, `sekia-github`, `sekia-google`), signs checksums with cosign, and generates SBOMs.
+
+**Docker**: `Dockerfile` (`golang:1.27-alpine` builder) has targets `sekiad`, `sekia-github`, `sekia-google`; `docker-compose.yml` runs the same three services.
+
+**CI** (`.github/workflows/ci.yml`): `go vet`, `go test -race`, `go build` of the 4 binaries, `govulncheck` + `gosec`, Trivy scan of the `sekiad` image.
 
 ## Project status
 
-All phases complete. Docker, goreleaser, GitHub Actions CI/CD, web dashboard, MCP server, and documentation site are in place.
+0.3.0 trims sekia to the GitHub and Google (Gmail) agents. Docker, goreleaser, GitHub Actions CI and the documentation site remain.

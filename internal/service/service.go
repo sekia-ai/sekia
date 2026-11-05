@@ -18,11 +18,9 @@ type ServiceInfo struct {
 
 // validBinaries is the allowlist of agent binaries that can be managed as services.
 var validBinaries = map[string]bool{
-	"sekiad":        true,
-	"sekia-github":  true,
-	"sekia-slack":   true,
-	"sekia-linear":  true,
-	"sekia-google":  true,
+	"sekiad":       true,
+	"sekia-github": true,
+	"sekia-google": true,
 }
 
 // nameRegex allows alphanumeric characters and hyphens.
@@ -31,7 +29,7 @@ var nameRegex = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`)
 // ValidateBinary checks that the binary is a known sekia agent.
 func ValidateBinary(binary string) error {
 	if !validBinaries[binary] {
-		return fmt.Errorf("unknown binary %q; valid binaries: sekiad, sekia-github, sekia-slack, sekia-linear, sekia-google", binary)
+		return fmt.Errorf("unknown binary %q; valid binaries: sekiad, sekia-github, sekia-google", binary)
 	}
 	return nil
 }

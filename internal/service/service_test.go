@@ -14,9 +14,8 @@ func TestValidateBinary(t *testing.T) {
 	}{
 		{"sekiad", false},
 		{"sekia-github", false},
-		{"sekia-slack", false},
-		{"sekia-linear", false},
 		{"sekia-google", false},
+		{"sekia-slack", true},
 		{"sekia-mcp", true},
 		{"unknown", true},
 		{"", true},

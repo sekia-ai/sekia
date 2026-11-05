@@ -20,7 +20,7 @@ func main() {
 
 	rootCmd := &cobra.Command{
 		Use:   "sekia-google",
-		Short: "sekia Google agent — Gmail and Calendar via REST API",
+		Short: "sekia Google agent — Gmail via REST API",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := zerolog.New(
 				zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339},

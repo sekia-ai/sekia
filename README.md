@@ -4,11 +4,11 @@
 
 # sekia
 
-A multi-agent event bus for automating workflows across GitHub, Gmail, Google Calendar, Linear, and Slack. Built on embedded NATS with JetStream.
+A multi-agent event bus for automating workflows across GitHub and Gmail. Built on embedded NATS with JetStream.
 
 **[Documentation](https://sekia.ai/docs/)** &middot; **[Website](https://sekia.ai)**
 
-Seven binaries — `sekiad` (daemon), `sekiactl` (CLI), four agents (`sekia-github`, `sekia-slack`, `sekia-linear`, `sekia-google`), and `sekia-mcp` (MCP server) — communicate over NATS. The daemon and CLI also use a Unix socket.
+Four binaries — `sekiad` (daemon), `sekiactl` (CLI), and two agents (`sekia-github`, `sekia-google`) — communicate over NATS. The daemon and CLI also use a Unix socket.
 
 ## Architecture
 
@@ -17,36 +17,27 @@ Seven binaries — `sekiad` (daemon), `sekiactl` (CLI), four agents (`sekia-gith
 │                              sekiad                              │
 │                                                                  │
 │  ┌───────────────┐  ┌──────────┐  ┌───────────┐  ┌────────────┐  │
-│  │ Embedded NATS │  │ Registry │  │ Workflow  │  │ Sentinel   │  │
-│  │ + JetStream   │  │          │  │  Engine   │  │ (AI checks)│  │
-│  └───────┬───────┘  └──────────┘  └─────┬─────┘  └────────────┘  │
-│          │                              │                        │
-│  ┌───────┴───────┐  ┌──────────┐  ┌─────┴─────┐  ┌────────────┐  │
-│  │ AI Client     │  │ Skills   │  │ Conver-   │  │  HTTP API  │  │
-│  │ (Anthropic)   │  │          │  │ sations   │  │            │  │
-│  └───────────────┘  └──────────┘  └───────────┘  └──────┬─────┘  │
-│                                                         │        │
-│  ┌────────────────────────────────────────────────────┐ │        │
-│  │ Web Dashboard (htmx + SSE)                  :8080  │ │        │
-│  └────────────────────────────────────────────────────┘ │        │
-└─────────────────────────────────────────────────────────┼────────┘
-               │ NATS (in-process)                        │ Unix socket
-               │                                          │
-    ┌──────────┼────────────────────────────┐       ┌─────┴──────┐
-    │          │                            │       │  sekiactl  │
-    │    ┌─────┴──────┐   ┌──────────┐      │       └────────────┘
-    │    │ *.lua      │   │ SKILL.md │      │       ┌────────────┐
-    │    │ workflows  │   │ handlers │      │       │ sekia-mcp  │
-    │    └────────────┘   └──────────┘      │       │ (stdio)    │
-    │────────────┼────────────┼─────────────│       └────────────┘
-    ▼            ▼            ▼             ▼
-┌────────┐  ┌─────────┐  ┌──────────┐  ┌──────────┐
-│ sekia- │  │ sekia-  │  │ sekia-   │  │ sekia-   │
-│ github │  │ slack   │  │ linear   │  │ google   │
-└───┬────┘  └────┬────┘  └────┬─────┘  └────┬─────┘
-    │            │            │             │
-    ▼            ▼            ▼             ▼
-  GitHub      Slack        Linear     Gmail/Calendar
+│  │ Embedded NATS │  │ Registry │  │ Workflow  │  │  HTTP API  │  │
+│  │ + JetStream   │  │          │  │  Engine   │  │            │  │
+│  └───────┬───────┘  └──────────┘  └─────┬─────┘  └──────┬─────┘  │
+│          │                              │               │        │
+└──────────┼──────────────────────────────┼───────────────┼────────┘
+           │ NATS (in-process)            │               │ Unix socket
+           │                              │               │
+           │                        ┌─────┴──────┐  ┌─────┴──────┐
+           │                        │ *.lua      │  │  sekiactl  │
+           │                        │ workflows  │  └────────────┘
+           │                        └────────────┘
+    ┌──────┴──────┐
+    │             │
+    ▼             ▼
+┌────────┐    ┌────────┐
+│ sekia- │    │ sekia- │
+│ github │    │ google │
+└───┬────┘    └───┬────┘
+    │             │
+    ▼             ▼
+  GitHub        Gmail
 ```
 
 ### Startup sequence
@@ -54,9 +45,10 @@ Seven binaries — `sekiad` (daemon), `sekiactl` (CLI), four agents (`sekia-gith
 1. Start embedded NATS with JetStream
 2. Create registry (subscribes to `sekia.registry` and `sekia.heartbeat.>`)
 3. Start workflow engine, load `.lua` files, optionally start file watcher
-4. Start HTTP API on Unix socket
-5. Block on OS signal or stop channel
-6. Shutdown in reverse order
+4. Subscribe to config-reload subjects
+5. Start HTTP API on Unix socket
+6. Block on OS signal or stop channel
+7. Shutdown in reverse order (API → workflow engine → registry → NATS)
 
 ### NATS subjects
 
@@ -79,13 +71,10 @@ brew install sekia-ai/tap/sekia
 
 # Agents (install the ones you need)
 brew install sekia-ai/tap/sekia-github
-brew install sekia-ai/tap/sekia-slack
-brew install sekia-ai/tap/sekia-linear
 brew install sekia-ai/tap/sekia-google
-brew install sekia-ai/tap/sekia-mcp
 ```
 
-Each formula (except `sekia-mcp`) includes a launchd service. Use `brew services` to manage them:
+Each formula includes a launchd service. Use `brew services` to manage them:
 
 ```bash
 # Start the daemon as a background service
@@ -93,7 +82,7 @@ brew services start sekia
 
 # Start agents as background services
 brew services start sekia-github
-brew services start sekia-slack
+brew services start sekia-google
 
 # Check running services
 brew services list
@@ -110,28 +99,26 @@ Logs are written to `$(brew --prefix)/var/log/<formula>.log`.
 go install github.com/sekia-ai/sekia/cmd/sekiad@latest
 go install github.com/sekia-ai/sekia/cmd/sekiactl@latest
 go install github.com/sekia-ai/sekia/cmd/sekia-github@latest
-go install github.com/sekia-ai/sekia/cmd/sekia-slack@latest
-go install github.com/sekia-ai/sekia/cmd/sekia-linear@latest
 go install github.com/sekia-ai/sekia/cmd/sekia-google@latest
-go install github.com/sekia-ai/sekia/cmd/sekia-mcp@latest
 ```
 
 ### Docker
 
 ```bash
-# Run the full stack
+# Run the full stack (sekiad, sekia-github, sekia-google)
 docker compose up
 
 # Or just the daemon
 docker compose up sekiad
 ```
 
-Agent credentials are read from environment variables. Copy `.env.example` to `.env` and fill in your tokens:
+Agent credentials are read from environment variables (`GITHUB_TOKEN`, `GITHUB_WEBHOOK_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`). `docker compose` also picks them up from a `.env` file in the project directory:
 
 ```bash
-cp .env.example .env
-# Edit .env with your GITHUB_TOKEN, SLACK_BOT_TOKEN, etc.
-docker compose up
+# .env
+GITHUB_TOKEN=ghp_...
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
 ```
 
 Individual images can be built with targets:
@@ -139,6 +126,7 @@ Individual images can be built with targets:
 ```bash
 docker build --target sekiad -t sekia/sekiad .
 docker build --target sekia-github -t sekia/sekia-github .
+docker build --target sekia-google -t sekia/sekia-google .
 ```
 
 ## Getting started
@@ -146,7 +134,7 @@ docker build --target sekia-github -t sekia/sekia-github .
 ### Build
 
 ```bash
-go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github ./cmd/sekia-slack ./cmd/sekia-linear ./cmd/sekia-google ./cmd/sekia-mcp
+go build ./cmd/sekiad ./cmd/sekiactl ./cmd/sekia-github ./cmd/sekia-google
 ```
 
 ### Run the daemon
@@ -172,78 +160,42 @@ Defaults:
 | Key | Default |
 |---|---|
 | `server.socket` | `~/.config/sekia/sekiad.sock` (or `$XDG_RUNTIME_DIR/sekia/sekiad.sock`) |
-| `server.listen` | `127.0.0.1:7600` |
 | `nats.embedded` | `true` |
 | `nats.data_dir` | `~/.local/share/sekia/nats` |
 | `workflows.dir` | `~/.config/sekia/workflows` |
 | `workflows.hot_reload` | `true` |
+| `workflows.handler_timeout` | `30s` |
 | `workflows.verify_integrity` | `false` |
-| `ai.provider` | `anthropic` |
-| `ai.model` | `claude-sonnet-4-20250514` |
-| `ai.max_tokens` | `1024` |
-| `ai.persona_path` | `~/.config/sekia/persona.md` |
-| `skills.dir` | `~/.config/sekia/skills` |
-| `conversation.max_history` | `50` |
-| `conversation.ttl` | `1h` |
-| `sentinel.enabled` | `false` |
-| `sentinel.interval` | `5m` |
-| `web.listen` | (empty — disabled) |
+
+Set `nats.host` and `nats.port` to expose NATS over TCP for agents running outside the daemon process, and `nats.token` (env `SEKIA_NATS_TOKEN`) to require a shared token. `security.command_secret` (env `SEKIA_COMMAND_SECRET`) signs workflow commands with HMAC-SHA256; agents verify them with the same secret from their own `[security]` section.
 
 See [configs/sekia.toml](configs/sekia.toml) for an example.
 
 ### Secrets Encryption
 
-Secret values in config files can be encrypted or referenced inline using three backends:
+Secret values in config files can be encrypted inline with AWS KMS:
 
 | Format | Backend | Description |
 |--------|---------|-------------|
-| `ENC[...]` | [age](https://age-encryption.org/) | Local age keypair encryption |
 | `KMS[...]` | AWS KMS | Encrypt/decrypt via AWS KMS API |
-| `ASM[...]` | AWS Secrets Manager | Fetch plaintext secret by name/ARN |
 
 ```bash
-# age: generate keypair + encrypt
-sekiactl secrets keygen
-sekiactl secrets encrypt "ghp_mytoken123"    # → ENC[...]
-
-# AWS KMS: encrypt with a KMS key
+# Encrypt with a KMS key
 sekiactl secrets kms-encrypt --key-id alias/sekia "ghp_mytoken123"  # → KMS[...]
-```
 
-All three formats can be mixed in the same config file:
+# Decrypt a value (for debugging)
+sekiactl secrets kms-decrypt "KMS[AQIDAHhB...]"
+```
 
 ```toml
 [github]
-token = "ENC[YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IF...]"
+token = "KMS[AQIDAHhB...]"
 
 [webhook]
-secret = "KMS[AQIDAHhB...]"
-
-[nats]
-token = "ASM[prod/sekia/nats-token]"
+secret = "KMS[AQIDAHhC...]"
 ```
 
-For age, the decryption key can live off-machine — set `SEKIA_AGE_KEY` (raw key) or `SEKIA_AGE_KEY_FILE` (path). For AWS backends, credentials use the standard SDK default chain (env, profile, instance role). See [SECURITY.md](SECURITY.md) for details.
-
-## Web Dashboard
-
-sekia includes an embedded web dashboard for monitoring agents, workflows, and live events. Enable it by setting `web.listen`:
-
-```toml
-[web]
-listen = ":8080"
-```
-
-Then open `http://localhost:8080/web` in your browser. The dashboard shows:
-
-- **System status** — uptime, NATS status, agent/workflow counts
-- **Connected agents** — name, status, version, event/error counters, last heartbeat
-- **Loaded workflows** — name, handler count, event/error counters, patterns
-- **Live events** — real-time event stream via Server-Sent Events (SSE)
-
-Status and agent/workflow panels auto-refresh every 5–10 seconds via htmx. The event stream updates in real-time. No external dependencies — htmx and Alpine.js are vendored and embedded in the binary.
-
-Security hardening is built in: `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, and `Strict-Transport-Security` headers are set on every response. SSE connections are capped at 50 to prevent DoS. CSRF protection via double-submit cookie is enforced on all state-changing requests.
+`--key-id` defaults to `secrets.kms_key_id` (env `SEKIA_KMS_KEY_ID`). Every binary resolves `KMS[...]` values at startup and fails fast if one cannot be decrypted. AWS credentials use the standard SDK default chain (env, profile, instance role); set `secrets.aws_region` to override the region. The key ID is embedded in the ciphertext, so decryption needs no key configuration. See [SECURITY.md](SECURITY.md) for details.
 
 ## API
 
@@ -255,7 +207,7 @@ The daemon exposes an HTTP API over its Unix socket.
 | `GET /api/v1/agents` | List registered agents with capabilities and stats |
 | `GET /api/v1/workflows` | List loaded workflows with handler patterns and stats |
 | `POST /api/v1/workflows/reload` | Reload all workflows from disk |
-| `GET /api/v1/skills` | List loaded skills with descriptions and triggers |
+| `POST /api/v1/config/reload?target=<name\|*>` | Reload configuration on the daemon and all agents, or on a single component (`sekiactl config reload [--target <name>]`) |
 
 ## Agent SDK
 
@@ -322,14 +274,9 @@ end)
 | `sekia.publish(subject, type, payload)` | Emit a new event |
 | `sekia.command(agent, command, payload)` | Send command to an agent |
 | `sekia.log(level, message)` | Log a message (`debug`, `info`, `warn`, `error`) |
-| `sekia.ai(prompt [, opts])` | Call an LLM and return the response text. Options: `model`, `max_tokens`, `temperature`, `system` |
-| `sekia.ai_json(prompt [, opts])` | Like `sekia.ai` but requests JSON and returns a parsed Lua table |
-| `sekia.skill(name)` | Returns full instructions for a named skill (from `SKILL.md` files) |
-| `sekia.conversation(platform, channel, thread)` | Returns a conversation handle with `:append()`, `:reply()`, `:history()`, `:metadata()` |
-| `sekia.schedule(interval_seconds, handler)` | Register a timer-driven handler (minimum 1s interval) |
 | `sekia.name` | The workflow's name (derived from filename) |
 
-Workflows run in a sandboxed Lua VM with only `base`, `table`, `string`, and `math` libraries available. Dangerous functions (`os`, `io`, `debug`, `dofile`, `load`) are removed.
+Workflows run in a sandboxed Lua VM with only `base`, `table`, `string`, and `math` libraries available. Dangerous functions (`os`, `io`, `debug`, `dofile`, `load`) are removed. Each handler invocation is bounded by `workflows.handler_timeout` (default `30s`).
 
 When `hot_reload` is enabled (default), editing or adding `.lua` files automatically reloads the affected workflows.
 
@@ -346,184 +293,12 @@ Generate the manifest with `sekiactl`:
 
 ```bash
 sekiactl workflows sign
-# Signed 3 workflow(s) in ~/.config/sekia/workflows
-# a1b2c3...  github-labeler.lua
-# d4e5f6...  slack-responder.lua
-# 789abc...  linear-triage.lua
+# Signed 2 workflow(s) in ~/.config/sekia/workflows
+# a1b2c3...  github-auto-label.lua
+# d4e5f6...  gmail-auto-reply.lua
 ```
 
 The manifest uses `sha256sum`-compatible format. When hot-reload is enabled, updating the manifest file automatically triggers a full reload of all workflows.
-
-### AI-Powered Workflows
-
-Workflows can call an LLM using `sekia.ai()` and `sekia.ai_json()`. Configure the AI provider in `sekia.toml`:
-
-```toml
-[ai]
-# api_key can also be set via SEKIA_AI_API_KEY env var
-api_key = ""
-model = "claude-sonnet-4-20250514"
-max_tokens = 1024
-```
-
-Both functions are synchronous and return `(result, nil)` on success or `(nil, error_string)` on failure. If no API key is configured, they return `nil, "AI not configured"`.
-
-`sekia.ai(prompt, opts)` returns the raw response text. `sekia.ai_json(prompt, opts)` requests a JSON response and parses it into a Lua table.
-
-Options (all optional): `model`, `max_tokens`, `temperature`, `system`.
-
-**Example — AI issue classifier** ([configs/workflows/ai-issue-classifier.lua](configs/workflows/ai-issue-classifier.lua)):
-
-```lua
-sekia.on("sekia.events.github", function(event)
-    if event.type ~= "github.issue.opened" then return end
-
-    local prompt = "Classify this GitHub issue. Reply with exactly one word: bug, feature, question, or docs.\n\n"
-        .. "Title: " .. (event.payload.title or "") .. "\n"
-        .. "Body: " .. (event.payload.body or "")
-
-    local result, err = sekia.ai(prompt, {
-        max_tokens = 16,
-        temperature = 0,
-    })
-
-    if err then
-        sekia.log("error", "AI classification failed: " .. err)
-        return
-    end
-
-    local label = string.lower(string.gsub(result, "%s+", ""))
-    sekia.command("github-agent", "add_label", {
-        owner  = event.payload.owner,
-        repo   = event.payload.repo,
-        number = event.payload.number,
-        label  = label,
-    })
-end)
-```
-
-**Example — AI PR summary** ([configs/workflows/ai-pr-summary.lua](configs/workflows/ai-pr-summary.lua)):
-
-```lua
-sekia.on("sekia.events.github", function(event)
-    if event.type ~= "github.pr.opened" then return end
-
-    local result, err = sekia.ai(
-        "Write a brief one-paragraph summary of this pull request.\n\n"
-            .. "Title: " .. (event.payload.title or "") .. "\n"
-            .. "Body: " .. (event.payload.body or ""),
-        { system = "You are a helpful code review assistant. Be concise and technical." }
-    )
-
-    if err then return end
-
-    sekia.command("github-agent", "create_comment", {
-        owner  = event.payload.owner,
-        repo   = event.payload.repo,
-        number = event.payload.number,
-        body   = "**AI Summary:** " .. result,
-    })
-end)
-```
-
-### Persona — Agent Identity
-
-A markdown file defines your agent's personality, communication style, values, and boundaries. This content is automatically prepended to every AI system prompt.
-
-```bash
-# Create your persona
-cat > ~/.config/sekia/persona.md << 'EOF'
-You are a helpful engineering assistant. Be concise, technical, and direct.
-When in doubt, ask for clarification rather than guessing.
-EOF
-```
-
-**Config**: `ai.persona_path` in `sekia.toml` (default `~/.config/sekia/persona.md`).
-
-### Skills — Capability Definitions
-
-Skills are directory-based capability definitions with YAML frontmatter and natural language instructions. Place them in the skills directory (default `~/.config/sekia/skills/`).
-
-```markdown
-<!-- ~/.config/sekia/skills/pr-review/SKILL.md -->
----
-name: pr-review
-description: Reviews GitHub PRs for code quality
-triggers:
-  - github.pr.opened
-version: "1.0"
----
-When reviewing a PR:
-1. Check for test coverage
-2. Look for security issues
-3. Approve if only minor style issues
-```
-
-Skills metadata is automatically injected into AI prompts. Use `sekia.skill(name)` in workflows to get full instructions for a specific skill. Optional `handler.lua` files in skill directories are auto-loaded as workflows.
-
-### Conversations — Multi-Turn State
-
-The conversation API provides in-memory multi-turn conversation state with TTL eviction:
-
-```lua
-sekia.on("sekia.events.slack", function(event)
-    if event.type ~= "slack.mention" then return end
-
-    local conv = sekia.conversation("slack", event.payload.channel,
-        event.payload.thread_ts or event.payload.timestamp)
-
-    local text = event.payload.text:gsub("<@[^>]+>%s*", "")
-    local response, err = conv:reply(text)
-    if err then return end
-
-    sekia.command("slack-agent", "send_reply", {
-        channel = event.payload.channel,
-        thread_ts = event.payload.thread_ts or event.payload.timestamp,
-        text = response,
-    })
-end)
-```
-
-Conversations are keyed by (platform, channel, thread). The `:reply(prompt)` method appends the user message, sends the full conversation history to the LLM, and stores the assistant response. Use `:metadata(key, [value])` for per-conversation state.
-
-### Scheduled Workflows — Autonomous Agents
-
-Use `sekia.schedule()` to run handlers on a timer, enabling autonomous agent behavior:
-
-```lua
-sekia.schedule(300, function()  -- every 5 minutes
-    local result, err = sekia.ai_json("Review open PRs needing attention", {
-        system = sekia.skill("pr-review")
-    })
-    if err then return end
-
-    for _, pr in ipairs(result.prs or {}) do
-        sekia.command("github-agent", "create_comment", {
-            owner = pr.owner, repo = pr.repo,
-            number = pr.number, body = pr.review_comment,
-        })
-    end
-end)
-```
-
-### Sentinel — Proactive AI Checks
-
-Sentinel reads a markdown checklist on a configurable interval, gathers system context, and asks the AI if anything needs attention:
-
-```markdown
-<!-- ~/.config/sekia/sentinel.md -->
-- Are there GitHub PRs open >3 days without review?
-- Are there urgent Linear tickets with no assignee?
-- Have any agents gone offline since last check?
-```
-
-```toml
-[sentinel]
-enabled = true
-interval = "5m"
-```
-
-Events are published to `sekia.events.sentinel` and handled by workflows like any other event.
 
 ## Agents
 
@@ -571,7 +346,7 @@ sekiactl service remove github-work
 
 Optional flags on `create`:
 - `--config /path/to/config.toml` — pass an explicit config file
-- `--env KEY=VALUE` — set environment variables (repeatable; stored in plaintext, prefer `ENC[...]` config values)
+- `--env KEY=VALUE` — set environment variables (repeatable; stored in plaintext, prefer `KMS[...]` config values)
 
 Logs are written to `~/.config/sekia/logs/{name}.log`. The default `brew services`-managed instance is not affected.
 
@@ -636,109 +411,9 @@ Polled events include `payload.polled = true` so workflows can distinguish them 
 
 ---
 
-### Slack Agent
-
-Connects to Slack via [Socket Mode](https://api.slack.com/apis/socket-mode) (WebSocket). No public URL required.
-
-```bash
-export SLACK_BOT_TOKEN=xoxb-...
-export SLACK_APP_TOKEN=xapp-...
-./sekia-slack
-```
-
-**Setup**: Create a Slack app at [api.slack.com/apps](https://api.slack.com/apps) with Socket Mode enabled. Required bot token scopes: `chat:write`, `reactions:write`, `channels:history`, `groups:history`, `im:history`. Generate an app-level token with `connections:write` scope. Enable **Interactivity** in your app settings to receive button click events (no Request URL needed with Socket Mode).
-
-**Config**: [configs/sekia-slack.toml](configs/sekia-slack.toml). Env vars: `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SEKIA_NATS_URL`.
-
-**Events**:
-
-| Slack Event | sekia Event Type | Payload Fields |
-|---|---|---|
-| New message (not from bot) | `slack.message.received` | `channel`, `user`, `text`, `timestamp`, `thread_ts` (if threaded) |
-| Reaction added | `slack.reaction.added` | `user`, `reaction`, `channel`, `timestamp` |
-| Channel created | `slack.channel.created` | `channel_id`, `channel_name`, `creator` |
-| Message mentioning the bot | `slack.mention` | `channel`, `user`, `text`, `timestamp` |
-| Button clicked | `slack.action.button_clicked` | `action_id`, `value`, `block_id`, `user`, `user_name`, `channel`, `message_ts`, `message_text`, `trigger_id` |
-
-**Commands**:
-
-| Command | Required Payload | Action |
-|---|---|---|
-| `send_message` | `channel`, `text`, `blocks` (optional) | Post a message. When `blocks` is provided (array of [Block Kit](https://api.slack.com/block-kit) objects), sends a rich message with `text` as notification fallback |
-| `add_reaction` | `channel`, `timestamp`, `emoji` | Add a reaction to a message |
-| `send_reply` | `channel`, `thread_ts`, `text` | Reply in a thread |
-| `update_message` | `channel`, `timestamp`, `text`, `blocks` (optional) | Update an existing message. When `blocks` is provided, updates with rich Block Kit content |
-
-**Example workflow**: [configs/workflows/slack-auto-reply.lua](configs/workflows/slack-auto-reply.lua)
-
-```lua
-sekia.on("sekia.events.slack", function(event)
-    if event.type ~= "slack.mention" then return end
-
-    sekia.command("slack-agent", "send_reply", {
-        channel   = event.payload.channel,
-        thread_ts = event.payload.timestamp,
-        text      = "Hi <@" .. event.payload.user .. ">, thanks for reaching out!",
-    })
-end)
-```
-
----
-
-### Linear Agent
-
-Polls the [Linear GraphQL API](https://developers.linear.app/docs/graphql/working-with-the-graphql-api) for updated issues and comments. No webhooks or public URL required.
-
-```bash
-export LINEAR_API_KEY=lin_api_...
-./sekia-linear
-```
-
-**Setup**: Create a personal API key at [linear.app/settings/api](https://linear.app/settings/api).
-
-**Config**: [configs/sekia-linear.toml](configs/sekia-linear.toml). Env vars: `LINEAR_API_KEY`, `SEKIA_NATS_URL`.
-
-| Setting | Default | Description |
-|---|---|---|
-| `poll.interval` | `30s` | How often to poll Linear |
-| `poll.team_filter` | (empty) | Limit to a team key (e.g., `ENG`) |
-
-**Events**:
-
-| Trigger | sekia Event Type | Payload Fields |
-|---|---|---|
-| New issue (created since last poll) | `linear.issue.created` | `id`, `identifier`, `title`, `state`, `priority`, `team`, `url`, `assignee`, `labels` |
-| Issue updated | `linear.issue.updated` | (same as above) |
-| Issue moved to Done/Completed/Canceled | `linear.issue.completed` | (same as above) |
-| New comment | `linear.comment.created` | `id`, `body`, `author`, `issue_id`, `issue_identifier` |
-
-**Commands**:
-
-| Command | Required Payload | Action |
-|---|---|---|
-| `create_issue` | `team_id`, `title`, `description` (optional) | Create a new issue |
-| `update_issue` | `issue_id`, plus `state_id`/`assignee_id`/`priority` | Update an issue |
-| `create_comment` | `issue_id`, `body` | Add a comment to an issue |
-| `add_label` | `issue_id`, `label_id` | Add a label to an issue |
-
-**Example workflow**: [configs/workflows/linear-auto-triage.lua](configs/workflows/linear-auto-triage.lua)
-
-```lua
-sekia.on("sekia.events.linear", function(event)
-    if event.type ~= "linear.issue.created" then return end
-
-    sekia.command("linear-agent", "create_comment", {
-        issue_id = event.payload.id,
-        body     = "Auto-triaged. Team: " .. (event.payload.team or "unknown"),
-    })
-end)
-```
-
----
-
 ### Google Agent
 
-Bridges Gmail and Google Calendar to the NATS event bus via Google REST APIs with OAuth2 authentication.
+Bridges Gmail to the NATS event bus via the Gmail REST API with OAuth2 authentication.
 
 ```bash
 # First time: authorize via browser
@@ -748,26 +423,27 @@ sekia-google auth --config configs/sekia-google.toml
 ./sekia-google
 ```
 
-**Setup**: Create OAuth credentials at [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials) with application type "Desktop app". Run `sekia-google auth` to authorize via browser.
+**Setup**: Create OAuth credentials at [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials) with application type "Desktop app". Run `sekia-google auth` to authorize via browser. On a headless or remote machine, set `google.auth_port` and forward that port over SSH so the browser redirect reaches the agent.
 
 **Config**: [configs/sekia-google.toml](configs/sekia-google.toml). Env vars: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_TOKEN_PATH`, `SEKIA_NATS_URL`.
 
-**Gmail Events**:
+| Setting | Description |
+|---|---|
+| `gmail.enabled` | Must be `true` |
+| `gmail.poll_interval` | How often to poll Gmail for new messages |
+| `gmail.user_id` | Mailbox to watch (`me` for the authorized account) |
+| `gmail.query` | Optional Gmail search query to filter polled messages |
+| `gmail.max_messages` | Maximum messages fetched per poll |
+
+`gmail.poll_interval`, `gmail.query`, `gmail.max_messages` and `security.command_secret` can be changed at runtime with `sekiactl config reload`; OAuth2 credentials require a restart.
+
+**Events**:
 
 | Trigger | sekia Event Type | Payload Fields |
 |---|---|---|
 | New message | `gmail.message.received` | `id`, `thread_id`, `message_id`, `from`, `to`, `subject`, `body`, `date`, `labels` |
 
-**Calendar Events**:
-
-| Trigger | sekia Event Type | Payload Fields |
-|---|---|---|
-| New event | `google.calendar.event.created` | `id`, `summary`, `description`, `location`, `start`, `end`, `organizer`, `attendees`, `html_link` |
-| Event updated | `google.calendar.event.updated` | (same as above) |
-| Event deleted | `google.calendar.event.deleted` | `id`, `summary`, `status` |
-| Event starting soon | `google.calendar.event.upcoming` | (same as created) + `minutes_until` |
-
-**Gmail Commands**:
+**Commands**:
 
 | Command | Required Payload | Action |
 |---|---|---|
@@ -780,85 +456,52 @@ sekia-google auth --config configs/sekia-google.toml
 | `untrash` | `message_id` | Move a trashed message back to inbox |
 | `delete` | `message_id` | Permanently delete a message |
 
-**Calendar Commands**:
-
-| Command | Required Payload | Action |
-|---|---|---|
-| `create_event` | `summary`, `start`, `end` | Create a calendar event |
-| `update_event` | `event_id`, plus optional fields | Update a calendar event |
-| `delete_event` | `event_id` | Delete a calendar event |
-
-**Example workflow**: [configs/workflows/google-calendar-notify.lua](configs/workflows/google-calendar-notify.lua)
-
----
-
-### MCP Server
-
-Exposes sekia capabilities to AI assistants (Claude Desktop, Claude Code, Cursor) via the [Model Context Protocol](https://modelcontextprotocol.io). Uses stdio transport — the MCP client launches `sekia-mcp` as a subprocess.
-
-```bash
-./sekia-mcp
-```
-
-**Config**: [configs/sekia-mcp.toml](configs/sekia-mcp.toml). Env vars: `SEKIA_NATS_URL`, `SEKIA_DAEMON_SOCKET`.
-
-**MCP Tools**:
-
-| Tool | Description |
-|---|---|
-| `get_status` | Daemon health, uptime, NATS status, agent/workflow counts |
-| `list_agents` | Connected agents with capabilities, commands, and heartbeat data |
-| `list_workflows` | Loaded Lua workflows with handler patterns and event/error counts |
-| `reload_workflows` | Hot-reload all .lua workflow files from disk |
-| `publish_event` | Emit a synthetic event onto the NATS bus to trigger workflows |
-| `send_command` | Send a command to a connected agent (Slack message, GitHub comment, etc.) |
-
-**Claude Desktop setup**: Add to your MCP settings (`~/Library/Application Support/Claude/claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "sekia": {
-      "command": "sekia-mcp",
-      "env": {
-        "SEKIA_NATS_URL": "nats://127.0.0.1:4222",
-        "SEKIA_DAEMON_SOCKET": "~/.config/sekia/sekiad.sock"
-      }
-    }
-  }
-}
-```
+**Example workflow**: [configs/workflows/gmail-auto-reply.lua](configs/workflows/gmail-auto-reply.lua)
 
 ---
 
 ## Cross-Agent Workflows
 
-The real power of sekia is connecting agents together. Here's a workflow that posts to Slack when a GitHub issue is opened, and creates a Linear tracking issue:
+The real power of sekia is connecting agents together. Here's a workflow that emails the on-call engineer when a GitHub issue is labeled `urgent`, then acknowledges on the issue:
 
 ```lua
--- ~/.config/sekia/workflows/issue-tracker.lua
+-- ~/.config/sekia/workflows/urgent-issue-email.lua
 
 sekia.on("sekia.events.github", function(event)
-    if event.type ~= "github.issue.opened" then return end
+    if event.type ~= "github.issue.labeled" then return end
+    if event.payload.label ~= "urgent" then return end
 
     local title = event.payload.title
     local url   = event.payload.url
     local repo  = event.payload.repo
 
-    -- Notify the team in Slack
-    sekia.command("slack-agent", "send_message", {
-        channel = "C_ENGINEERING",
-        text    = "New issue in " .. repo .. ": " .. title .. "\n" .. url,
+    -- Email the on-call engineer
+    sekia.command("google-agent", "send_email", {
+        to      = "oncall@example.com",
+        subject = "[" .. repo .. "] urgent: " .. title,
+        body    = "GitHub issue: " .. url,
     })
 
-    -- Create a tracking issue in Linear
-    sekia.command("linear-agent", "create_issue", {
-        team_id     = "TEAM_ID_HERE",
-        title       = "[" .. repo .. "] " .. title,
-        description = "GitHub issue: " .. url,
+    -- Leave a note on the issue
+    sekia.command("github-agent", "create_comment", {
+        owner  = event.payload.owner,
+        repo   = repo,
+        number = event.payload.number,
+        body   = "On-call has been notified by email.",
     })
 end)
 ```
+
+## Upgrading from 0.2.x
+
+0.3.0 trims sekia to the GitHub and Google (Gmail) agents. It is a breaking release:
+
+- **Removed binaries**: `sekia-slack`, `sekia-linear` and `sekia-mcp`. Uninstall them with `brew uninstall sekia-slack sekia-linear sekia-mcp`.
+- **Removed config sections**: `[ai]`, `[sentinel]`, `[skills]`, `[conversation]` and `[web]` in `sekia.toml`, `[calendar]` in `sekia-google.toml`, and the `server.listen` key. They are ignored and can be deleted.
+- **Removed Lua functions**: `sekia.ai`, `sekia.ai_json`, `sekia.skill`, `sekia.conversation` and `sekia.schedule`. Scheduled workflows are gone entirely; workflows that call these functions must be rewritten.
+- **Removed secrets backends**: age (`ENC[...]`) and AWS Secrets Manager (`ASM[...]`), along with `sekiactl secrets keygen|encrypt|decrypt|asm-get`, `SEKIA_AGE_KEY`, `SEKIA_AGE_KEY_FILE` and `secrets.identity`. `ENC[...]` and `ASM[...]` values are no longer recognized and will be used as literal strings; re-encrypt them with `sekiactl secrets kms-encrypt` (or replace them with plaintext) before upgrading. Only `KMS[...]` remains.
+- **Removed Google Calendar support**: the `google.calendar.event.*` events and the `create_event`, `update_event` and `delete_event` commands are gone. `sekia-google` is Gmail only and requires `gmail.enabled = true`.
+- **Files you can delete**: `~/.config/sekia/persona.md`, `~/.config/sekia/sentinel.md`, `~/.config/sekia/age.key` and the `~/.config/sekia/skills/` directory are no longer read.
 
 ## Testing
 

@@ -26,7 +26,7 @@ func TestLoadDir(t *testing.T) {
 	`), 0644)
 	os.WriteFile(filepath.Join(wfDir, "readme.txt"), []byte("not a workflow"), 0644)
 
-	eng := New(nc, wfDir, nil, 0, "", testLogger())
+	eng := New(nc, wfDir, 0, "", testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestLoadDir_EmptyDir(t *testing.T) {
 	wfDir := filepath.Join(tmpDir, "workflows")
 	// Don't create it — LoadDir should create it.
 
-	eng := New(nc, wfDir, nil, 0, "", testLogger())
+	eng := New(nc, wfDir, 0, "", testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestLoadDir_SyntaxError(t *testing.T) {
 		this is not valid lua !@#$
 	`), 0644)
 
-	eng := New(nc, wfDir, nil, 0, "", testLogger())
+	eng := New(nc, wfDir, 0, "", testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestReloadAll(t *testing.T) {
 		sekia.on("sekia.events.v1", function(event) end)
 	`), 0644)
 
-	eng := New(nc, wfDir, nil, 0, "", testLogger())
+	eng := New(nc, wfDir, 0, "", testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestHotReload(t *testing.T) {
 	wfDir := filepath.Join(tmpDir, "workflows")
 	os.MkdirAll(wfDir, 0755)
 
-	eng := New(nc, wfDir, nil, 0, "", testLogger())
+	eng := New(nc, wfDir, 0, "", testLogger())
 	if err := eng.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestLoadWorkflow_IntegrityPass(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	eng := New(nc, wfDir, nil, 0, "", testLogger())
+	eng := New(nc, wfDir, 0, "", testLogger())
 	eng.SetVerifyIntegrity(true)
 	if err := eng.Start(); err != nil {
 		t.Fatal(err)
@@ -240,7 +240,7 @@ func TestLoadWorkflow_IntegrityFail(t *testing.T) {
 	// Tamper with the file after signing.
 	os.WriteFile(filepath.Join(wfDir, "tampered.lua"), []byte(`sekia.on("sekia.events.test", function(event) sekia.command("evil", "pwned", {}) end)`), 0644)
 
-	eng := New(nc, wfDir, nil, 0, "", testLogger())
+	eng := New(nc, wfDir, 0, "", testLogger())
 	eng.SetVerifyIntegrity(true)
 	if err := eng.Start(); err != nil {
 		t.Fatal(err)
@@ -277,7 +277,7 @@ func TestProcessBatch_IntegrityViolationUnloadsWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	eng := New(nc, wfDir, nil, 0, "", testLogger())
+	eng := New(nc, wfDir, 0, "", testLogger())
 	eng.SetVerifyIntegrity(true)
 	if err := eng.Start(); err != nil {
 		t.Fatal(err)
@@ -314,7 +314,7 @@ func TestProcessBatch_SyntaxErrorKeepsOldWorkflow(t *testing.T) {
 	wfPath := filepath.Join(wfDir, "stable.lua")
 	os.WriteFile(wfPath, code, 0644)
 
-	eng := New(nc, wfDir, nil, 0, "", testLogger())
+	eng := New(nc, wfDir, 0, "", testLogger())
 	// Integrity verification is OFF — syntax errors should keep old workflow.
 	if err := eng.Start(); err != nil {
 		t.Fatal(err)

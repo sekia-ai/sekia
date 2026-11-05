@@ -19,11 +19,10 @@ import (
 	googleoauth2 "golang.org/x/oauth2/google"
 )
 
-// OAuth scopes required for Gmail + Calendar access.
+// OAuth scopes required for Gmail access.
 var oauthScopes = []string{
 	"https://www.googleapis.com/auth/gmail.modify",
 	"https://www.googleapis.com/auth/gmail.send",
-	"https://www.googleapis.com/auth/calendar",
 }
 
 // googleoauth2Endpoint is the Google OAuth2 endpoint; overridden in tests.

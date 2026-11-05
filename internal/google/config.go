@@ -17,7 +17,6 @@ type Config struct {
 	NATS     NATSConfig     `mapstructure:"nats"`
 	Google   GoogleConfig   `mapstructure:"google"`
 	Gmail    GmailConfig    `mapstructure:"gmail"`
-	Calendar CalendarConfig `mapstructure:"calendar"`
 	Security SecurityConfig `mapstructure:"security"`
 }
 
@@ -44,14 +43,6 @@ type GmailConfig struct {
 	MaxMessages  int64         `mapstructure:"max_messages"`
 }
 
-// CalendarConfig holds Calendar polling settings.
-type CalendarConfig struct {
-	Enabled      bool          `mapstructure:"enabled"`
-	PollInterval time.Duration `mapstructure:"poll_interval"`
-	CalendarID   string        `mapstructure:"calendar_id"`
-	UpcomingMins int           `mapstructure:"upcoming_mins"`
-}
-
 // SecurityConfig holds application-level security settings.
 type SecurityConfig struct {
 	CommandSecret string `mapstructure:"command_secret"`
@@ -69,10 +60,6 @@ func LoadConfig(cfgFile, instanceName string) (Config, error) {
 	v.SetDefault("gmail.poll_interval", "30s")
 	v.SetDefault("gmail.user_id", "me")
 	v.SetDefault("gmail.max_messages", 20)
-	v.SetDefault("calendar.enabled", false)
-	v.SetDefault("calendar.poll_interval", "60s")
-	v.SetDefault("calendar.calendar_id", "primary")
-	v.SetDefault("calendar.upcoming_mins", 0)
 
 	v.SetConfigType("toml")
 
@@ -98,7 +85,7 @@ func LoadConfig(cfgFile, instanceName string) (Config, error) {
 
 	_ = v.ReadInConfig() // config file is optional
 
-	// Resolve any encrypted or referenced values (ENC[...], KMS[...], ASM[...]).
+	// Resolve any KMS[...] encrypted values.
 	if err := secrets.ResolveViperConfig(v); err != nil {
 		return Config{}, fmt.Errorf("resolve config secrets: %w", err)
 	}
@@ -126,8 +113,8 @@ func ValidateForRun(cfg Config) error {
 	if cfg.Google.ClientSecret == "" {
 		return fmt.Errorf("google.client_secret is required (set via config file or GOOGLE_CLIENT_SECRET env var)")
 	}
-	if !cfg.Gmail.Enabled && !cfg.Calendar.Enabled {
-		return fmt.Errorf("at least one of gmail.enabled or calendar.enabled must be true")
+	if !cfg.Gmail.Enabled {
+		return fmt.Errorf("gmail.enabled must be true")
 	}
 	return nil
 }

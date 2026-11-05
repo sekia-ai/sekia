@@ -55,7 +55,7 @@ end)
 	os.WriteFile(filepath.Join(wfDir, "auto-reply.lua"), []byte(workflowCode), 0644)
 
 	d, _ := newTestDaemon(t, wfDir)
-	ga := newTestGoogleAgent(t, d, mock, nil)
+	ga := newTestGoogleAgent(t, d, mock)
 
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
@@ -89,68 +89,6 @@ end)
 	_ = ga // keep reference
 }
 
-// TestGoogleAgentCalendarEndToEnd tests the full Calendar flow:
-// poller fetches events → event on NATS → Lua workflow → command → mock Calendar API
-func TestGoogleAgentCalendarEndToEnd(t *testing.T) {
-	calMock := &mockCalendarClient{
-		events: []googleagent.CalendarEvent{
-			{
-				ID:      "evt-001",
-				Summary: "Team standup",
-				Start:   time.Now().Add(1 * time.Hour),
-				End:     time.Now().Add(2 * time.Hour),
-				Status:  "confirmed",
-				Created: time.Now(), // recently created → will emit "created" event
-			},
-		},
-		syncToken: "sync-token-1",
-	}
-
-	wfDir := t.TempDir()
-	workflowCode := `
-sekia.on("sekia.events.google", function(event)
-	if event.type ~= "google.calendar.event.created" then return end
-	sekia.command("google-agent", "create_event", {
-		summary = "Follow-up: " .. (event.payload.summary or ""),
-		start   = "2026-03-01T10:00:00Z",
-		["end"] = "2026-03-01T11:00:00Z",
-	})
-end)
-`
-	os.WriteFile(filepath.Join(wfDir, "calendar-followup.lua"), []byte(workflowCode), 0644)
-
-	d, _ := newTestDaemon(t, wfDir)
-	ga := newTestGoogleAgent(t, d, nil, calMock)
-
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		calMock.mu.Lock()
-		n := len(calMock.calendarCalls)
-		calMock.mu.Unlock()
-		if n > 0 {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	calMock.mu.Lock()
-	defer calMock.mu.Unlock()
-
-	if len(calMock.calendarCalls) == 0 {
-		t.Fatal("no Calendar API command calls received; expected create_event")
-	}
-
-	call := calMock.calendarCalls[0]
-	if call.Method != "CreateEvent" {
-		t.Errorf("method = %s, want CreateEvent", call.Method)
-	}
-	if call.Args["summary"] != "Follow-up: Team standup" {
-		t.Errorf("summary = %s, want 'Follow-up: Team standup'", call.Args["summary"])
-	}
-
-	_ = ga // keep reference
-}
-
 // TestGoogleAgentCommandHandling tests that commands received via NATS
 // are correctly dispatched to the appropriate API.
 func TestGoogleAgentCommandHandling(t *testing.T) {
@@ -158,10 +96,8 @@ func TestGoogleAgentCommandHandling(t *testing.T) {
 		profileEmail:     "bot@example.com",
 		profileHistoryID: 12345,
 	}
-	calMock := &mockCalendarClient{syncToken: "sync-token-1"}
-
 	d, _ := newTestDaemon(t, "")
-	ga := newTestGoogleAgent(t, d, gmailMock, calMock)
+	ga := newTestGoogleAgent(t, d, gmailMock)
 
 	time.Sleep(800 * time.Millisecond)
 
@@ -196,33 +132,6 @@ func TestGoogleAgentCommandHandling(t *testing.T) {
 	}
 	if call.Args["to"] != "bob@example.com" {
 		t.Errorf("to = %s, want bob@example.com", call.Args["to"])
-	}
-
-	// Send a Calendar create_event command.
-	cmd2 := map[string]any{
-		"command": "create_event",
-		"payload": map[string]any{
-			"summary": "Meeting",
-			"start":   "2026-03-01T10:00:00Z",
-			"end":     "2026-03-01T11:00:00Z",
-		},
-		"source": "test",
-	}
-	cmdData2, _ := json.Marshal(cmd2)
-	nc.Publish(protocol.SubjectCommands("google-agent"), cmdData2)
-	nc.Flush()
-
-	waitForCalls(t, &calMock.mu, &calMock.calendarCalls, 1)
-
-	calMock.mu.Lock()
-	calCall := calMock.calendarCalls[0]
-	calMock.mu.Unlock()
-
-	if calCall.Method != "CreateEvent" {
-		t.Errorf("method = %s, want CreateEvent", calCall.Method)
-	}
-	if calCall.Args["summary"] != "Meeting" {
-		t.Errorf("summary = %s, want Meeting", calCall.Args["summary"])
 	}
 
 	_ = ga // keep reference
@@ -368,61 +277,6 @@ func (m *mockGmailClient) Delete(_ context.Context, _, messageID string) error {
 	return nil
 }
 
-// --- Mock Calendar client ---
-
-type mockCalendarClient struct {
-	mu            sync.Mutex
-	events        []googleagent.CalendarEvent
-	syncToken     string
-	calendarCalls []mockCommandCall
-}
-
-func (m *mockCalendarClient) ListEvents(_ context.Context, _ string, syncToken string, _ time.Time) ([]googleagent.CalendarEvent, string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	// Return events only on first sync (no syncToken).
-	if syncToken == "" {
-		evts := m.events
-		m.events = nil
-		return evts, m.syncToken, nil
-	}
-	return nil, m.syncToken, nil
-}
-
-func (m *mockCalendarClient) ListUpcomingEvents(_ context.Context, _ string, _ int) ([]googleagent.CalendarEvent, error) {
-	return nil, nil
-}
-
-func (m *mockCalendarClient) CreateEvent(_ context.Context, _ string, event googleagent.CalendarEvent) (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.calendarCalls = append(m.calendarCalls, mockCommandCall{
-		Method: "CreateEvent",
-		Args:   map[string]string{"summary": event.Summary},
-	})
-	return "new-event-id", nil
-}
-
-func (m *mockCalendarClient) UpdateEvent(_ context.Context, _, eventID string, updates map[string]any) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.calendarCalls = append(m.calendarCalls, mockCommandCall{
-		Method: "UpdateEvent",
-		Args:   map[string]string{"event_id": eventID},
-	})
-	return nil
-}
-
-func (m *mockCalendarClient) DeleteEvent(_ context.Context, _, eventID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.calendarCalls = append(m.calendarCalls, mockCommandCall{
-		Method: "DeleteEvent",
-		Args:   map[string]string{"event_id": eventID},
-	})
-	return nil
-}
-
 // --- Daemon + agent helpers ---
 
 func newTestDaemon(t *testing.T, wfDir string) (*server.Daemon, any) {
@@ -472,16 +326,14 @@ func newTestDaemon(t *testing.T, wfDir string) (*server.Daemon, any) {
 	return d, nil
 }
 
-func newTestGoogleAgent(t *testing.T, d *server.Daemon, gmailMock googleagent.GmailClient, calMock googleagent.CalendarClient) *googleagent.GoogleAgent {
+func newTestGoogleAgent(t *testing.T, d *server.Daemon, gmailMock googleagent.GmailClient) *googleagent.GoogleAgent {
 	t.Helper()
 
 	ga := googleagent.NewTestAgent(
 		d.NATSClientURL(),
 		d.NATSConnectOpts(),
 		gmailMock,
-		calMock,
 		200*time.Millisecond, // fast poll for tests
-		200*time.Millisecond,
 		zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger(),
 	)
 
