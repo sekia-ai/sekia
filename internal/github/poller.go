@@ -2,8 +2,11 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -36,6 +39,10 @@ const (
 	// sinceSlack is subtracted from the watermark when asking GitHub for
 	// updated items so that second-granularity timestamps never hide an item.
 	sinceSlack = time.Second
+
+	// startupLookback is how far back a poller that never sweeps looks on its
+	// very first run, when there is no saved state to resume from.
+	startupLookback = time.Hour
 )
 
 // Poller periodically queries the GitHub REST API and publishes events.
@@ -50,11 +57,16 @@ const (
 //
 // Every tick fetches only items updated since the previous successful tick,
 // 100 per page and sorted by updated time, so a steady-state tick costs one
-// API call per repo and label. In the matched modes the first tick is a full
-// sweep of every matching item, and a sweep is repeated every sweep interval,
-// so an item whose event was lost while the daemon or an agent was down is
-// emitted again. Items whose updated time has not changed since their last
-// emission are suppressed between sweeps.
+// API call per repo and label. In the matched modes the first tick without
+// saved state is a full sweep of every matching item, and a sweep is repeated
+// every sweep interval, so an item whose event was lost while the daemon or an
+// agent was down is emitted again. Items whose updated time has not changed
+// since their last emission are suppressed between sweeps.
+//
+// The watermarks are saved to a state file after every successful tick and
+// restored at start, so a restart resumes where the previous run stopped. With
+// a sweep interval of zero the poller never sweeps: it resumes from the saved
+// state, or starts one hour back when there is none.
 //
 // Errors leave the watermark untouched and back off exponentially; GitHub
 // rate limit responses pause polling until the reset time GitHub reports.
@@ -79,8 +91,18 @@ type Poller struct {
 	// Time mode: wall-clock watermark used for the `since` parameter.
 	lastSync time.Time
 
+	stateFile    string // "" disables persistence
 	backoffUntil time.Time
 	failures     int
+}
+
+// pollState is the on-disk form of the poller's watermarks.
+type pollState struct {
+	Watermark time.Time            `json:"watermark"`
+	LastSweep time.Time            `json:"last_sweep"`
+	LastSync  time.Time            `json:"last_sync"`
+	SavedAt   time.Time            `json:"saved_at"`
+	Seen      map[string]time.Time `json:"seen,omitempty"` // dedup entries near the watermark (pruned, small)
 }
 
 type pollSettings struct {
@@ -100,7 +122,8 @@ func (s pollSettings) matchedMode() bool { return s.labelMode() || s.prMatchMode
 type PollerConfig struct {
 	Client        GitHubClient
 	Interval      time.Duration
-	SweepInterval time.Duration // 0 disables periodic sweeps (startup sweep still runs)
+	SweepInterval time.Duration // 0 = never sweep; resume from StateFile or start one hour back
+	StateFile     string        // watermark persistence; "" disables it
 	Repos         []RepoRef
 	Labels        []string
 	State         string
@@ -111,7 +134,7 @@ type PollerConfig struct {
 
 // NewPoller creates a GitHub API poller.
 func NewPoller(cfg PollerConfig) *Poller {
-	return &Poller{
+	p := &Poller{
 		client:  cfg.Client,
 		onEvent: cfg.OnEvent,
 		logger:  cfg.Logger.With().Str("component", "poller").Logger(),
@@ -127,6 +150,67 @@ func NewPoller(cfg PollerConfig) *Poller {
 		intervalCh: make(chan time.Duration, 1),
 		seen:       make(map[string]time.Time),
 		lastSync:   time.Now().Add(-5 * time.Minute),
+		stateFile:  cfg.StateFile,
+	}
+	p.restoreState()
+	return p
+}
+
+// restoreState loads the watermarks saved by a previous run, if any.
+func (p *Poller) restoreState() {
+	if p.stateFile == "" {
+		return
+	}
+	data, err := os.ReadFile(p.stateFile)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			p.logger.Warn().Err(err).Str("file", p.stateFile).Msg("cannot read poll state; starting fresh")
+		}
+		return
+	}
+	var st pollState
+	if err := json.Unmarshal(data, &st); err != nil {
+		p.logger.Warn().Err(err).Str("file", p.stateFile).Msg("cannot parse poll state; starting fresh")
+		return
+	}
+	p.watermark = st.Watermark
+	p.lastSweep = st.LastSweep
+	if !st.LastSync.IsZero() {
+		p.lastSync = st.LastSync
+	}
+	if len(st.Seen) > 0 {
+		p.seen = st.Seen
+	}
+	p.logger.Info().
+		Str("file", p.stateFile).
+		Time("watermark", st.Watermark).
+		Time("saved_at", st.SavedAt).
+		Msg("restored poll state")
+}
+
+// saveState writes the watermarks atomically. Failures are logged, not fatal:
+// the worst case is a sweep or a one-hour lookback on the next start.
+// Caller holds p.mu.
+func (p *Poller) saveState() {
+	if p.stateFile == "" {
+		return
+	}
+	st := pollState{Watermark: p.watermark, LastSweep: p.lastSweep, LastSync: p.lastSync, SavedAt: p.now(), Seen: p.seen}
+	data, err := json.Marshal(st)
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(p.stateFile), 0o700); err != nil {
+		p.logger.Warn().Err(err).Str("file", p.stateFile).Msg("cannot create poll state directory")
+		return
+	}
+	tmp := p.stateFile + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		p.logger.Warn().Err(err).Str("file", tmp).Msg("cannot write poll state")
+		return
+	}
+	if err := os.Rename(tmp, p.stateFile); err != nil {
+		p.logger.Warn().Err(err).Str("file", p.stateFile).Msg("cannot save poll state")
 	}
 }
 
@@ -150,7 +234,8 @@ func (p *Poller) Run(ctx context.Context) error {
 }
 
 // Update replaces the poller settings. Interval changes take effect on the
-// next tick. A change of repos, labels, state or mode forces a fresh sweep.
+// next tick. A change of repos, labels, state or mode discards the watermark:
+// the next tick sweeps, or starts one hour back when sweeps are disabled.
 func (p *Poller) Update(cfg PollerConfig) {
 	next := pollSettings{
 		interval:      cfg.Interval,
@@ -216,8 +301,12 @@ func (p *Poller) tick(parent context.Context) {
 // tickMatched handles label mode and PR-match mode.
 func (p *Poller) tickMatched(ctx context.Context, s pollSettings, now time.Time) {
 	p.mu.Lock()
+	if p.watermark.IsZero() && s.sweepInterval == 0 {
+		// Never sweep: without saved state, start one hour back.
+		p.watermark = now.Add(-startupLookback)
+	}
 	sweep := p.watermark.IsZero() ||
-		(s.sweepInterval > 0 && !p.lastSweep.IsZero() && now.Sub(p.lastSweep) >= s.sweepInterval)
+		(s.sweepInterval > 0 && (p.lastSweep.IsZero() || now.Sub(p.lastSweep) >= s.sweepInterval))
 	since := p.watermark
 	p.mu.Unlock()
 	if sweep {
@@ -257,6 +346,7 @@ func (p *Poller) tickMatched(ctx context.Context, s pollSettings, now time.Time)
 		p.watermark = maxUpdated
 	}
 	p.pruneSeen()
+	p.saveState()
 	p.mu.Unlock()
 
 	p.logger.Debug().
@@ -395,6 +485,9 @@ func (p *Poller) tickTime(ctx context.Context, s pollSettings, now time.Time) {
 	}
 	p.failures = 0
 	p.lastSync = now
+	p.mu.Lock()
+	p.saveState()
+	p.mu.Unlock()
 	p.logger.Debug().Int("emitted", emitted).Time("since", since).Msg("poll tick complete")
 }
 

@@ -26,7 +26,7 @@ const (
 	// apiTimeout bounds every GitHub API request so a stalled connection
 	// cannot hang the poller or a command forever.
 	apiTimeout   = 30 * time.Second
-	agentVersion = "0.3.0"
+	agentVersion = "0.3.1"
 )
 
 // GitHubAgent bridges GitHub webhooks and/or REST API polling to the sekia
@@ -307,6 +307,7 @@ func (ga *GitHubAgent) pollerConfig(repos []RepoRef) PollerConfig {
 		Client:        ga.ghClient,
 		Interval:      ga.cfg.Poll.Interval,
 		SweepInterval: ga.cfg.Poll.SweepInterval,
+		StateFile:     ga.cfg.Poll.StateFile,
 		Repos:         repos,
 		Labels:        ga.cfg.Poll.Labels,
 		State:         ga.cfg.Poll.State,

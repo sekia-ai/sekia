@@ -2,6 +2,9 @@ package github
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -55,7 +58,8 @@ type WebhookConfig struct {
 type PollConfig struct {
 	Enabled       bool          `mapstructure:"enabled"`
 	Interval      time.Duration `mapstructure:"interval"`
-	SweepInterval time.Duration `mapstructure:"sweep_interval"` // label/PR-match modes: how often to re-emit every matching item (0 = only at startup)
+	SweepInterval time.Duration `mapstructure:"sweep_interval"` // label/PR-match modes: how often to re-emit every matching item (0 = never sweep)
+	StateFile     string        `mapstructure:"state_file"`     // where the poller saves its watermark between runs ("" = do not persist)
 	Repos         []string      `mapstructure:"repos"`
 	Labels        []string      `mapstructure:"labels"`
 	State         string        `mapstructure:"state"`
@@ -78,6 +82,7 @@ func LoadConfig(cfgFile, instanceName string) (Config, error) {
 	v.SetDefault("poll.labels", []string{})
 	v.SetDefault("poll.state", "open")
 	v.SetDefault("poll.match_prs", false)
+	v.SetDefault("poll.state_file", defaultPollStateFile(instanceName))
 	v.SetDefault("log.level", "info")
 
 	v.SetConfigType("toml")
@@ -116,6 +121,7 @@ func LoadConfig(cfgFile, instanceName string) (Config, error) {
 		return cfg, err
 	}
 	cfg.ConfigFile = v.ConfigFileUsed()
+	cfg.Poll.StateFile = expandHome(cfg.Poll.StateFile)
 
 	if cfg.GitHub.Token == "" {
 		return cfg, fmt.Errorf("github.token is required (set via config file or GITHUB_TOKEN env var)")
@@ -153,4 +159,28 @@ func LoadConfig(cfgFile, instanceName string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// defaultPollStateFile returns ~/.local/share/sekia/poll-<agent>.json, where
+// <agent> is the instance name or the default agent name.
+func defaultPollStateFile(instanceName string) string {
+	name := instanceName
+	if name == "" {
+		name = defaultAgentName
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".local", "share", "sekia", "poll-"+name+".json")
+}
+
+// expandHome replaces a leading ~ with the user's home directory.
+func expandHome(path string) string {
+	if strings.HasPrefix(path, "~") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, path[1:])
+		}
+	}
+	return path
 }

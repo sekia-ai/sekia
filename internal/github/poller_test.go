@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"testing"
@@ -217,12 +219,21 @@ func numbersOf(evs []protocol.Event) []int {
 	return nums
 }
 
+// noSweep asks newTestPoller for a poller that never sweeps (sweep interval 0).
+const noSweep = -1
+
 func newTestPoller(client GitHubClient, rec *recorder, cfg PollerConfig) *Poller {
 	cfg.Client = client
 	cfg.OnEvent = rec.onEvent
 	cfg.Logger = zerolog.Nop()
 	if cfg.Interval == 0 {
 		cfg.Interval = 10 * time.Second
+	}
+	switch cfg.SweepInterval {
+	case 0:
+		cfg.SweepInterval = time.Hour // the config default
+	case noSweep:
+		cfg.SweepInterval = 0
 	}
 	if len(cfg.Repos) == 0 {
 		cfg.Repos = []RepoRef{{Owner: "o", Repo: "r"}}
@@ -410,21 +421,146 @@ func TestSweepIntervalRepeatsSweep(t *testing.T) {
 	}
 }
 
-func TestSweepIntervalZeroDisablesPeriodicSweep(t *testing.T) {
+func TestSweepIntervalZeroNeverSweeps(t *testing.T) {
 	fake := newFakeGitHub()
-	fake.labelIssues["a"] = []*gh.Issue{issueAt(1, t0.Add(-time.Minute), "a")}
+	recent := issueAt(1, t0.Add(-time.Minute), "a") // inside the one-hour startup lookback
+	old := issueAt(2, t0.Add(-2*time.Hour), "a")    // outside it
+	fake.labelIssues["a"] = []*gh.Issue{recent, old}
 	rec := &recorder{}
-	p := newTestPoller(fake, rec, PollerConfig{Labels: []string{"a"}, SweepInterval: 0})
+	p := newTestPoller(fake, rec, PollerConfig{Labels: []string{"a"}, SweepInterval: noSweep})
 	now := t0
 	p.now = func() time.Time { return now }
 	ctx := context.Background()
 
+	// First run, no saved state: not a sweep, only the last hour is fetched.
 	p.tick(ctx)
-	rec.take()
+	evs := rec.take()
+	if got := numbersOf(evs); fmt.Sprint(got) != "[1]" {
+		t.Fatalf("first tick emitted %v, want [1]", got)
+	}
+	if evs[0].Payload["sweep"] != false {
+		t.Error("first tick without sweeps was flagged as a sweep")
+	}
+
+	// Much later: still no sweep.
 	now = t0.Add(48 * time.Hour)
 	p.tick(ctx)
 	if evs := rec.take(); len(evs) != 0 {
 		t.Fatalf("sweep ran with sweep_interval 0: %d events", len(evs))
+	}
+
+	// Changes are still picked up incrementally.
+	fake.mu.Lock()
+	old.UpdatedAt = &gh.Timestamp{Time: now.Add(-time.Second)}
+	fake.mu.Unlock()
+	p.tick(ctx)
+	if got := numbersOf(rec.take()); fmt.Sprint(got) != "[2]" {
+		t.Fatalf("after update emitted %v, want [2]", got)
+	}
+
+	// A settings change does not sweep either; it restarts one hour back.
+	p.Update(PollerConfig{Interval: 10 * time.Second, SweepInterval: 0, Repos: []RepoRef{{Owner: "o", Repo: "r"}}, Labels: []string{"a", "b"}, State: "open"})
+	p.tick(ctx)
+	evs = rec.take()
+	if got := numbersOf(evs); fmt.Sprint(got) != "[2]" {
+		t.Fatalf("after settings change emitted %v, want [2] (only the last hour)", got)
+	}
+	if evs[0].Payload["sweep"] != false {
+		t.Error("settings change triggered a sweep with sweep_interval 0")
+	}
+}
+
+// --- State persistence ---
+
+func TestStatePersistsAcrossRestart(t *testing.T) {
+	fake := newFakeGitHub()
+	for n := 1; n <= 3; n++ {
+		fake.labelIssues["a"] = append(fake.labelIssues["a"], issueAt(n, t0.Add(-time.Duration(n)*time.Minute), "a"))
+	}
+	state := filepath.Join(t.TempDir(), "poll.json")
+	cfg := PollerConfig{Labels: []string{"a"}, StateFile: state}
+	ctx := context.Background()
+
+	rec1 := &recorder{}
+	p1 := newTestPoller(fake, rec1, cfg)
+	p1.tick(ctx)
+	if len(rec1.take()) != 3 {
+		t.Fatal("first run did not sweep all issues")
+	}
+	if _, err := os.Stat(state); err != nil {
+		t.Fatalf("state file not written: %v", err)
+	}
+
+	// "Restart": a new poller on the same state file resumes without sweeping.
+	rec2 := &recorder{}
+	p2 := newTestPoller(fake, rec2, cfg)
+	p2.now = func() time.Time { return t0.Add(10 * time.Second) }
+	if !p2.watermark.Equal(p1.watermark) {
+		t.Fatalf("restored watermark %v, want %v", p2.watermark, p1.watermark)
+	}
+	if !p2.lastSweep.Equal(t0) {
+		t.Errorf("restored lastSweep %v, want %v", p2.lastSweep, t0)
+	}
+	fake.resetCounts()
+	p2.tick(ctx)
+	if evs := rec2.take(); len(evs) != 0 {
+		t.Fatalf("restart re-emitted %d unchanged issues", len(evs))
+	}
+	if got := fake.count("ListIssuesByLabelPage"); got != 1 {
+		t.Errorf("restart made %d calls, want 1 incremental call", got)
+	}
+
+	// Changes made while "down" are picked up on the first tick.
+	fake.mu.Lock()
+	fake.labelIssues["a"][1].UpdatedAt = &gh.Timestamp{Time: t0.Add(5 * time.Second)}
+	fake.mu.Unlock()
+	p2.tick(ctx)
+	if got := numbersOf(rec2.take()); fmt.Sprint(got) != "[2]" {
+		t.Fatalf("after restart emitted %v, want [2]", got)
+	}
+
+	// The periodic sweep is still due an hour after the saved sweep time.
+	p2.now = func() time.Time { return t0.Add(time.Hour + time.Second) }
+	p2.tick(ctx)
+	if evs := rec2.take(); len(evs) != 3 || evs[0].Payload["sweep"] != true {
+		t.Fatalf("periodic sweep after restart emitted %d events (sweep=%v), want 3", len(evs), evs[0].Payload["sweep"])
+	}
+}
+
+func TestRestoredStateWithoutSweepTimeSweepsWhenEnabled(t *testing.T) {
+	// A state file written by a never-sweep run has no last_sweep; turning
+	// sweeps on must still produce one.
+	fake := newFakeGitHub()
+	fake.labelIssues["a"] = []*gh.Issue{issueAt(1, t0.Add(-time.Minute), "a")}
+	state := filepath.Join(t.TempDir(), "poll.json")
+	if err := os.WriteFile(state, []byte(fmt.Sprintf(`{"watermark":%q}`, t0.Format(time.RFC3339Nano))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rec := &recorder{}
+	p := newTestPoller(fake, rec, PollerConfig{Labels: []string{"a"}, StateFile: state, SweepInterval: time.Hour})
+	p.tick(context.Background())
+	evs := rec.take()
+	if len(evs) != 1 || evs[0].Payload["sweep"] != true {
+		t.Fatalf("expected a sweep when sweeps are enabled and none was ever recorded; got %d events", len(evs))
+	}
+}
+
+func TestCorruptStateFileStartsFresh(t *testing.T) {
+	fake := newFakeGitHub()
+	fake.labelIssues["a"] = []*gh.Issue{issueAt(1, t0.Add(-time.Minute), "a")}
+	state := filepath.Join(t.TempDir(), "poll.json")
+	if err := os.WriteFile(state, []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rec := &recorder{}
+	p := newTestPoller(fake, rec, PollerConfig{Labels: []string{"a"}, StateFile: state})
+	p.tick(context.Background())
+	if len(rec.take()) != 1 {
+		t.Fatal("corrupt state should fall back to a startup sweep")
+	}
+	data, err := os.ReadFile(state)
+	if err != nil || len(data) == 0 || string(data) == "not json" {
+		t.Fatalf("state file not rewritten after the tick: %q, %v", data, err)
 	}
 }
 

@@ -20,10 +20,15 @@ enabled = false
 # Every tick fetches only the items updated since the previous tick, 100 per page,
 # so a steady-state tick is one API call per repo (and per label).
 interval = "30s"
-# Label and PR-match modes emit every matching item on the first tick and again
+# Label and PR-match modes emit every matching item on the first run and again
 # every sweep_interval, so an event lost while a component was down is replayed.
-# "0" disables the periodic sweep (the startup sweep still runs).
+# "0" never sweeps: the poller resumes from state_file, or starts one hour back
+# on a first run without saved state.
 sweep_interval = "1h"
+# The poller saves its watermark here after every successful tick and resumes
+# from it on restart. "" disables persistence (every restart then sweeps or,
+# with sweep_interval = "0", starts one hour back).
+# state_file = "~/.local/share/sekia/poll-github-agent.json"
 # Repositories to poll (required when enabled). Format: "owner/repo".
 # repos = ["myorg/myrepo", "myorg/another-repo"]
 # Label-filtered mode: when labels is non-empty, issues carrying ANY of the
